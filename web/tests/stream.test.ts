@@ -61,7 +61,10 @@ test("clean prose surrounding a DSML call remains answer-visible", () => {
 
   assert.deepEqual([...collectNarrationCallIds(events)], []);
   assert.equal(isNarrationMarker(events[1]), false);
-  assert.equal(recomputeAnswerContent(events), "Great job! Choose the next topic.");
+  assert.equal(
+    recomputeAnswerContent(events),
+    "Great job! Choose the next topic.",
+  );
 });
 
 test("token-limit continuation replays the exact visible answer", () => {

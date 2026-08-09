@@ -32,25 +32,30 @@ export function useLLMOptions() {
     };
   }, []);
 
-  const refresh = useCallback(async (options?: RefreshOptions) => {
-    const requestId = ++latestRequestRef.current;
-    dispatch({
-      type: "refresh-started",
-      background: options?.background ?? false,
-    });
+  const refresh = useCallback(
+    async (options?: RefreshOptions) => {
+      const requestId = ++latestRequestRef.current;
+      dispatch({
+        type: "refresh-started",
+        background: options?.background ?? false,
+      });
 
-    // Browser lifecycle events commonly arrive as a focus/pageshow/visibility
-    // cluster. Coalesce that cluster here, without changing the global cache's
-    // force semantics for mutation-sensitive resources such as knowledge bases.
-    try {
-      const payload = await loadOptions({ force: options?.force });
-      if (!mountedRef.current || requestId !== latestRequestRef.current) return;
-      dispatch({ type: "refresh-succeeded", payload });
-    } catch {
-      if (!mountedRef.current || requestId !== latestRequestRef.current) return;
-      dispatch({ type: "refresh-failed" });
-    }
-  }, [loadOptions]);
+      // Browser lifecycle events commonly arrive as a focus/pageshow/visibility
+      // cluster. Coalesce that cluster here, without changing the global cache's
+      // force semantics for mutation-sensitive resources such as knowledge bases.
+      try {
+        const payload = await loadOptions({ force: options?.force });
+        if (!mountedRef.current || requestId !== latestRequestRef.current)
+          return;
+        dispatch({ type: "refresh-succeeded", payload });
+      } catch {
+        if (!mountedRef.current || requestId !== latestRequestRef.current)
+          return;
+        dispatch({ type: "refresh-failed" });
+      }
+    },
+    [loadOptions],
+  );
 
   useEffect(() => {
     void refresh();

@@ -91,7 +91,8 @@ export function sanitizeIframeHtml(html: string): string {
  *   - observers post the current body content height so the host can grow and
  *     shrink the iframe instead of retaining an old viewport height.
  */
-const BRIDGE_SCRIPT = `<script data-dt-bridge>
+const BRIDGE_SCRIPT =
+  `<script data-dt-bridge>
 (function () {
   window.sendPrompt = function (text) {
     try {
@@ -161,8 +162,7 @@ const BRIDGE_SCRIPT = `<script data-dt-bridge>
   }
   window.addEventListener("load", scheduleHeightReport);
 })();
-<` +
-  "/script>";
+<` + "/script>";
 
 function injectBridge(html: string): string {
   if (html.includes("</body>")) {
