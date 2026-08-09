@@ -314,7 +314,7 @@ def _print_refs(state: ChatState) -> None:
         _print_literal(f"  {label:<12}{value}")
 
 
-def _print_literal(value: str, *, style: str | None = None) -> None:
+def _print_literal(value: str, *, style: str = "") -> None:
     """Print dynamic CLI text without interpreting it as Rich markup."""
 
     console.print(Text(value, style=style), highlight=False)
