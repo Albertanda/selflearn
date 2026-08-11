@@ -827,7 +827,7 @@ Add more registries in `settings/skill_hubs.json`: a `type: "clawhub"` entry poi
 </p>
 
 <p align="center">
-  Code <b><code>DEEPTUTOR20</code></b> — <b>$20 off</b> your first <a href="https://pageindex.ai/">PageIndex</a> subscription (new customers · Standard / Pro / Max)
+  Code <b><code>DEEPTUTOR20</code></b> — <b>$20 off</b> your first <a href="https://developer.pageindex.ai/">PageIndex subscription</a> (new customers · Standard / Pro / Max)
 </p>
 
 ## 🌐 Community
