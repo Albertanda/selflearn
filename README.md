@@ -817,7 +817,7 @@ Add more registries in `settings/skill_hubs.json`: a `type: "clawhub"` entry poi
 ## 🤝 Open Source Partners
 
 <p align="center">
-  <a href="https://pageindex.ai/" target="_blank">
+  <a href="https://github.com/VectifyAI/PageIndex" target="_blank">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="assets/figs/partners/pageindex-mark-dark.svg">
       <source media="(prefers-color-scheme: light)" srcset="assets/figs/partners/pageindex-mark.svg">
