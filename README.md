@@ -816,8 +816,6 @@ Add more registries in `settings/skill_hubs.json`: a `type: "clawhub"` entry poi
 
 ## 🤝 Open Source Partners
 
-DeepTutor builds in the open, together with the teams whose work it stands on. **[PageIndex](https://github.com/VectifyAI/PageIndex)** is our open-source partner — reasoning-based retrieval that walks a document's own table-of-contents tree instead of chunking it into vectors, and one of the retrieval engines you can pick for a knowledge base in DeepTutor.
-
 <p align="center">
   <a href="https://pageindex.ai/" target="_blank">
     <picture>
@@ -826,6 +824,10 @@ DeepTutor builds in the open, together with the teams whose work it stands on. *
       <img src="assets/figs/partners/pageindex-mark.svg" alt="PageIndex" height="38">
     </picture>
   </a>
+</p>
+
+<p align="center">
+  Code <b><code>DEEPTUTOR20</code></b> — <b>$20 off</b> your first <a href="https://pageindex.ai/">PageIndex</a> subscription (new customers · Standard / Pro / Max)
 </p>
 
 ## 🌐 Community
