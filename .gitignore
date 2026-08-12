@@ -70,7 +70,12 @@ venv.bak/
 # Node.js and Frontend Build
 # ============================================
 # Node modules
+# Both spellings: the trailing slash matches only a real directory, so a
+# symlinked node_modules (how a git worktree usually borrows the main
+# checkout's install) would otherwise be staged by `git add -A`.
+node_modules
 node_modules/
+**/node_modules
 **/node_modules/
 
 # Next.js build output
