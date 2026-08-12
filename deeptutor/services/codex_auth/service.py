@@ -82,6 +82,15 @@ def codex_model_id(slug: str) -> str:
     return f"llm-model-openai-codex-{digest}"
 
 
+def _stale_codex_config() -> CodexAuthError:
+    """The one 409 every runtime-profile rejection raises."""
+    return CodexAuthError(
+        "codex_catalog_unavailable",
+        "Refresh Codex models before using this configuration.",
+        409,
+    )
+
+
 def _codex_account_binding(account_id: str) -> str:
     return hashlib.sha256(account_id.encode("utf-8")).hexdigest()
 
@@ -604,9 +613,14 @@ class CodexOAuthService:
         self,
         token: CodexToken,
         model_slug: str,
-        reasoning_effort: str | None,
+        reasoning_effort: str | None = None,
     ) -> None:
-        """Reject a model config that no longer belongs to the loaded token."""
+        """Reject a model config that no longer belongs to the loaded token.
+
+        ``reasoning_effort`` is accepted for call compatibility and
+        deliberately unused — see the membership check below.
+        """
+        del reasoning_effort
         credentials = self._store.load_credentials()
         catalog = self._model_catalog.load()
         profiles = catalog.get("services", {}).get("llm", {}).get("profiles", [])
@@ -617,27 +631,24 @@ class CodexOAuthService:
             or credentials.generation != token.generation
             or credentials.account_id != token.account_id
             or not isinstance(profile, Mapping)
-            or profile.get("codex_account_binding") != _codex_account_binding(token.account_id)
         ):
-            raise CodexAuthError(
-                "codex_catalog_unavailable",
-                "Refresh Codex models before using this configuration.",
-                409,
-            )
+            raise _stale_codex_config()
 
+        # Only a binding that is PRESENT and different is an account switch.
+        # Profiles published before this key existed carry none at all, and
+        # reading absence as a mismatch would lock every account that signed in
+        # before it shipped out of Codex until they re-ran "Refresh models".
+        binding = profile.get("codex_account_binding")
+        if binding is not None and binding != _codex_account_binding(token.account_id):
+            raise _stale_codex_config()
+
+        # Membership only. ``reasoning_effort`` is a per-request knob, not part
+        # of the identity that ties a config to a token: a caller that varies it
+        # for one turn is making a legal request, not presenting a stale config.
         for model in profile.get("models", []):
-            if not isinstance(model, Mapping) or model.get("model") != model_slug:
-                continue
-            stored_effort = model.get("reasoning_effort")
-            effective_effort = stored_effort if isinstance(stored_effort, str) else None
-            if effective_effort == reasoning_effort:
+            if isinstance(model, Mapping) and model.get("model") == model_slug:
                 return
-            break
-        raise CodexAuthError(
-            "codex_catalog_unavailable",
-            "Refresh Codex models before using this configuration.",
-            409,
-        )
+        raise _stale_codex_config()
 
     async def _refresh_credentials(
         self,

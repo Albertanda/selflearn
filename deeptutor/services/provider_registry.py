@@ -169,7 +169,6 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         detect_by_key_prefix="sk-orca-",
         detect_by_base_keyword="orcarouter",
         default_api_base="https://api.orcarouter.ai/v1",
-        supports_prompt_caching=True,
     ),
     ProviderSpec(
         name="edenai",

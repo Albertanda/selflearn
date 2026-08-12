@@ -645,12 +645,17 @@ async def update_openai_codex_reasoning_effort(
 ) -> dict[str, Any]:
     _require_codex_oauth_actor()
     try:
-        return await get_codex_oauth_service().set_reasoning_effort(
+        status_payload = await get_codex_oauth_service().set_reasoning_effort(
             payload.model,
             payload.reasoning_effort,
         )
     except CodexAuthError as exc:
         raise _codex_http_exception(exc) from None
+    # This writes the catalog the runtime resolves against, like every other
+    # catalog write here — without it the next turn keeps the old effort until
+    # something else happens to invalidate.
+    _invalidate_runtime_caches()
+    return status_payload
 
 
 @router.get("/catalog")

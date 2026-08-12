@@ -771,17 +771,65 @@ async def test_owner_sets_supported_reasoning_effort_on_their_managed_model(
 
 
 @pytest.mark.asyncio
-async def test_runtime_validation_rejects_a_stale_reasoning_effort(tmp_path: Path) -> None:
+async def test_runtime_validation_accepts_any_effort_for_a_bound_model(tmp_path: Path) -> None:
+    """Effort is a per-request knob, not part of what binds a config to a token.
+
+    Rejecting a request whose effort differs from the stored default would fail
+    every caller that varies it for a single turn.
+    """
     snapshot = _snapshot("live", _model("gpt-5.6-sol"))
     service, _model_catalog = _bound_reasoning_service(tmp_path, snapshot)
     token = await service.get_token()
-    validator = getattr(service, "validate_runtime_profile", None)
 
-    assert callable(validator)
+    for effort in ("high", "low", None):
+        service.validate_runtime_profile(token, "gpt-5.6-sol", effort)
+
+
+@pytest.mark.asyncio
+async def test_runtime_validation_rejects_a_model_outside_the_profile(tmp_path: Path) -> None:
+    snapshot = _snapshot("live", _model("gpt-5.6-sol"))
+    service, _model_catalog = _bound_reasoning_service(tmp_path, snapshot)
+    token = await service.get_token()
+
     with pytest.raises(CodexAuthError) as exc_info:
-        validator(token, "gpt-5.6-sol", "high")
+        service.validate_runtime_profile(token, "some-other-model", None)
 
     assert exc_info.value.code == "codex_catalog_unavailable"
+    assert exc_info.value.http_status == 409
+
+
+@pytest.mark.asyncio
+async def test_a_profile_predating_the_account_binding_still_works(tmp_path: Path) -> None:
+    """Absent is legacy, not "someone else's".
+
+    Managed profiles published before ``codex_account_binding`` existed carry
+    no such key. Reading that as a mismatch would lock every account that
+    signed in before it shipped out of Codex entirely.
+    """
+    snapshot = _snapshot("live", _model("gpt-5.6-sol"))
+    service, model_catalog = _bound_reasoning_service(tmp_path, snapshot)
+    token = await service.get_token()
+
+    catalog = model_catalog.load()
+    _managed_profile(catalog).pop("codex_account_binding", None)
+    model_catalog.save(catalog)
+
+    service.validate_runtime_profile(token, "gpt-5.6-sol", None)
+
+
+@pytest.mark.asyncio
+async def test_a_profile_bound_to_another_account_is_still_refused(tmp_path: Path) -> None:
+    snapshot = _snapshot("live", _model("gpt-5.6-sol"))
+    service, model_catalog = _bound_reasoning_service(tmp_path, snapshot)
+    token = await service.get_token()
+
+    catalog = model_catalog.load()
+    _managed_profile(catalog)["codex_account_binding"] = "another-account-binding"
+    model_catalog.save(catalog)
+
+    with pytest.raises(CodexAuthError) as exc_info:
+        service.validate_runtime_profile(token, "gpt-5.6-sol", None)
+
     assert exc_info.value.http_status == 409
 
 

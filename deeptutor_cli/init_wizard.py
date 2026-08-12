@@ -47,7 +47,6 @@ FEATURED_LLM_PROVIDERS: tuple[str, ...] = (
     "gemini",
     "siliconflow",
     "openrouter",
-    "orcarouter",
     "ollama",
 )
 
@@ -77,7 +76,7 @@ LLM_FALLBACK_MODELS: dict[str, tuple[str, ...]] = {
     ),
     "orcarouter": (
         "orcarouter/auto",
-        "anthropic/claude-sonnet-4.6",
+        "anthropic/claude-sonnet-4-6",
         "deepseek/deepseek-v4-pro",
         "openai/gpt-4o",
     ),
@@ -96,7 +95,6 @@ FEATURED_EMBEDDING_PROVIDERS: tuple[str, ...] = (
     "jina",
     "cohere",
     "openrouter",
-    "orcarouter",
     "azure_openai",
     "vllm",  # also covers LM Studio, llama.cpp via the same OpenAI-compatible adapter
     "ollama",
