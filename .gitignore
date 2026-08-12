@@ -131,6 +131,9 @@ cache/
 .cache/
 .ruff_cache
 .playwright-cli/
+# Written by `npm run audit` (the playwright ui-audit project).
+web/test-results/
+web/playwright-report/
 
 # Log files
 *.log
