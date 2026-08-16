@@ -466,6 +466,69 @@ async def test_probe_is_throttled_across_a_burst_of_loads(
     assert len(scheduled) == 1
 
 
+@pytest.mark.asyncio
+async def test_a_language_switch_regenerates_without_waiting_out_the_throttle(
+    monkeypatch: pytest.MonkeyPatch, isolated_scope: Path, no_material
+) -> None:
+    """Changing the output setting must not leave a minute of empty screen.
+
+    The learner is on the home screen (which already spent this scope's probe),
+    goes to Settings, changes the language, and comes back. The cached set is
+    now unusable, so the ordinary interval — which exists for bursts of page
+    loads where nothing changed — is exactly the wrong thing to enforce.
+    """
+    scheduled: list[int] = []
+
+    async def _noop() -> None:
+        scheduled.append(1)
+
+    monkeypatch.setattr(suggestions, "_regenerate_if_due", _noop)
+    _write_cache(
+        isolated_scope,
+        {
+            "suggestions": [{"label": "\u65e7\u7684", "prompt": "\u65e7\u7684"}],
+            "language": "zh",
+            "generated_at": time.time(),
+            "fingerprint": "x",
+        },
+    )
+    # Spend the throttle, as a first page load would.
+    suggestions._last_probe[suggestions._scope_key()] = time.monotonic()
+
+    result = await suggestions.get_suggestions()  # setting now says "en"
+    await asyncio.gather(*suggestions._inflight.values())
+
+    assert result["suggestions"] == []
+    assert scheduled == [1], "the language switch should have forced a probe"
+
+
+@pytest.mark.asyncio
+async def test_a_forced_probe_still_respects_the_in_flight_guard(
+    monkeypatch: pytest.MonkeyPatch, no_material
+) -> None:
+    """Bypassing the interval must not mean fanning out concurrent calls."""
+    started = asyncio.Event()
+    release = asyncio.Event()
+    runs: list[int] = []
+
+    async def _slow() -> None:
+        runs.append(1)
+        started.set()
+        await release.wait()
+
+    monkeypatch.setattr(suggestions, "_regenerate_if_due", _slow)
+
+    suggestions._schedule_probe(force=True)
+    await started.wait()
+    suggestions._schedule_probe(force=True)
+    suggestions._schedule_probe(force=True)
+
+    release.set()
+    await asyncio.gather(*suggestions._inflight.values())
+
+    assert runs == [1]
+
+
 # ── Generation ───────────────────────────────────────────────────────────
 
 

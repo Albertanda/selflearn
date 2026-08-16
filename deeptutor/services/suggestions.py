@@ -632,8 +632,15 @@ async def _regenerate_if_due() -> None:
     await _generate_and_cache(language, material)
 
 
-def _schedule_probe() -> None:
-    """Check (and maybe regenerate) in the background, throttled and deduped."""
+def _schedule_probe(*, force: bool = False) -> None:
+    """Check (and maybe regenerate) in the background, throttled and deduped.
+
+    ``force`` skips the interval, not the in-flight guard. The throttle exists
+    because page loads arrive in bursts and the material rarely changes between
+    them — but when the caller already *knows* the cached set is unusable (the
+    output language was just changed), waiting out the interval means up to a
+    minute of empty screen with nothing working to fill it.
+    """
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -643,7 +650,7 @@ def _schedule_probe() -> None:
     pending = _inflight.get(key)
     if pending is not None and not pending.done():
         return
-    if now - _last_probe.get(key, 0.0) < _PROBE_INTERVAL_SECONDS:
+    if not force and now - _last_probe.get(key, 0.0) < _PROBE_INTERVAL_SECONDS:
         return
     _last_probe[key] = now
 
@@ -676,7 +683,9 @@ async def get_suggestions() -> dict[str, Any]:
     language = _output_language()
     cached = _load()
     fresh = _is_fresh(cached, language, now=time.time())
-    _schedule_probe()
+    # A cache in another language is not stale, it is unusable: the learner
+    # just changed the setting and is looking at an empty slot right now.
+    _schedule_probe(force=cached is not None and cached.language != language)
 
     if cached is not None and cached.language == language:
         return {**cached.to_dict(), "stale": not fresh}
