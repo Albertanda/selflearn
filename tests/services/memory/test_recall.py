@@ -17,9 +17,7 @@ def _iso(days: float) -> str:
     return (datetime.now(tz=timezone.utc) - timedelta(days=days)).isoformat()
 
 
-def _stub_stamps(
-    monkeypatch: pytest.MonkeyPatch, by_surface: dict[str, list[EntityStamp]]
-) -> None:
+def _stub_stamps(monkeypatch: pytest.MonkeyPatch, by_surface: dict[str, list[EntityStamp]]) -> None:
     from deeptutor.services.memory.snapshot import adapters
 
     monkeypatch.setattr(adapters, "read_stamps", lambda surface: by_surface.get(surface, []))
