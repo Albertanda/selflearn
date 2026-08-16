@@ -1,10 +1,12 @@
-"""Starter suggestions — the three chips under the home composer.
+"""Starter suggestions — the three lines offered under the home composer.
 
-Each chip is two strings that do different jobs. ``label`` is what the learner
-reads: a few words, sized for a chip. ``prompt`` is what gets *sent as their
-own message* when they click, so it has to be first-person, complete, and
-specific enough to answer — "把我上次做错的那道链式法则的题再讲一遍", not
-"你上次在学链式法则", which a model can only agree with.
+Each is two strings that do different jobs. ``label`` is the line the learner
+reads, and it has one job: name the specific thing worth doing next. "Explain a
+topic" names an activity and would fit any learner's screen; "把链式法则的直觉
+讲透" names theirs. ``prompt`` is what gets *sent as their own message* when
+they click, so it has to be first-person, complete, and specific enough to
+answer — "把我上次做错的那道链式法则的题再讲一遍", not "你上次在学链式法则",
+which a model can only agree with.
 
 Never on the request path
 -------------------------
@@ -22,11 +24,11 @@ When it regenerates
 -------------------
 The background pass regenerates when the material changed (a fingerprint over
 the labels) or when the set is older than :data:`_TTL_SECONDS` — the first is
-when the *content* should change, the second is so the same three chips do not
+when the *content* should change, the second is so the same three lines do not
 greet someone all week. A manual refresh bypasses both and generates
 synchronously, because there a human is deliberately waiting.
 
-Empty is a valid answer. A learner with no history gets no generated chips and
+Empty is a valid answer. A learner with no history gets no generated lines and
 no LLM call; the frontend shows a fixed set of product starters instead, which
 is honest about knowing nothing yet.
 """
@@ -43,10 +45,10 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# How many chips the home screen shows. Fewer than three looks like a bug;
-# more crowds the composer.
+# How many starting points the home screen offers. One per line, so fewer than
+# three reads as a stub and more turns the empty screen into a menu.
 _COUNT = 3
-# Long enough that the same three chips are not re-generated all afternoon,
+# Long enough that the same three lines are not re-generated all afternoon,
 # short enough to feel responsive to a day's work.
 _TTL_SECONDS = 6 * 3600
 # Floor between two background material checks for one user. Page loads can
@@ -54,16 +56,18 @@ _TTL_SECONDS = 6 * 3600
 # meaningfully change that fast.
 _PROBE_INTERVAL_SECONDS = 60.0
 _LLM_TIMEOUT = 25.0
-# How much history shapes the chips.
+# How much history shapes the lines.
 _LOOKBACK_DAYS = 7
 _MAX_TOPICS = 8
 # Per surface, so three chats cannot crowd out the quiz and the KB. The whole
-# point of reading every surface is that the chips differ in kind.
+# point of reading every surface is that the three differ in kind.
 _MAX_PER_SURFACE = 2
-# A chip's text, and the message behind it. Over-long output means the model
-# ignored the brief; the item is dropped rather than truncated, because half a
-# sentence is worse than one fewer chip.
-_MAX_LABEL_CHARS = 40
+# The line the learner reads, and the message behind it. Over-long output means
+# the model ignored the brief; the item is dropped rather than truncated,
+# because half a sentence is worse than one fewer starting point. The label
+# bound is generous enough for "Redo the two eigenvalue questions you missed" —
+# naming the actual thing costs words, and that specificity is the point.
+_MAX_LABEL_CHARS = 60
 _MAX_PROMPT_CHARS = 240
 
 # One in-flight regeneration per scope; a burst of page loads must not fan out
@@ -76,7 +80,7 @@ _last_probe: dict[str, float] = {}
 
 @dataclass(frozen=True, slots=True)
 class Suggestion:
-    """One chip: what it says, and what it sends."""
+    """One starting point: what it says, and what it sends."""
 
     label: str
     prompt: str
@@ -87,7 +91,7 @@ class Suggestion:
 
 @dataclass(frozen=True, slots=True)
 class SuggestionSet:
-    """The chips currently on offer, plus what they were generated from."""
+    """The lines currently on offer, plus what they were generated from."""
 
     suggestions: tuple[Suggestion, ...]
     language: str
@@ -200,7 +204,7 @@ def _collect_topics() -> list[_Topic]:
 
     Chat updates on every turn, so a plain newest-first list is almost all
     chat. Taking a bounded number per surface and interleaving them is what
-    makes three chips of three different kinds possible.
+    makes three starting points of three different kinds possible.
     """
     from deeptutor.services.memory import recall
 
@@ -248,28 +252,36 @@ def _fingerprint(topics: list[_Topic], language: str) -> str:
 # ── Generation ───────────────────────────────────────────────────────────
 
 
-_SYSTEM_EN = """You write the three starter chips a learning app shows under its composer.
+_SYSTEM_EN = """You write the three starting points a learning app offers its learner. Each is one line of text they click to begin.
 
-Each chip is an object with two fields:
-- "label": what the learner sees on the chip. Under 6 words, no ending punctuation. A short noun phrase or imperative, not a sentence.
+Each is an object with two fields:
+- "label": the line they read. 4 to 9 words, no ending punctuation. It MUST name the specific thing from the material — the concept, the question, the document. It is a proposal for what to do next, not a category of activity.
 - "prompt": the message sent as the learner's own words when they click. First person, complete, specific enough to answer directly.
+
+The single most important rule: be concrete. A line that could appear in any learner's app has failed.
+- BAD: "Explain a topic" / "Review your notes" / "Practise some questions" — these name an activity, not a subject.
+- GOOD: "Build intuition for the chain rule" / "Redo the two eigenvalue questions you missed" / "Pick up where Agentic RAG retrieval left off"
 
 Rules:
 - Reply with ONLY a JSON array of exactly 3 such objects. No prose, no markdown fence.
-- Ground every chip in the material given. Name the actual topic; never invent one.
-- Make the three differ from each other — different items, and different things to do with them (explain, practise, review, go deeper).
+- Every line must be grounded in the material given. Name what is actually there; never invent a topic.
+- Make the three differ — different items from the material, and different things to do with them (explain, practise, review, go deeper).
 - No greetings, no emoji, no quotes around the fields' text."""
 
-_SYSTEM_ZH = """你要为一个学习应用写出输入框下方的三个引导按钮。
+_SYSTEM_ZH = """你要为一个学习应用写出三个"从这里开始"的入口。每一个都是一行字，学习者点一下就开始。
 
-每个按钮是一个对象，含两个字段：
-- "label"：学习者在按钮上看到的字，不超过 10 个字，结尾不加标点。是短语或祈使句，不是完整句子。
+每一个是一个对象，含两个字段：
+- "label"：学习者读到的那行字。8 到 16 个字，结尾不加标点。必须点出素材里那个**具体**的东西——具体的概念、具体的题、具体的文档。它是一个"接下来做这个"的提议，不是一类活动的名称。
 - "prompt"：学习者点击后以自己的身份发出的那句话。第一人称、完整、具体到可以直接回答。
+
+最重要的一条规则：要具体。一句放在谁的界面上都成立的话，就是失败的。
+- 差："讲解一个主题" / "复习一下笔记" / "做几道练习题"——这些说的是活动类型，不是具体内容。
+- 好："把链式法则的直觉讲透" / "重做上次错的那两道特征值" / "接着 Agentic RAG 的检索排序讲"
 
 规则：
 - 只回复一个 JSON 数组，正好 3 个这样的对象。不要有任何解释文字，不要 markdown 代码块。
-- 每个按钮都要基于下面给出的素材，点出真实的内容，绝不编造。
-- 三个之间要有区别——取不同的素材，也做不同的事（讲解、练习、复习、深入）。
+- 每一行都要基于下面给出的素材，点出真实存在的内容，绝不编造。
+- 三个之间要有区别——取素材里不同的东西，也做不同的事（讲解、练习、复习、深入）。
 - 不要问候语、不要 emoji、字段文本里不要加引号。"""
 
 
@@ -293,9 +305,9 @@ def _render_topics(topics: list[_Topic], zh: bool) -> str:
 
 
 def _sanitize(raw: str) -> tuple[Suggestion, ...]:
-    """Exactly :data:`_COUNT` usable chips, or nothing at all.
+    """Exactly :data:`_COUNT` usable lines, or nothing at all.
 
-    Partial output is discarded rather than shown: one lonely chip under the
+    Partial output is discarded rather than shown: one lonely line under the
     composer reads as a rendering bug, and the caller has a fixed set of
     starters that is better than that.
     """
@@ -345,7 +357,7 @@ async def _generate(language: str) -> SuggestionSet:
         if zh
         else (
             "The learner has recently been working on:\n"
-            f"{_render_topics(topics, zh)}\n\nWrite the three chips."
+            f"{_render_topics(topics, zh)}\n\nWrite the three starting points."
         )
     )
 
@@ -439,7 +451,7 @@ def _schedule_probe(language: str) -> None:
 
 
 async def get_suggestions(language: str = "en") -> dict[str, Any]:
-    """The chips to show now, plus whether a fresher set is being made.
+    """The lines to show now, plus whether a fresher set is being made.
 
     Returns immediately, reading one small JSON file. An empty list is a real
     answer — a new learner has nothing to suggest from — and ``stale`` tells

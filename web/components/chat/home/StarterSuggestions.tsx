@@ -6,7 +6,7 @@ import { RefreshCw } from "lucide-react";
 import { apiFetch, apiUrl } from "@/lib/api";
 
 interface Suggestion {
-  /** What the chip says — a few words. */
+  /** The line the learner reads — names the specific thing worth doing next. */
   label: string;
   /** What gets sent as the learner's own message when they click. */
   prompt: string;
@@ -32,33 +32,44 @@ const RESETTLE_MS = 3500;
  * who has not started anything yet. Fixed product copy rather than a generated
  * line: with no history there is nothing to ground a suggestion in, and asking
  * a model anyway would only produce invention.
+ *
+ * Still written to propose something specific. These cannot name the learner's
+ * own material, but they can name a concrete first move rather than a category
+ * of activity — "find where a shaky concept breaks down" instead of "explain a
+ * topic".
  */
 const FALLBACK: Suggestion[] = [
   {
-    label: "Explain a topic",
+    label: "Start with the concept you're least sure of",
     prompt:
-      "I want to learn a new topic — start me off with the big picture, then go deeper.",
+      "I want to start with a concept I'm shaky on — ask me a few questions to find where it breaks down.",
   },
   {
-    label: "Quiz me",
+    label: "Ten questions to find my gaps",
     prompt:
-      "Give me five questions on a topic I choose, easy to hard, and explain after I answer.",
+      "Give me ten questions on a subject I name, easy to hard, and tell me where my gaps are.",
   },
   {
-    label: "Work through a document",
-    prompt: "I have a document I want to understand. How should we start?",
+    label: "Turn a document into something I can explain",
+    prompt:
+      "I have a document I need to be able to explain in my own words. Where do we start?",
   },
 ];
 
 /**
- * The three starter chips under the home composer.
+ * The three starting points under the home composer.
  *
- * Each chip shows its ``label`` and sends its ``prompt`` — the full sentence
+ * Each line shows its ``label`` and sends its ``prompt`` — the full sentence
  * the learner would have typed — so a click starts a real conversation rather
  * than prefilling something they still have to finish. Generation, caching and
  * staleness live on the backend; this renders the result and offers a reroll.
  *
- * Renders nothing until the first response lands: chips appearing a beat late
+ * One per line, left-aligned to the composer's own edge, with no border or
+ * fill: the lines name specific things, and a specific sentence in a pill
+ * reads as a tag rather than as an invitation. The arrow carries the
+ * invitation instead, and is the only coloured element at rest.
+ *
+ * Renders nothing until the first response lands: lines appearing a beat late
  * is calmer than fixed copy visibly swapping for generated copy.
  */
 export default function StarterSuggestions({
@@ -72,7 +83,7 @@ export default function StarterSuggestions({
   const { t, i18n } = useTranslation();
   const language = i18n.language?.toLowerCase().startsWith("zh") ? "zh" : "en";
   /**
-   * Generated chips are already in the learner's language and must not go
+   * Generated lines are already in the learner's language and must not go
    * through the i18n table — a generated label that happened to match a key
    * would be silently replaced by an unrelated translation. Only the fixed
    * starters are keys.
@@ -104,7 +115,7 @@ export default function StarterSuggestions({
     const controller = new AbortController();
     void (async () => {
       const payload = await load(controller.signal);
-      // A failed read falls back rather than leaving the row empty — the
+      // A failed read falls back rather than leaving the list empty — the
       // fixed starters are useful on their own.
       if (!payload?.suggestions.length) {
         setStarters({ items: FALLBACK, source: "fixed" });
@@ -138,7 +149,7 @@ export default function StarterSuggestions({
       if (response.ok) {
         const payload = (await response.json()) as SuggestionPayload;
         // Keep what is on screen when the reroll came back empty: replacing
-        // three usable chips with nothing is worse than not rerolling.
+        // three usable lines with nothing is worse than not rerolling.
         if (payload.suggestions.length) {
           setStarters({ items: payload.suggestions, source: "generated" });
         }
@@ -154,32 +165,46 @@ export default function StarterSuggestions({
   const text = (value: string) => (starters.source === "fixed" ? t(value) : value);
 
   return (
-    <div className="group/starters mx-auto flex w-full max-w-[960px] flex-wrap items-center justify-center gap-2 px-6 pb-3 animate-fade-in">
-      {starters.items.map((item) => (
-        <button
-          key={item.label}
-          type="button"
-          disabled={disabled}
-          onClick={() => onPick(text(item.prompt))}
-          title={text(item.prompt)}
-          className="max-w-full truncate rounded-full border border-[var(--border)] bg-[var(--background)] px-3.5 py-1.5 text-[12.5px] font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--foreground)]/20 hover:bg-[var(--secondary)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {text(item.label)}
-        </button>
-      ))}
+    // max-w-[768px] + px-6 mirrors ChatComposer's own empty-state container, so
+    // the lines start exactly at the composer's left edge rather than floating
+    // near it.
+    <div className="group/starters mx-auto w-full max-w-[768px] px-6 pb-6 animate-fade-in">
+      <ul className="flex flex-col items-start">
+        {starters.items.map((item) => (
+          <li key={item.label} className="max-w-full">
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => onPick(text(item.prompt))}
+              title={text(item.prompt)}
+              className="group/line flex max-w-full items-baseline gap-2 py-[5px] text-left font-serif text-[15.5px] leading-[1.45] tracking-[-0.005em] text-[color-mix(in_srgb,var(--foreground)_72%,transparent)] transition-colors duration-200 hover:text-[var(--primary)] focus-visible:text-[var(--primary)] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <span className="truncate">{text(item.label)}</span>
+              {/* The arrow is the invitation: coloured at rest so the line
+                  reads as something to click, and it steps right on hover. */}
+              <span
+                aria-hidden="true"
+                className="shrink-0 text-[color-mix(in_srgb,var(--primary)_65%,transparent)] transition-all duration-200 ease-out group-hover/line:translate-x-1 group-hover/line:text-[var(--primary)] group-focus-visible/line:translate-x-1"
+              >
+                →
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
       <button
         type="button"
         onClick={() => void reroll()}
         disabled={refreshing || disabled}
         title={t("Suggest something else")}
-        aria-label={t("Suggest something else")}
-        className="shrink-0 rounded-full p-1.5 text-[var(--muted-foreground)]/40 opacity-0 transition-all hover:bg-[var(--secondary)] hover:text-[var(--foreground)] focus-visible:opacity-100 disabled:opacity-30 group-hover/starters:opacity-100"
+        className="mt-1.5 inline-flex items-center gap-1.5 text-[11.5px] text-[color-mix(in_srgb,var(--muted-foreground)_55%,transparent)] opacity-0 transition-all duration-200 hover:text-[var(--foreground)] focus-visible:opacity-100 disabled:opacity-30 group-hover/starters:opacity-100"
       >
         <RefreshCw
-          size={13}
+          size={11}
           strokeWidth={1.8}
           className={refreshing ? "animate-spin" : ""}
         />
+        {t("Suggest something else")}
       </button>
     </div>
   );

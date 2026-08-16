@@ -1,6 +1,6 @@
 """Dashboard API — what the home screen shows before a conversation starts.
 
-Recent activity comes from the unified SQLite session store; the starter chips
+Recent activity comes from the unified SQLite session store; the starter lines
 come from :mod:`deeptutor.services.suggestions`, which reads memory.
 
 Route order matters here: ``/{entry_id}`` at the bottom of this module matches
@@ -48,7 +48,7 @@ async def get_recent_activities(limit: int = 50, type: str | None = None):
 
 @router.get("/suggestions")
 async def get_starter_suggestions(language: str = Query(default="en")):
-    """The three starter chips for the home composer.
+    """The three starting points for the home composer.
 
     Returns immediately, even when the set is stale — regeneration happens
     behind the response. An empty ``suggestions`` list means there is nothing

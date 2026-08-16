@@ -102,16 +102,34 @@ def test_sanitize_accepts_a_fenced_array_with_prose_around_it() -> None:
 
 
 def test_sanitize_discards_a_partial_set() -> None:
-    """One lonely chip under the composer reads as a rendering bug."""
+    """One lonely line under the composer reads as a rendering bug."""
     raw = json.dumps([{"label": "a", "prompt": "b"}, {"label": "c", "prompt": "d"}])
 
     assert suggestions._sanitize(raw) == ()
 
 
+def test_sanitize_keeps_labels_long_enough_to_be_specific() -> None:
+    """Naming the actual thing costs words, and that is the whole point.
+
+    A label bound tight enough to force "Explain a topic" would throw away
+    every line worth showing, so these realistic ones must survive.
+    """
+    raw = json.dumps(
+        [
+            {"label": "Redo the two eigenvalue questions you missed", "prompt": "a"},
+            {"label": "Build intuition for the chain rule", "prompt": "b"},
+            {"label": "把上次 Agentic RAG 的检索排序接着讲完", "prompt": "c"},
+        ],
+        ensure_ascii=False,
+    )
+
+    assert len(suggestions._sanitize(raw)) == 3
+
+
 def test_sanitize_drops_items_that_ignored_the_brief() -> None:
     raw = json.dumps(
         [
-            {"label": "x" * 80, "prompt": "fine"},  # label way over a chip
+            {"label": "x" * 80, "prompt": "fine"},  # label is a paragraph
             {"label": "ok", "prompt": "y" * 400},  # prompt is an essay
             {"label": "missing prompt"},
             {"label": "good", "prompt": "a real question"},
