@@ -202,6 +202,64 @@ async def test_flush_is_idempotent_per_execution(tmp_path, stub_workspace) -> No
     assert len(mirror.read_text().splitlines()) == 3
 
 
+async def test_concurrent_flush_callers_share_one_persistence_attempt(
+    tmp_path, stub_workspace
+) -> None:
+    store = SQLiteSessionStore(tmp_path / "chat_history.db")
+    runtime = TurnRuntimeManager(store)
+    session = await store.ensure_session(None)
+    turn = await store.create_turn(session["id"], capability="chat")
+    execution = _TurnExecution(
+        turn_id=turn["id"],
+        session_id=session["id"],
+        capability="chat",
+        payload={},
+    )
+    execution.events = _buffered(session["id"], turn["id"], 4)
+
+    await asyncio.gather(
+        runtime._flush_buffered_events(execution),
+        runtime._flush_buffered_events(execution),
+    )
+
+    assert len(await store.get_turn_events(turn["id"])) == 4
+
+
+async def test_non_batch_flush_retry_continues_after_committed_prefix(
+    tmp_path, stub_workspace, monkeypatch
+) -> None:
+    store = SQLiteSessionStore(tmp_path / "chat_history.db")
+    runtime = TurnRuntimeManager(store)
+    session = await store.ensure_session(None)
+    turn = await store.create_turn(session["id"], capability="chat")
+    execution = _TurnExecution(
+        turn_id=turn["id"],
+        session_id=session["id"],
+        capability="chat",
+        payload={},
+    )
+    execution.events = _buffered(session["id"], turn["id"], 3)
+    real_append = store.append_turn_event
+    calls = 0
+
+    async def flaky_append(turn_id, payload):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("transient persistence failure")
+        return await real_append(turn_id, payload)
+
+    monkeypatch.setattr(store, "append_turn_events", None)
+    monkeypatch.setattr(store, "append_turn_event", flaky_append)
+
+    with pytest.raises(RuntimeError, match="transient persistence failure"):
+        await runtime._flush_buffered_events(execution)
+    await runtime._flush_buffered_events(execution)
+
+    persisted = await store.get_turn_events(turn["id"])
+    assert [event["content"] for event in persisted] == ["chunk-0", "chunk-1", "chunk-2"]
+
+
 async def test_flush_survives_turn_deleted_mid_drain(tmp_path, stub_workspace) -> None:
     """Deleting the session mid-flush must not raise out of the turn task."""
     store = SQLiteSessionStore(tmp_path / "chat_history.db")

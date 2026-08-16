@@ -1,17 +1,42 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from types import SimpleNamespace
 
 import pytest
 
 from deeptutor.core.stream import StreamEvent, StreamEventType
+from deeptutor.learning.storage import LearningStore
 from deeptutor.services.session.sqlite_store import SQLiteSessionStore
 from deeptutor.services.session.turn_runtime import (
     TurnRuntimeManager,
     _resolve_turn_outcome,
     _TurnExecution,
 )
+
+
+def _isolate_learning_store(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    def _init(self, root=None):
+        self._root = tmp_path / "learning"
+        self._root.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(LearningStore, "__init__", _init)
+
+
+def _mastery_payload(session_id: str, path_id: str) -> dict:
+    return {
+        "type": "start_turn",
+        "session_id": session_id,
+        "capability": "mastery_path",
+        "mastery_path_id": path_id,
+        "content": "continue",
+        "tools": [],
+        "knowledge_bases": [],
+        "attachments": [],
+        "language": "en",
+        "config": {},
+    }
 
 
 def test_terminal_error_marks_turn_failed() -> None:
@@ -234,3 +259,149 @@ async def test_reconnect_after_turn_completion_still_carries_message_ids(
     done_events = [e for e in events if e["type"] == "done"]
     assert len(done_events) == 1
     assert done_events[0]["metadata"].get("assistant_message_id") == real_assistant_id
+
+
+@pytest.mark.asyncio
+async def test_mastery_path_allows_only_one_live_turn_across_sessions(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    _isolate_learning_store(monkeypatch, tmp_path)
+    store = SQLiteSessionStore(tmp_path / "chat_history.db")
+    runtime = TurnRuntimeManager(store)
+    first_session = await store.ensure_session("session-1")
+    second_session = await store.ensure_session("session-2")
+    hold = asyncio.Event()
+
+    async def _hold_turn(_execution):
+        await hold.wait()
+
+    monkeypatch.setattr(runtime, "_run_turn", _hold_turn)
+    _, first_turn = await runtime.start_turn(_mastery_payload(first_session["id"], "shared"))
+
+    with pytest.raises(RuntimeError, match="mastery_path_busy"):
+        await runtime.start_turn(_mastery_payload(second_session["id"], "shared"))
+
+    lease = LearningStore().get_path_lease("shared")
+    assert lease is not None
+    assert lease.turn_id == first_turn["id"]
+    rejected = await store.get_active_turn(second_session["id"])
+    assert rejected is None
+
+    await runtime.cancel_turn(first_turn["id"])
+    LearningStore().release_path_lease("shared", turn_id=first_turn["id"])
+
+
+@pytest.mark.asyncio
+async def test_racing_mastery_start_does_not_steal_pre_task_lease(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """The execution marker must exist before the lease acquisition yields."""
+    _isolate_learning_store(monkeypatch, tmp_path)
+    store = SQLiteSessionStore(tmp_path / "chat_history.db")
+    runtime = TurnRuntimeManager(store)
+    first_session = await store.ensure_session("session-1")
+    second_session = await store.ensure_session("session-2")
+    hold_turn = asyncio.Event()
+
+    async def _hold_turn(_execution):
+        await hold_turn.wait()
+
+    monkeypatch.setattr(runtime, "_run_turn", _hold_turn)
+    original_acquire = LearningStore.acquire_path_lease
+    first_acquired = threading.Event()
+    release_first_start = threading.Event()
+    acquisition_count = 0
+    count_lock = threading.Lock()
+
+    def _controlled_acquire(self, *args, **kwargs):
+        nonlocal acquisition_count
+        lease = original_acquire(self, *args, **kwargs)
+        with count_lock:
+            acquisition_count += 1
+            is_first = acquisition_count == 1
+        if is_first:
+            first_acquired.set()
+            release_first_start.wait(timeout=5)
+        return lease
+
+    monkeypatch.setattr(LearningStore, "acquire_path_lease", _controlled_acquire)
+    first_start = asyncio.create_task(
+        runtime.start_turn(_mastery_payload(first_session["id"], "shared"))
+    )
+    assert await asyncio.to_thread(first_acquired.wait, 5)
+
+    with pytest.raises(RuntimeError, match="mastery_path_busy"):
+        await asyncio.wait_for(
+            runtime.start_turn(_mastery_payload(second_session["id"], "shared")),
+            timeout=2,
+        )
+
+    release_first_start.set()
+    _, first_turn = await first_start
+    persisted = await store.get_turn(first_turn["id"])
+    assert persisted is not None
+    assert persisted["status"] == "running"
+    assert LearningStore().get_path_lease("shared").turn_id == first_turn["id"]
+
+    await runtime.cancel_turn(first_turn["id"])
+
+
+@pytest.mark.asyncio
+async def test_mastery_path_recovers_restart_orphan_lease(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    _isolate_learning_store(monkeypatch, tmp_path)
+    store = SQLiteSessionStore(tmp_path / "chat_history.db")
+    stale_session = await store.ensure_session("stale-session")
+    stale_turn = await store.create_turn(stale_session["id"], capability="mastery_path")
+    LearningStore().acquire_path_lease(
+        "shared",
+        stale_session["id"],
+        stale_turn["id"],
+    )
+
+    runtime = TurnRuntimeManager(store)
+    new_session = await store.ensure_session("new-session")
+    hold = asyncio.Event()
+
+    async def _hold_turn(_execution):
+        await hold.wait()
+
+    monkeypatch.setattr(runtime, "_run_turn", _hold_turn)
+    _, new_turn = await runtime.start_turn(_mastery_payload(new_session["id"], "shared"))
+
+    recovered = await store.get_turn(stale_turn["id"])
+    lease = LearningStore().get_path_lease("shared")
+    assert recovered is not None
+    assert recovered["status"] == "failed"
+    assert lease is not None
+    assert lease.turn_id == new_turn["id"]
+
+    await runtime.cancel_turn(new_turn["id"])
+    LearningStore().release_path_lease("shared", turn_id=new_turn["id"])
+
+
+@pytest.mark.asyncio
+async def test_mastery_turn_cannot_steal_administrative_path_lease(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    _isolate_learning_store(monkeypatch, tmp_path)
+    learning_store = LearningStore()
+    learning_store.acquire_path_lease(
+        "shared",
+        "__path_api__",
+        "api-operation",
+        bind_session=False,
+    )
+    store = SQLiteSessionStore(tmp_path / "chat_history.db")
+    runtime = TurnRuntimeManager(store)
+    session = await store.ensure_session("session-1")
+
+    try:
+        with pytest.raises(RuntimeError, match="mastery_path_busy"):
+            await runtime.start_turn(_mastery_payload(session["id"], "shared"))
+        lease = learning_store.get_path_lease("shared")
+        assert lease is not None
+        assert lease.turn_id == "api-operation"
+    finally:
+        learning_store.release_path_lease("shared", turn_id="api-operation")

@@ -616,6 +616,9 @@ class _TurnExecution:
     subscribers: list[_LiveSubscriber] = field(default_factory=list)
     events: list[dict[str, Any]] = field(default_factory=list)
     next_seq: int = 1
+    flush_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    events_persisted: bool = False
+    persisted_events: list[dict[str, Any]] = field(default_factory=list)
     events_flushed: bool = False
 
 
@@ -680,6 +683,47 @@ class TurnRuntimeManager:
         for turn in await self.store.list_active_turns(session_id):
             await self._fail_orphan_running_turn(turn)
 
+    async def _acquire_mastery_path_lease(
+        self,
+        *,
+        path_id: str,
+        session_id: str,
+        turn_id: str,
+        owns_path: bool,
+    ) -> None:
+        """Bind a session to its path and recover only demonstrably stale leases."""
+        from deeptutor.learning.storage import LearningStore, PathLeaseConflictError
+
+        learning_store = LearningStore()
+        await asyncio.to_thread(
+            learning_store.bind_session,
+            path_id,
+            session_id,
+            owns_path=owns_path,
+        )
+        lease = await asyncio.to_thread(learning_store.get_path_lease, path_id)
+        if lease is not None and lease.turn_id != turn_id and lease.session_id != "__path_api__":
+            leased_turn = await self.store.get_turn(lease.turn_id)
+            leased_turn = await self._fail_orphan_running_turn(leased_turn)
+            if leased_turn is None or str(leased_turn.get("status") or "") != "running":
+                await asyncio.to_thread(
+                    learning_store.release_path_lease,
+                    path_id,
+                    turn_id=lease.turn_id,
+                )
+        try:
+            await asyncio.to_thread(
+                learning_store.acquire_path_lease,
+                path_id,
+                session_id,
+                turn_id,
+            )
+        except PathLeaseConflictError as exc:
+            raise RuntimeError(
+                "mastery_path_busy: "
+                f"path {path_id!r} is already active in session {exc.lease.session_id!r}"
+            ) from exc
+
     async def start_turn(self, payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
         capability = str(payload.get("capability") or "chat")
         if not payload.get("language"):
@@ -721,11 +765,23 @@ class TurnRuntimeManager:
         # Persist the explicit association on the session, and restore it on
         # later turns whose frontend payload omits the field.
         mastery_path_explicit = "mastery_path_id" in payload
-        mastery_path_id = _mastery_path_id(
+        configured_mastery_path_id = _mastery_path_id(
             payload.get("mastery_path_id")
             if mastery_path_explicit
             else preferences.get("mastery_path_id")
         )
+        mastery_binding = None
+        if capability == "mastery_path":
+            from deeptutor.learning.identity import resolve_mastery_path_binding
+
+            mastery_binding = resolve_mastery_path_binding(
+                configured_path_id=configured_mastery_path_id,
+                book_references=payload.get("book_references", []),
+                session_id=session["id"],
+            )
+            mastery_path_id = mastery_binding.path_id
+        else:
+            mastery_path_id = configured_mastery_path_id
         payload = {**payload, "mastery_path_id": mastery_path_id}
         # Persona is a session-level preference (mirrors llm_selection): an
         # explicit ``persona`` key in the payload — including an empty string,
@@ -838,8 +894,9 @@ class TurnRuntimeManager:
         if persona_explicit:
             # Persist explicit set AND explicit clear ("" = back to Default).
             preference_update["persona"] = persona_pref
-        if mastery_path_explicit:
-            # Like persona, an explicit empty string clears the association.
+        if mastery_path_explicit or mastery_binding is not None:
+            # Mastery turns persist their fully resolved path so a later turn
+            # cannot silently fall back to a different aggregate.
             preference_update["mastery_path_id"] = mastery_path_id
         await self.store.update_session_preferences(session["id"], preference_update)
         turn = await self.store.create_turn(session["id"], capability=capability)
@@ -849,6 +906,44 @@ class TurnRuntimeManager:
             capability=capability,
             payload=dict(payload),
         )
+        # Publish an ownership marker before trying to recover another path
+        # lease. Two start_turn calls can otherwise interleave after the first
+        # turn row is created but before its task is registered, causing the
+        # second caller to misclassify that healthy turn as a restart orphan.
+        async with self._lock:
+            self._executions[turn["id"]] = execution
+        mastery_lease_acquired = False
+        if mastery_binding is not None:
+            try:
+                await self._acquire_mastery_path_lease(
+                    path_id=mastery_binding.path_id,
+                    session_id=session["id"],
+                    turn_id=turn["id"],
+                    owns_path=mastery_binding.owned_by_session,
+                )
+                mastery_lease_acquired = True
+            except Exception as exc:
+                async with self._lock:
+                    self._executions.pop(turn["id"], None)
+                with contextlib.suppress(Exception):
+                    await self.store.update_turn_status(turn["id"], "rejected", str(exc))
+                raise
+            persisted_turn = await self.store.get_turn(turn["id"])
+            if persisted_turn is None or persisted_turn.get("status") != "running":
+                # An administrative reset/delete can cancel the placeholder
+                # while lease acquisition is in flight. Never launch a task
+                # after that cancellation has already become durable.
+                from deeptutor.learning.storage import LearningStore
+
+                async with self._lock:
+                    self._executions.pop(turn["id"], None)
+                with contextlib.suppress(Exception):
+                    await asyncio.to_thread(
+                        LearningStore().release_path_lease,
+                        mastery_binding.path_id,
+                        turn_id=turn["id"],
+                    )
+                raise RuntimeError("Mastery turn was cancelled while starting")
         session_metadata: dict[str, Any] = {
             "session_id": session["id"],
             "turn_id": turn["id"],
@@ -861,17 +956,32 @@ class TurnRuntimeManager:
             session_metadata["superseded_turn_id"] = str(superseded_turn_id)
         if runtime_only_config.get("_regenerate"):
             session_metadata["regenerate"] = True
-        await self._publish_live_event(
-            execution,
-            StreamEvent(
-                type=StreamEventType.SESSION,
-                source="turn_runtime",
-                metadata=session_metadata,
-            ),
-        )
-        async with self._lock:
-            self._executions[turn["id"]] = execution
-            execution.task = asyncio.create_task(self._run_turn(execution))
+        try:
+            await self._publish_live_event(
+                execution,
+                StreamEvent(
+                    type=StreamEventType.SESSION,
+                    source="turn_runtime",
+                    metadata=session_metadata,
+                ),
+            )
+            async with self._lock:
+                execution.task = asyncio.create_task(self._run_turn(execution))
+        except Exception as exc:
+            async with self._lock:
+                self._executions.pop(turn["id"], None)
+            if mastery_binding is not None and mastery_lease_acquired:
+                from deeptutor.learning.storage import LearningStore
+
+                with contextlib.suppress(Exception):
+                    await asyncio.to_thread(
+                        LearningStore().release_path_lease,
+                        mastery_binding.path_id,
+                        turn_id=turn["id"],
+                    )
+            with contextlib.suppress(Exception):
+                await self.store.update_turn_status(turn["id"], "failed", str(exc))
+            raise
         return session, turn
 
     async def regenerate_last_turn(
@@ -1678,6 +1788,7 @@ class TurnRuntimeManager:
                     "question_notebook_references": question_notebook_references,
                     "book_references": book_references,
                     "mastery_path_id": _mastery_path_id(payload.get("mastery_path_id")),
+                    "mastery_path_lease_managed": capability_name == "mastery_path",
                     "book_context": book_context,
                     "book_context_warnings": book_context_result.warnings,
                     "memory_references": memory_references,
@@ -1798,6 +1909,10 @@ class TurnRuntimeManager:
                 pending_done_event.metadata = {**pending_done_event.metadata, **persisted_ids}
             await self._publish_live_event(execution, pending_done_event)
             stream_done_sent = True
+            # DONE is part of the same persisted replay log as all preceding
+            # events. Reconnects therefore observe the real terminal envelope
+            # (including message ids), not a lossy synthesized substitute.
+            await self._flush_buffered_events(execution)
             if not is_regenerate and turn_status == "completed":
                 # Title generation is post-turn metadata. Keep it after DONE
                 # so the composer and duration clock stop as soon as the
@@ -1911,6 +2026,18 @@ class TurnRuntimeManager:
             # that finds the queue gone will return ``False`` rather than
             # accumulating on a dead turn.
             self._reply_queues.pop(turn_id, None)
+            mastery_path_id = _mastery_path_id(payload.get("mastery_path_id"))
+            if capability_name == "mastery_path" and mastery_path_id:
+                from deeptutor.learning.storage import LearningStore
+
+                with contextlib.suppress(Exception):
+                    await asyncio.shield(
+                        asyncio.to_thread(
+                            LearningStore().release_path_lease,
+                            mastery_path_id,
+                            turn_id=turn_id,
+                        )
+                    )
             async with self._lock:
                 current = self._executions.get(turn_id)
                 if current is not None:
@@ -2073,10 +2200,18 @@ class TurnRuntimeManager:
 
     async def _flush_buffered_events(self, execution: _TurnExecution) -> None:
         """Persist buffered turn events after the live stream has already drained."""
-        async with self._lock:
-            if execution.events_flushed:
-                return
+        async with execution.flush_lock:
+            await self._flush_buffered_events_once(execution)
+
+    async def _flush_buffered_events_once(self, execution: _TurnExecution) -> None:
+        """One serialized persistence attempt for :meth:`_flush_buffered_events`."""
+        if execution.events_flushed:
+            return
+        if execution.events_persisted:
+            await self._mirror_events_to_workspace(execution, execution.persisted_events)
             execution.events_flushed = True
+            return
+        async with self._lock:
             events = list(execution.events)
 
         # Prefer the store's batch append (single transaction) when available:
@@ -2097,13 +2232,19 @@ class TurnRuntimeManager:
                     len(events),
                     execution.turn_id,
                 )
+                execution.persisted_events = []
+                execution.events_persisted = True
+                execution.events_flushed = True
                 return
+            execution.persisted_events = list(persisted_batch)
+            execution.events_persisted = True
             await self._mirror_events_to_workspace(execution, persisted_batch)
+            execution.events_flushed = True
             return
 
-        persisted_events: list[dict[str, Any]] = []
+        persisted_events = list(execution.persisted_events)
         try:
-            for index, payload in enumerate(events):
+            for index, payload in enumerate(events[len(persisted_events) :], len(persisted_events)):
                 try:
                     persisted = await self.store.append_turn_event(execution.turn_id, payload)
                 except ValueError as exc:
@@ -2122,10 +2263,15 @@ class TurnRuntimeManager:
                     )
                     break
                 persisted_events.append(persisted)
-        finally:
-            # Mirror whatever actually persisted, even when the loop broke or
-            # raised part-way — matches the previous per-event behaviour.
-            await self._mirror_events_to_workspace(execution, persisted_events)
+        except Exception:
+            # Cache a committed prefix so retries continue after it instead of
+            # duplicating already persisted events on non-batching backends.
+            execution.persisted_events = persisted_events
+            raise
+        execution.persisted_events = persisted_events
+        execution.events_persisted = True
+        await self._mirror_events_to_workspace(execution, persisted_events)
+        execution.events_flushed = True
 
     async def _mirror_events_to_workspace(
         self, execution: _TurnExecution, payloads: list[dict[str, Any]]

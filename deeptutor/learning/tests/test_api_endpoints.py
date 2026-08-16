@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from deeptutor.api.routers.mastery_path import router
+from deeptutor.learning.models import PendingQuestion
 from deeptutor.learning.storage import LearningStore
 
 
@@ -24,6 +25,7 @@ def app(tmp_path, monkeypatch):
         _make_store_with_tmp,
     )
     app = FastAPI()
+    app.state.learning_root = tmp_path
     app.include_router(router, prefix="/api/v1/learning")
     return app
 
@@ -177,6 +179,24 @@ class TestInitModules:
         assert prog["current_module_id"] == "m1"
         assert prog["current_kp_index"] == 0
 
+    def test_concurrent_administrative_mutation_returns_conflict(self, client, app):
+        store = LearningStore(root=app.state.learning_root)
+        store.acquire_path_lease(
+            "busy-admin",
+            "__path_api__",
+            "api-existing",
+            bind_session=False,
+        )
+        try:
+            response = client.post(
+                "/api/v1/learning/progress/busy-admin/init-modules",
+                json={"modules": [_module_payload()]},
+            )
+        finally:
+            store.release_path_lease("busy-admin", turn_id="api-existing")
+
+        assert response.status_code == 409
+
 
 # -- GET /progress/{book_id} ----------------------------------------------
 
@@ -195,6 +215,58 @@ class TestGetProgress:
     def test_get_progress_invalid_id_returns_400(self, client):
         resp = client.get("/api/v1/learning/progress/a\\b")
         assert resp.status_code == 400
+
+    def test_get_progress_redacts_pending_answer_key(self, client, app):
+        client.post(
+            "/api/v1/learning/progress/redacted/init-modules",
+            json={"modules": [_module_payload()]},
+        )
+        store = LearningStore(root=app.state.learning_root)
+        progress = store.load("redacted")
+        assert progress is not None
+        progress.pending_question = PendingQuestion(
+            question_id="question-1",
+            knowledge_point_id="kp1",
+            module_id="m1",
+            prompt="Secret answer?",
+            expected_answer="do-not-expose",
+        )
+        store.save(progress)
+
+        response = client.get("/api/v1/learning/progress/redacted")
+
+        assert response.status_code == 200
+        assert response.json()["pending_question"]["question_id"] == "question-1"
+        assert "expected_answer" not in response.text
+
+    def test_events_support_incremental_revision_replay(self, client):
+        created = client.post(
+            "/api/v1/learning/progress/eventbook/init-modules",
+            json={"modules": [_module_payload()]},
+        )
+        revision = created.json()["path_revision"]
+
+        all_events = client.get("/api/v1/learning/progress/eventbook/events")
+        assert all_events.status_code == 200
+        assert [event["event_type"] for event in all_events.json()["events"]] == [
+            "path.created",
+            "path.modules_replaced",
+        ]
+        assert (
+            client.get(
+                f"/api/v1/learning/progress/eventbook/events?after_revision={revision}"
+            ).json()["events"]
+            == []
+        )
+
+    def test_map_exposes_authoritative_revision(self, client):
+        client.post(
+            "/api/v1/learning/progress/maprevision/init-modules",
+            json={"modules": [_module_payload()]},
+        )
+        progress = client.get("/api/v1/learning/progress/maprevision").json()
+        path_map = client.get("/api/v1/learning/progress/maprevision/map").json()
+        assert path_map["path_revision"] == progress["version"]
 
 
 # -- DELETE /progress/{book_id} -------------------------------------------

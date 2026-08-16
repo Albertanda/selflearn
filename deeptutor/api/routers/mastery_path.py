@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
 import html
 import json
+import uuid
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -15,7 +18,6 @@ from deeptutor.learning.models import (
     KnowledgePoint,
     KnowledgeType,
     LearningModule,
-    LearningStage,
 )
 from deeptutor.learning.service import LearningService
 from deeptutor.learning.storage import LearningStore
@@ -77,10 +79,66 @@ def _validate_runnable_modules(modules: list[LearningModule], *, status_code: in
 async def _cancel_active_learning_turn(book_id: str) -> None:
     from deeptutor.services.session import get_turn_runtime_manager
 
+    learning_store = LearningStore()
     runtime = get_turn_runtime_manager()
-    active_turn = await runtime.store.get_active_turn(book_id)
-    if active_turn:
-        await runtime.cancel_turn(active_turn["id"])
+    lease = await asyncio.to_thread(learning_store.get_path_lease, book_id)
+    if lease is not None:
+        if lease.session_id == "__path_api__":
+            # Another administrative mutation owns the path. The caller's
+            # acquisition attempt will return a deterministic HTTP 409.
+            return
+        await runtime.cancel_turn(lease.turn_id)
+        # ``cancel_turn`` can finalize a restart orphan without an in-memory
+        # task, so its normal runtime ``finally`` cannot release the lease.
+        await asyncio.to_thread(
+            learning_store.release_path_lease,
+            book_id,
+            turn_id=lease.turn_id,
+        )
+        return
+
+    # Compatibility for turns started before explicit path leases existed.
+    session_ids = await asyncio.to_thread(learning_store.list_session_ids, book_id)
+    if book_id not in session_ids:
+        session_ids.append(book_id)
+    for session_id in session_ids:
+        for turn in await runtime.store.list_active_turns(session_id):
+            if str(turn.get("capability") or "") == "mastery_path":
+                await runtime.cancel_turn(turn["id"])
+
+
+@asynccontextmanager
+async def _exclusive_path_mutation(book_id: str):
+    """Cancel the tutor, then exclude a newly racing tutor/API write."""
+    from deeptutor.learning.storage import PathLeaseConflictError
+
+    await _cancel_active_learning_turn(book_id)
+    store = LearningStore()
+    operation_id = f"api-{uuid.uuid4().hex}"
+    try:
+        await asyncio.to_thread(
+            store.acquire_path_lease,
+            book_id,
+            "__path_api__",
+            operation_id,
+            bind_session=False,
+        )
+    except PathLeaseConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Mastery path changed activity while the operation was starting; "
+                f"active session: {exc.lease.session_id}"
+            ),
+        ) from exc
+    try:
+        yield
+    finally:
+        await asyncio.to_thread(
+            store.release_path_lease,
+            book_id,
+            turn_id=operation_id,
+        )
 
 
 # ── Request models ───────────────────────────────────────────────────────────
@@ -113,7 +171,12 @@ async def get_progress(book_id: str):
     _validate_book_id(book_id)
     service = get_learning_service()
     progress = service.get_or_create(book_id)
-    return progress.model_dump()
+    payload = progress.model_dump(mode="json")
+    if progress.pending_question is not None:
+        from deeptutor.learning.pending import public_pending_question
+
+        payload["pending_question"] = public_pending_question(progress.pending_question).to_dict()
+    return payload
 
 
 @router.get("/progress/{book_id}/map")
@@ -126,9 +189,40 @@ async def get_progress_map(book_id: str):
     progress = service.get_or_create(book_id)
     return {
         "book_id": book_id,
+        "path_revision": progress.version,
         "next": learning_policy.next_objective(progress).to_dict(),
         "map": learning_policy.map_summary(progress),
     }
+
+
+@router.get("/progress/{book_id}/events")
+async def get_progress_events(book_id: str, after_revision: int = 0):
+    """Ordered, redacted domain events for reconnect and incremental UI sync."""
+    _validate_book_id(book_id)
+    store = LearningStore()
+    progress = await asyncio.to_thread(store.load, book_id)
+    if progress is None:
+        raise HTTPException(status_code=404, detail="Progress not found")
+    events = await asyncio.to_thread(
+        store.list_events,
+        book_id,
+        after_revision=max(0, after_revision),
+    )
+    return {
+        "book_id": book_id,
+        "events": [event.model_dump(mode="json") for event in events],
+    }
+
+
+@router.get("/progress/{book_id}/sessions")
+async def get_progress_sessions(book_id: str):
+    """Expose the explicit conversation associations for this path."""
+    _validate_book_id(book_id)
+    store = LearningStore()
+    if not await asyncio.to_thread(store.exists, book_id):
+        raise HTTPException(status_code=404, detail="Progress not found")
+    session_ids = await asyncio.to_thread(store.list_session_ids, book_id)
+    return {"book_id": book_id, "session_ids": session_ids}
 
 
 @router.post("/progress/{book_id}/init-modules")
@@ -136,14 +230,14 @@ async def init_modules(book_id: str, body: InitModulesRequest):
     _validate_book_id(book_id)
     modules = _parse_modules(body.modules)
     _validate_runnable_modules(modules)
-    await _cancel_active_learning_turn(book_id)
-    service = get_learning_service()
-    progress = service.get_or_create(book_id)
-    service.init_modules(progress, modules)
-    progress.current_module_id = modules[0].id
-    progress.current_kp_index = 0
-    service.save(progress)
-    return {"status": "ok", "module_count": len(modules)}
+    async with _exclusive_path_mutation(book_id):
+        service = get_learning_service()
+        progress = await asyncio.to_thread(service.replace_modules_for_path, book_id, modules)
+    return {
+        "status": "ok",
+        "module_count": len(modules),
+        "path_revision": progress.version,
+    }
 
 
 @router.post("/progress/{book_id}/import-from-book")
@@ -170,23 +264,24 @@ async def import_from_book(book_id: str, body: ImportFromBookRequest):
             )
         )
     _validate_runnable_modules(modules)
-    await _cancel_active_learning_turn(book_id)
-    service = get_learning_service()
-    progress = service.get_or_create(book_id)
-    service.init_modules(progress, modules)
-    progress.current_module_id = modules[0].id
-    progress.current_kp_index = 0
-    service.save(progress)
-    return {"status": "ok", "module_count": len(modules)}
+    async with _exclusive_path_mutation(book_id):
+        service = get_learning_service()
+        progress = await asyncio.to_thread(service.replace_modules_for_path, book_id, modules)
+    return {
+        "status": "ok",
+        "module_count": len(modules),
+        "path_revision": progress.version,
+    }
 
 
 @router.delete("/progress/{book_id}")
 async def delete_progress(book_id: str):
     _validate_book_id(book_id)
     store = LearningStore()
-    if not store.exists(book_id):
+    if not await asyncio.to_thread(store.exists, book_id):
         raise HTTPException(status_code=404, detail="Progress not found")
-    store.delete(book_id)
+    async with _exclusive_path_mutation(book_id):
+        await asyncio.to_thread(store.delete, book_id)
     return {"status": "ok"}
 
 
@@ -194,26 +289,11 @@ async def delete_progress(book_id: str):
 async def redo_progress(book_id: str):
     _validate_book_id(book_id)
     store = LearningStore()
-    progress = store.load(book_id)
-    if progress is None:
+    if not await asyncio.to_thread(store.exists, book_id):
         raise HTTPException(status_code=404, detail="Progress not found")
-    progress.current_stage = LearningStage.DIAGNOSTIC
-    progress.mastery_levels = {}
-    progress.qualitative_mastery = {}
-    progress.quiz_attempts = []
-    progress.error_records = []
-    progress.repetition_states = {}
-    progress.review_queue = []
-    progress.pending_question = None
-    progress.feynman_retries = {}
-    progress.feynman_explanations = {}
-    progress.stage_failure_counts = {}
-    progress.stage_failure_notes = {}
-    progress.diagnostic = None
-    progress.current_kp_index = 0
-    progress.current_module_id = progress.modules[0].id if progress.modules else ""
-    store.save(progress)
-    return {"status": "ok"}
+    async with _exclusive_path_mutation(book_id):
+        progress = await asyncio.to_thread(LearningService(store).reset_path, book_id)
+    return {"status": "ok", "path_revision": progress.version}
 
 
 class NotebookRecordInput(BaseModel):
@@ -294,15 +374,12 @@ async def generate_from_notebook(book_id: str, body: GenerateFromNotebookRequest
             )
         )
     _validate_runnable_modules(modules, status_code=502)
-    await _cancel_active_learning_turn(book_id)
-    service = get_learning_service()
-    progress = service.get_or_create(book_id)
-    service.init_modules(progress, modules)
-    progress.current_module_id = modules[0].id
-    progress.current_kp_index = 0
-    service.save(progress)
+    async with _exclusive_path_mutation(book_id):
+        service = get_learning_service()
+        progress = await asyncio.to_thread(service.replace_modules_for_path, book_id, modules)
     return {
         "status": "ok",
         "module_count": len(modules),
         "modules": [m.model_dump() for m in modules],
+        "path_revision": progress.version,
     }

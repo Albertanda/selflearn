@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from deeptutor.learning.models import PendingQuestion
+from deeptutor.learning.models import InteractionStatus, PendingQuestion
 from deeptutor.learning.storage import LearningStore
 from deeptutor.services.session.sqlite_store import SQLiteSessionStore
 from deeptutor.tools.mastery_tool import (
@@ -194,12 +194,16 @@ async def test_grade_syncs_mastery_attempt_to_question_bank(path_id, session_sto
     await _build_basic(path_id)
     status = json.loads((await MasteryStatusTool().execute(_mastery_path_id=path_id)).content)
     kp_id = status["next"]["knowledge_point_id"]
-    await MasteryQuizTool().execute(
-        _mastery_path_id=path_id,
-        knowledge_point_id=kp_id,
-        question="2+2?",
-        expected_answer="4",
-        question_type="short",
+    quiz = json.loads(
+        (
+            await MasteryQuizTool().execute(
+                _mastery_path_id=path_id,
+                knowledge_point_id=kp_id,
+                question="2+2?",
+                expected_answer="4",
+                question_type="short",
+            )
+        ).content
     )
 
     result = json.loads(
@@ -224,6 +228,25 @@ async def test_grade_syncs_mastery_attempt_to_question_bank(path_id, session_sto
     assert entry["user_answer"] == "5"
     assert entry["correct_answer"] == "4"
     assert entry["is_correct"] is False
+
+    # An idempotent retry with a changed model argument must not overwrite the
+    # committed learner answer in the auxiliary question bank.
+    replay = json.loads(
+        (
+            await MasteryGradeTool().execute(
+                _mastery_path_id=path_id,
+                _session_id=session["id"],
+                _turn_id="turn_mastery_2",
+                question_id=quiz["question_id"],
+                answer="4",
+            )
+        ).content
+    )
+    assert replay["replayed"] is True
+    entries_after_replay = await session_store.list_notebook_entries()
+    assert entries_after_replay["total"] == 1
+    assert entries_after_replay["items"][0]["user_answer"] == "5"
+    assert entries_after_replay["items"][0]["is_correct"] is False
 
 
 @pytest.mark.asyncio
@@ -534,6 +557,159 @@ async def test_choice_grade_keeps_legacy_bare_label_pending_compatible(path_id):
     )
 
     assert grade["is_correct"] is True
+
+
+@pytest.mark.asyncio
+async def test_duplicate_quiz_and_grade_are_idempotent(path_id):
+    await _build_basic(path_id)
+    initial = json.loads((await MasteryStatusTool().execute(_mastery_path_id=path_id)).content)
+    kp_id = initial["next"]["knowledge_point_id"]
+
+    first_quiz = json.loads(
+        (
+            await MasteryQuizTool().execute(
+                _mastery_path_id=path_id,
+                _session_id="session-1",
+                _turn_id="turn-1",
+                knowledge_point_id=kp_id,
+                question="2+2?",
+                expected_answer="4",
+            )
+        ).content
+    )
+    retry_quiz = json.loads(
+        (
+            await MasteryQuizTool().execute(
+                _mastery_path_id=path_id,
+                _session_id="session-1",
+                _turn_id="turn-1",
+                knowledge_point_id=kp_id,
+                question="A model-authored replacement must not win",
+                expected_answer="5",
+            )
+        ).content
+    )
+    assert retry_quiz["question_id"] == first_quiz["question_id"]
+    assert retry_quiz["pending_question"]["prompt"] == "2+2?"
+    assert retry_quiz["status"] == "already_pending"
+
+    first_grade = json.loads(
+        (
+            await MasteryGradeTool().execute(
+                _mastery_path_id=path_id,
+                _session_id="session-1",
+                _turn_id="turn-1",
+                question_id=first_quiz["question_id"],
+                answer="4",
+            )
+        ).content
+    )
+    retry_grade = json.loads(
+        (
+            await MasteryGradeTool().execute(
+                _mastery_path_id=path_id,
+                _session_id="session-1",
+                _turn_id="turn-1",
+                question_id=first_quiz["question_id"],
+                answer="4",
+            )
+        ).content
+    )
+
+    progress = LearningStore().load(path_id)
+    interaction = LearningStore().get_interaction(path_id, first_quiz["question_id"])
+    assert progress is not None
+    assert len(progress.quiz_attempts) == 1
+    assert retry_grade["replayed"] is True
+    assert retry_grade["path_revision"] == first_grade["path_revision"]
+    assert interaction is not None
+    assert interaction.status == InteractionStatus.GRADED
+    assert LearningStore().get_active_interaction(path_id) is None
+
+
+@pytest.mark.asyncio
+async def test_new_quiz_repairs_stale_legacy_pending_after_grade(path_id):
+    await _build_basic(path_id)
+    initial = json.loads((await MasteryStatusTool().execute(_mastery_path_id=path_id)).content)
+    kp_id = initial["next"]["knowledge_point_id"]
+    first = json.loads(
+        (
+            await MasteryQuizTool().execute(
+                _mastery_path_id=path_id,
+                knowledge_point_id=kp_id,
+                question="First?",
+                expected_answer="yes",
+            )
+        ).content
+    )
+    await MasteryGradeTool().execute(
+        _mastery_path_id=path_id,
+        question_id=first["question_id"],
+        answer="yes",
+    )
+    store = LearningStore()
+    progress = store.load(path_id)
+    graded = store.get_interaction(path_id, first["question_id"])
+    assert progress is not None and graded is not None
+    progress.pending_question = graded.question
+    store.save(progress)
+
+    second_result = await MasteryQuizTool().execute(
+        _mastery_path_id=path_id,
+        knowledge_point_id=kp_id,
+        question="Second?",
+        expected_answer="yes",
+    )
+    second = json.loads(second_result.content)
+
+    assert second_result.success is True
+    assert second["status"] == "registered"
+    assert second["question_id"] != first["question_id"]
+
+
+@pytest.mark.asyncio
+async def test_status_recovers_answered_interaction_without_exposing_answer_key(path_id):
+    await _build_basic(path_id)
+    initial = json.loads((await MasteryStatusTool().execute(_mastery_path_id=path_id)).content)
+    kp_id = initial["next"]["knowledge_point_id"]
+    quiz = json.loads(
+        (
+            await MasteryQuizTool().execute(
+                _mastery_path_id=path_id,
+                knowledge_point_id=kp_id,
+                question="2+2?",
+                expected_answer="4",
+            )
+        ).content
+    )
+    from deeptutor.learning.service import LearningService
+
+    LearningService().record_question_answer(
+        path_id,
+        "4",
+        interaction_id=quiz["question_id"],
+    )
+
+    recovered = json.loads((await MasteryStatusTool().execute(_mastery_path_id=path_id)).content)
+    assert recovered["pending_interaction"] == {
+        "question_id": quiz["question_id"],
+        "status": "answered",
+        "learner_answer": "4",
+    }
+    assert "expected_answer" not in json.dumps(recovered)
+
+    # The committed learner reply is authoritative even if a later model
+    # round accidentally paraphrases or changes the tool argument.
+    graded = json.loads(
+        (
+            await MasteryGradeTool().execute(
+                _mastery_path_id=path_id,
+                question_id=quiz["question_id"],
+                answer="5",
+            )
+        ).content
+    )
+    assert graded["is_correct"] is True
 
 
 # ── assess: the qualitative gate ─────────────────────────────────────────────

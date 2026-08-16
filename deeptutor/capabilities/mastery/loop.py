@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from importlib import resources
 import logging
 from typing import Any
@@ -91,6 +92,67 @@ class MasteryLoopCapability:
     def pre_loop_seed(self, context: UnifiedContext) -> str:
         _ = context
         return ""
+
+    async def on_user_pause(
+        self,
+        context: UnifiedContext,
+        ask_user: dict[str, Any],
+    ) -> None:
+        """Commit ``awaiting_input`` before the runtime begins waiting."""
+        path_id = str(context.metadata.get("mastery_path_id") or "").strip()
+        question_id = _first_question_id(ask_user)
+        if not path_id or not question_id:
+            return
+        from deeptutor.learning.service import LearningService
+
+        await asyncio.to_thread(
+            LearningService().mark_question_awaiting,
+            path_id,
+            interaction_id=question_id,
+            session_id=str(context.session_id or ""),
+            turn_id=str(context.metadata.get("turn_id") or ""),
+        )
+
+    async def on_user_resume(
+        self,
+        context: UnifiedContext,
+        ask_user: dict[str, Any],
+        *,
+        reply_text: str,
+        answers: list[dict[str, str]] | None,
+    ) -> None:
+        """Commit the learner answer before giving it back to the LLM."""
+        path_id = str(context.metadata.get("mastery_path_id") or "").strip()
+        question_id = _first_question_id(ask_user)
+        if not path_id or not question_id:
+            return
+        answer = reply_text
+        for entry in answers or []:
+            if entry.get("questionId") == question_id:
+                answer = entry.get("text", "")
+                break
+        from deeptutor.learning.service import LearningService
+
+        await asyncio.to_thread(
+            LearningService().record_question_answer,
+            path_id,
+            answer,
+            interaction_id=question_id,
+            session_id=str(context.session_id or ""),
+            turn_id=str(context.metadata.get("turn_id") or ""),
+        )
+
+
+def _first_question_id(ask_user: dict[str, Any]) -> str:
+    questions = ask_user.get("questions") or []
+    if not isinstance(questions, list):
+        return ""
+    for question in questions:
+        if isinstance(question, dict):
+            question_id = str(question.get("id") or "").strip()
+            if question_id:
+                return question_id
+    return ""
 
 
 def _prompt_text(prompts: dict[str, Any], path: tuple[str, ...]) -> str:

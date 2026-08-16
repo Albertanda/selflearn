@@ -871,6 +871,10 @@ class AgenticChatPipeline:
         dispatch: DispatchOutcome,
     ) -> bool:
         ask_user = (dispatch.pause_payload or {}).get("ask_user") or {}
+        for capability in self._active_loop_capabilities(context):
+            hook = getattr(capability, "on_user_pause", None)
+            if callable(hook):
+                await hook(context, ask_user)
         waiter = context.metadata.get("wait_for_user_reply")
         if not callable(waiter):
             await self._emit_terminator_final_response(
@@ -887,6 +891,15 @@ class AgenticChatPipeline:
         if raw_reply is None:
             return False
         reply_text, answers = _normalise_user_reply(raw_reply)
+        for capability in self._active_loop_capabilities(context):
+            hook = getattr(capability, "on_user_resume", None)
+            if callable(hook):
+                await hook(
+                    context,
+                    ask_user,
+                    reply_text=reply_text,
+                    answers=answers,
+                )
         body_text = _format_user_reply_body(
             reply_text,
             answers,
