@@ -67,16 +67,15 @@ _TTL_SECONDS = 6 * 3600
 # meaningfully change that fast.
 _PROBE_INTERVAL_SECONDS = 60.0
 _LLM_TIMEOUT = 25.0
-# How much history shapes the lines. A month rather than a week: labels are
-# deduplicated by name and capped per surface, so a long window does not mean a
-# long list — it means a learner who spent this week on one thing still has
-# something to be offered. A week left an active user with a single usable
-# trace once repeats were collapsed.
+# How far back a trace can be and still count as "what they are working on".
+# A month rather than a week: labels are deduplicated and the list is cut to
+# ``trace_count``, so a longer window means depth, not length — it means a
+# learner who spent this week on one thing still has a history to draw on.
 _LOOKBACK_DAYS = 30
-_MAX_TOPICS = 8
-# Per surface, so chat cannot crowd out the quiz and the KB. The whole point of
-# reading every surface is that the three differ in kind.
-_MAX_PER_SURFACE = 3
+# How much of L3 reaches the prompt. Generous — this is the consolidated read
+# on the learner and the most useful half of the material — but bounded,
+# because L3 grows without limit and this runs on a schedule.
+_MAX_PROFILE_CHARS = 6000
 # Below this a label carries no subject to propose anything about — a knowledge
 # base named "q", a search for "q2", an untitled draft. They are real activity
 # and recall is right to return them; they just cannot ground a suggestion, and
@@ -207,6 +206,39 @@ def _save(value: SuggestionSet) -> None:
         logger.debug("suggestions cache unwritable", exc_info=True)
 
 
+# ── Settings ─────────────────────────────────────────────────────────────
+
+
+def _output_language() -> str:
+    """The language these lines are written in.
+
+    The learner's model-output setting (Settings → Appearance), the same one
+    that decides what the chat agent answers in — not the UI locale. A chip
+    proposing something to ask should read like the answer it will get.
+    """
+    try:
+        from deeptutor.services.settings.interface_settings import get_response_language
+
+        return get_response_language(default="en")
+    except Exception:
+        logger.debug("suggestions: response language unreadable", exc_info=True)
+        return "en"
+
+
+def _trace_count() -> int:
+    """How many recent activities to show the model (Settings → Chat)."""
+    from deeptutor.services.settings.starter_settings import (
+        DEFAULT_TRACE_COUNT,
+        get_starter_settings,
+    )
+
+    try:
+        return int(get_starter_settings()["trace_count"])
+    except Exception:
+        logger.debug("suggestions: starter settings unreadable", exc_info=True)
+        return DEFAULT_TRACE_COUNT
+
+
 # ── Material ─────────────────────────────────────────────────────────────
 
 # What each surface is called when it is described to the model. Deliberately
@@ -239,54 +271,137 @@ class _Topic:
     days_ago: int | None
 
 
-def _collect_topics() -> list[_Topic]:
-    """Recent activity, spread across surfaces rather than dominated by one.
+@dataclass(frozen=True, slots=True)
+class _Material:
+    """Everything the model is given: who this learner is, and what they did.
 
-    Chat updates on every turn, so a plain newest-first list is almost all
-    chat. Taking a bounded number per surface and interleaving them is what
-    makes three starting points of three different kinds possible.
+    Two halves that answer different questions. ``profile`` is L3 — the
+    consolidated read on this learner, including which topics they are still
+    unsure about, which is the single most useful thing to know when proposing
+    what to look at next. ``topics`` is raw recent activity, which is what
+    keeps a proposal anchored to something that actually happened.
+    """
+
+    profile: str
+    topics: list[_Topic]
+
+    def __bool__(self) -> bool:
+        return bool(self.profile or self.topics)
+
+
+# L3 slots, most useful first. Order decides who gets the character budget when
+# the documents outgrow it: ``preferences`` is tiny and absolute, ``scope``
+# carries the familiar/practising/unsure split that this whole feature is
+# reaching for, and ``recent`` goes last because the trace list below already
+# says what happened lately, in more detail.
+_L3_ORDER = ("preferences", "scope", "profile", "recent")
+
+
+def _render_l3(cap: int) -> str:
+    """L3 as the model should read it: sections and bullets, no citations.
+
+    Reads through :class:`~deeptutor.services.memory.store.MemoryStore`'s
+    parser rather than the raw markdown, so footnote markers and their HTML
+    comments — which are addressing machinery, not content — never reach the
+    prompt.
+
+    Section names are deliberately passed through untranslated. They are
+    written by the consolidator in the deployment's own language ("不确定" /
+    "Unsure"), and reading them is exactly the model's job; a lookup table here
+    would be a second place for that vocabulary to drift.
+    """
+    from deeptutor.services.memory import get_memory_store
+
+    try:
+        store = get_memory_store()
+    except Exception:
+        logger.debug("suggestions: memory store unavailable", exc_info=True)
+        return ""
+
+    per_slot = max(1, cap // len(_L3_ORDER))
+    carry = 0
+    blocks: list[str] = []
+    for slot in _L3_ORDER:
+        try:
+            doc = store.read_doc("L3", slot)
+        except Exception:
+            logger.debug("suggestions: L3 %s unreadable", slot, exc_info=True)
+            continue
+        budget = per_slot + carry
+        lines: list[str] = []
+        used = 0
+        for section, entries in doc.sections:
+            head = f"### {section}"
+            if used + len(head) > budget:
+                break
+            lines.append(head)
+            used += len(head)
+            for entry in entries:
+                text = " ".join(entry.text.split())
+                if not text:
+                    continue
+                bullet = f"- {text}"
+                if used + len(bullet) > budget:
+                    break
+                lines.append(bullet)
+                used += len(bullet)
+        # Carry the unspent budget forward: preferences is a line or two, and
+        # its leftover is what lets scope be shown in full.
+        carry = budget - used
+        if lines:
+            blocks.append(f"## {doc.title or slot}\n" + "\n".join(lines))
+    return "\n\n".join(blocks)
+
+
+def _collect_material(trace_count: int) -> _Material:
+    """L3 plus the most recent *trace_count* activities, newest first.
+
+    The traces are deliberately flat — one list across every surface, ordered
+    by time alone. What a learner touched most recently is the best signal for
+    what they are in the middle of, and which surface it happened on says
+    nothing about that.
     """
     from deeptutor.services.memory import recall
 
-    by_surface: dict[str, list[_Topic]] = {}
-
-    def _add(surface: str, label: str, age: int | None) -> None:
-        stripped = label.strip()
-        if len(stripped) < _MIN_TOPIC_CHARS or stripped.casefold() in _PLACEHOLDER_LABELS:
-            return
-        bucket = by_surface.setdefault(surface, [])
-        if len(bucket) >= _MAX_PER_SURFACE:
-            return
-        if any(existing.label.casefold() == label.casefold() for existing in bucket):
-            return
-        bucket.append(_Topic(surface=surface, label=label, days_ago=age))
-
-    try:
-        for hit in recall.recent(days=_LOOKBACK_DAYS, limit=_MAX_TOPICS * 4):
-            _add(hit.surface, hit.label, hit.days_ago)
-    except Exception:
-        logger.debug("suggestions: recall.recent failed", exc_info=True)
-
-    try:
-        for hit in recall.recent_queries(days=_LOOKBACK_DAYS, limit=_MAX_TOPICS):
-            _add(hit.surface, hit.label, hit.days_ago)
-    except Exception:
-        logger.debug("suggestions: recall.recent_queries failed", exc_info=True)
-
-    # Round-robin across surfaces: every kind gets its first item before any
-    # kind gets its second.
+    seen: set[str] = set()
     topics: list[_Topic] = []
-    for rank in range(_MAX_PER_SURFACE):
-        for bucket in by_surface.values():
-            if rank < len(bucket):
-                topics.append(bucket[rank])
-    return topics[:_MAX_TOPICS]
+
+    def _add(hit) -> None:
+        label = hit.label.strip()
+        if len(label) < _MIN_TOPIC_CHARS or label.casefold() in _PLACEHOLDER_LABELS:
+            return
+        if label.casefold() in seen:
+            return
+        seen.add(label.casefold())
+        topics.append(_Topic(surface=hit.surface, label=label, days_ago=hit.days_ago))
+
+    hits = []
+    for source, kwargs in (
+        (recall.recent, {"days": _LOOKBACK_DAYS, "limit": trace_count * 3}),
+        (recall.recent_queries, {"days": _LOOKBACK_DAYS, "limit": trace_count}),
+    ):
+        try:
+            hits.extend(source(**kwargs))
+        except Exception:
+            logger.debug("suggestions: %s failed", source.__name__, exc_info=True)
+
+    # One ordering across everything, then take the head. Over-fetching above
+    # is what makes the cut meaningful: filtering after a limit would let a run
+    # of placeholder titles eat the whole allowance.
+    hits.sort(key=lambda hit: (hit.ts != "", hit.ts), reverse=True)
+    for hit in hits:
+        if len(topics) >= trace_count:
+            break
+        _add(hit)
+
+    return _Material(profile=_render_l3(_MAX_PROFILE_CHARS), topics=topics)
 
 
-def _fingerprint(topics: list[_Topic], language: str) -> str:
+def _fingerprint(material: _Material, language: str) -> str:
     digest = hashlib.sha1(usedforsecurity=False)
     digest.update(language.encode("utf-8"))
-    for topic in topics:
+    digest.update(material.profile.encode("utf-8"))
+    for topic in material.topics:
         digest.update(b"\0")
         digest.update(f"{topic.surface}:{topic.label}".encode("utf-8"))
     return digest.hexdigest()[:16]
@@ -403,34 +518,41 @@ def _sanitize(raw: str, language: str = "en") -> tuple[Suggestion, ...]:
     return tuple(items[:_COUNT]) if len(items) >= _COUNT else ()
 
 
-async def _generate(language: str, topics: list[_Topic]) -> SuggestionSet:
-    """Build a fresh set from *topics*. Always returns one — empty on failure.
+async def _generate(language: str, material: _Material) -> SuggestionSet:
+    """Build a fresh set from *material*. Always returns one — empty on failure.
 
-    Takes the material rather than collecting it, so one pass reads the
-    surfaces once and every downstream decision — the fingerprint, whether an
-    empty result is meaningful — is made about the same snapshot.
+    Takes the material rather than collecting it, so one pass reads memory once
+    and every downstream decision — the fingerprint, whether an empty result is
+    meaningful — is made about the same snapshot.
     """
-    fingerprint = _fingerprint(topics, language)
+    fingerprint = _fingerprint(material, language)
     empty = SuggestionSet(
         suggestions=(),
         language=language,
         generated_at=time.time(),
         fingerprint=fingerprint,
     )
-    if not topics:
+    if not material:
         # Nothing to ground a suggestion in. Say so instead of asking a model
         # to invent a learning history.
         return empty
 
     zh = _is_zh(language)
-    user_prompt = (
-        f"这个学习者最近留下的痕迹：\n{_render_topics(topics, zh)}\n\n请提出那三个探索方向。"
-        if zh
-        else (
-            "Traces this learner has left recently:\n"
-            f"{_render_topics(topics, zh)}\n\nPropose the three things worth exploring next."
+    sections: list[str] = []
+    if material.profile:
+        sections.append(
+            ("# 关于这个学习者（长期记忆）\n" if zh else "# What is known about this learner\n")
+            + material.profile
         )
+    if material.topics:
+        sections.append(
+            ("# 最近的活动痕迹\n" if zh else "# Recent activity\n")
+            + _render_topics(material.topics, zh)
+        )
+    closing = (
+        "\n请提出那三个探索方向。" if zh else "\nPropose the three things worth exploring next."
     )
+    user_prompt = "\n\n".join(sections) + "\n" + closing
 
     try:
         from deeptutor.services.llm import complete
@@ -470,8 +592,8 @@ def _is_fresh(cached: SuggestionSet | None, language: str, *, now: float) -> boo
     )
 
 
-async def _generate_and_cache(language: str, topics: list[_Topic]) -> SuggestionSet:
-    """Generate from *topics* and cache the result — unless it is a failure.
+async def _generate_and_cache(language: str, material: _Material) -> SuggestionSet:
+    """Generate from *material* and cache the result — unless it is a failure.
 
     An empty result is only written when it is the *right* answer: there was no
     material to work from, and saying so costs nothing to repeat. An empty
@@ -481,48 +603,42 @@ async def _generate_and_cache(language: str, topics: list[_Topic]) -> Suggestion
     pass would see nothing due and never retry. Those are dropped instead, and
     the next visit tries again.
     """
-    value = await _generate(language, topics)
-    if value.suggestions or not topics:
+    value = await _generate(language, material)
+    if value.suggestions or not material:
         _save(value)
     return value
 
 
-async def refresh_suggestions(language: str = "en") -> SuggestionSet:
+async def refresh_suggestions() -> SuggestionSet:
     """Generate a new set now and cache it. For the manual reroll."""
-    return await _generate_and_cache(language, _collect_topics())
+    language = _output_language()
+    return await _generate_and_cache(language, _collect_material(_trace_count()))
 
 
-async def _regenerate_if_due(language: str) -> None:
+async def _regenerate_if_due() -> None:
     """The background pass: work out whether anything is due, then do it.
 
-    Walking the surfaces to fingerprint the material happens here rather than
-    on the request path — the answer only decides whether to spend an LLM call,
-    and acting on it one page load later is exactly what stale-while-revalidate
+    Reading memory to fingerprint the material happens here rather than on the
+    request path — the answer only decides whether to spend an LLM call, and
+    acting on it one page load later is exactly what stale-while-revalidate
     means.
     """
-    topics = _collect_topics()
-    fingerprint = _fingerprint(topics, language)
+    language = _output_language()
+    material = _collect_material(_trace_count())
+    fingerprint = _fingerprint(material, language)
     cached = _load()
     if _is_fresh(cached, language, now=time.time()) and cached.fingerprint == fingerprint:
         return
-    await _generate_and_cache(language, topics)
+    await _generate_and_cache(language, material)
 
 
-def _schedule_probe(language: str) -> None:
-    """Check (and maybe regenerate) in the background, throttled and deduped.
-
-    The throttle is keyed by scope *and* language. A cached set in one language
-    is not an answer for another, so a learner whose UI is Chinese must not be
-    held behind a throttle stamped by an English probe — that combination
-    leaves them looking at an empty slot until the interval expires, with a
-    perfectly fresh cache sitting there in the wrong language.
-    """
+def _schedule_probe() -> None:
+    """Check (and maybe regenerate) in the background, throttled and deduped."""
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         return
-    scope = _scope_key()
-    key = f"{scope}\0{language}"
+    key = _scope_key()
     now = time.monotonic()
     pending = _inflight.get(key)
     if pending is not None and not pending.done():
@@ -533,7 +649,7 @@ def _schedule_probe(language: str) -> None:
 
     async def _go() -> None:
         try:
-            await _regenerate_if_due(language)
+            await _regenerate_if_due()
         except Exception:
             logger.debug("background suggestion refresh failed", exc_info=True)
         finally:
@@ -544,16 +660,23 @@ def _schedule_probe(language: str) -> None:
     _inflight[key] = task
 
 
-async def get_suggestions(language: str = "en") -> dict[str, Any]:
+async def get_suggestions() -> dict[str, Any]:
     """The lines to show now, plus whether a fresher set is being made.
 
     Returns immediately, reading one small JSON file. An empty list is a real
-    answer — a new learner has nothing to suggest from — and ``stale`` tells
-    the caller whether it is worth looking again shortly.
+    answer — a learner with nothing in memory has nothing to suggest from — and
+    ``stale`` tells the caller whether it is worth looking again shortly.
+
+    Takes no language: the output language is the learner's own model-output
+    setting, read here. A caller-supplied language would let the UI's own
+    locale — which can resolve before the user's settings load — decide what a
+    model writes, and with one cache per user the two would overwrite each
+    other on every visit.
     """
+    language = _output_language()
     cached = _load()
     fresh = _is_fresh(cached, language, now=time.time())
-    _schedule_probe(language)
+    _schedule_probe()
 
     if cached is not None and cached.language == language:
         return {**cached.to_dict(), "stale": not fresh}

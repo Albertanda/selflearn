@@ -1,4 +1,4 @@
-"""Starter suggestions — caching, shaping, and staying off the request path."""
+"""Starter suggestions — material, caching, shaping, and staying off the request path."""
 
 from __future__ import annotations
 
@@ -12,6 +12,10 @@ import pytest
 from deeptutor.services import suggestions
 from deeptutor.services.memory.recall import RecallHit
 
+# The autouse fixture stubs _render_l3 so trace tests speak only about traces.
+# The L3 tests below restore this.
+_REAL_RENDER_L3 = suggestions._render_l3
+
 
 class _FakePathService:
     def __init__(self, root: Path) -> None:
@@ -20,13 +24,22 @@ class _FakePathService:
     def get_workspace_dir(self) -> Path:
         return self._root
 
+    def get_settings_file(self, name: str) -> Path:
+        return self._root / "settings" / f"{name}.json"
+
 
 @pytest.fixture(autouse=True)
 def isolated_scope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Route the cache into tmp_path and clear the in-process maps."""
+    """Route the cache into tmp_path, clear in-process maps, pin the language.
+
+    L3 is stubbed empty by default so material tests speak only about traces;
+    the tests that care about L3 override it.
+    """
     import deeptutor.services.path_service as path_service
 
     monkeypatch.setattr(path_service, "get_path_service", lambda: _FakePathService(tmp_path))
+    monkeypatch.setattr(suggestions, "_output_language", lambda: "en")
+    monkeypatch.setattr(suggestions, "_render_l3", lambda cap: "")
     suggestions._inflight.clear()
     suggestions._last_probe.clear()
     yield tmp_path
@@ -42,8 +55,14 @@ def no_material(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(recall, "recent_queries", lambda **_: [])
 
 
-def _hit(surface: str, label: str, age: int = 1) -> RecallHit:
-    return RecallHit(surface=surface, label=label, ts="2026-08-15T10:00:00+00:00", days_ago=age)
+def _hit(surface: str, label: str, age: int = 1, ts: str = "") -> RecallHit:
+    # Descending ts by age keeps "newest first" meaningful in flat ordering.
+    return RecallHit(
+        surface=surface,
+        label=label,
+        ts=ts or f"2026-08-{max(1, 30 - age):02d}T10:00:00+00:00",
+        days_ago=age,
+    )
 
 
 def _stub_material(monkeypatch: pytest.MonkeyPatch, hits: list[RecallHit]) -> None:
@@ -69,11 +88,10 @@ def _stub_llm(monkeypatch: pytest.MonkeyPatch, reply: str) -> list[str]:
 
 _THREE = json.dumps(
     [
-        {"label": "复习链式法则", "prompt": "把我上次做错的那道链式法则的题再讲一遍"},
-        {"label": "练特征值", "prompt": "出五道特征值的练习题给我"},
-        {"label": "回到 Agentic RAG", "prompt": "接着上次的 Agentic RAG，讲讲检索怎么排序"},
-    ],
-    ensure_ascii=False,
+        {"label": "How agentic RAG differs from naive RAG", "prompt": "Explain the difference."},
+        {"label": "Why the chain rule underlies backprop", "prompt": "Walk me through it."},
+        {"label": "What an eigenvalue actually measures", "prompt": "Start from the geometry."},
+    ]
 )
 
 
@@ -89,40 +107,26 @@ def _write_cache(root: Path, payload: dict) -> None:
 
 
 def test_sanitize_accepts_a_plain_array() -> None:
-    items = suggestions._sanitize(_THREE)
+    items = suggestions._sanitize(_THREE, "en")
 
-    assert [item.label for item in items] == ["复习链式法则", "练特征值", "回到 Agentic RAG"]
-    assert items[0].prompt.startswith("把我上次")
+    assert [item.label for item in items] == [
+        "How agentic RAG differs from naive RAG",
+        "Why the chain rule underlies backprop",
+        "What an eigenvalue actually measures",
+    ]
 
 
 def test_sanitize_accepts_a_fenced_array_with_prose_around_it() -> None:
     raw = f"Sure, here they are:\n```json\n{_THREE}\n```\nHope that helps!"
 
-    assert len(suggestions._sanitize(raw)) == 3
+    assert len(suggestions._sanitize(raw, "en")) == 3
 
 
 def test_sanitize_discards_a_partial_set() -> None:
     """One lonely line under the composer reads as a rendering bug."""
     raw = json.dumps([{"label": "a", "prompt": "b"}, {"label": "c", "prompt": "d"}])
 
-    assert suggestions._sanitize(raw) == ()
-
-
-def test_sanitize_keeps_labels_long_enough_to_be_specific() -> None:
-    """Naming a real distinction costs words, and that is the whole point.
-
-    A label bound tight enough to force "Explain a topic" would throw away
-    every line worth showing, so these realistic ones must survive.
-    """
-    raw = json.dumps(
-        [
-            {"label": "How agentic RAG differs from naive RAG", "prompt": "a"},
-            {"label": "Why the chain rule underlies backpropagation", "prompt": "b"},
-            {"label": "Where self-attention beats a plain RNN", "prompt": "c"},
-        ]
-    )
-
-    assert len(suggestions._sanitize(raw, "en")) == 3
+    assert suggestions._sanitize(raw, "en") == ()
 
 
 def test_sanitize_bounds_are_per_language() -> None:
@@ -137,19 +141,16 @@ def test_sanitize_bounds_are_per_language() -> None:
             {
                 "label": "How Self-Correction loops in LangGraph reduce pedagogical hallucinations",
                 "prompt": "How can I use LangGraph's cyclic patterns to implement a "
-                "self-correction loop that verifies factual accuracy before a "
-                "response reaches the student?",
+                "self-correction loop that verifies factual accuracy?",
             },
             {
                 "label": "Why RAG retrieval constraints differ for educational coaching versus search",
-                "prompt": "In an educational coaching context, how should RAG retrieval be "
-                "constrained to guide the student toward an answer rather than "
-                "simply providing it?",
+                "prompt": "How should RAG retrieval be constrained to guide a student "
+                "toward an answer rather than simply providing it?",
             },
             {
                 "label": "The trade-off between agentic autonomy and curriculum adherence",
-                "prompt": "How do we balance an agent's autonomy to follow student tangents "
-                "against the need to adhere to a syllabus?",
+                "prompt": "How do we balance an agent's autonomy against a syllabus?",
             },
         ]
     )
@@ -183,7 +184,7 @@ def test_sanitize_dedupes_repeated_labels() -> None:
         ]
     )
 
-    assert [item.label for item in suggestions._sanitize(raw)] == ["Same", "Other", "Third"]
+    assert [i.label for i in suggestions._sanitize(raw, "en")] == ["Same", "Other", "Third"]
 
 
 def test_sanitize_strips_quotes_and_collapses_whitespace() -> None:
@@ -195,62 +196,173 @@ def test_sanitize_strips_quotes_and_collapses_whitespace() -> None:
         ]
     )
 
-    items = suggestions._sanitize(raw)
+    items = suggestions._sanitize(raw, "en")
     assert items[0].label == "Quoted"
     assert items[0].prompt == "a ragged question"
 
 
 def test_sanitize_rejects_non_arrays() -> None:
-    assert suggestions._sanitize('{"label": "x", "prompt": "y"}') == ()
-    assert suggestions._sanitize("no json here at all") == ()
+    assert suggestions._sanitize('{"label": "x", "prompt": "y"}', "en") == ()
+    assert suggestions._sanitize("no json here at all", "en") == ()
 
 
-# ── Material ─────────────────────────────────────────────────────────────
+# ── Material: traces ─────────────────────────────────────────────────────
 
 
-def test_topics_are_capped_per_surface_and_interleaved(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Chat updates on every turn; without a cap it would be the whole list."""
+def test_traces_are_flat_and_newest_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    """One ordering across every surface. Which surface it came from says
+    nothing about whether the learner is in the middle of it."""
     _stub_material(
         monkeypatch,
-        [_hit("chat", f"Session {i}") for i in range(6)]
-        + [_hit("quiz", "What is an eigenvalue?")]
-        + [_hit("book", "Calculus notes")],
+        [
+            _hit("book", "Calculus notes", age=5),
+            _hit("chat", "Chain rule", age=1),
+            _hit("quiz", "What is an eigenvalue?", age=3),
+        ],
     )
 
-    topics = suggestions._collect_topics()
+    topics = suggestions._collect_material(10).topics
 
-    by_surface = [topic.surface for topic in topics]
-    assert by_surface.count("chat") == suggestions._MAX_PER_SURFACE
-    assert {"quiz", "book"} <= set(by_surface)
-    # Every kind gets its first item before any kind gets its second.
-    assert by_surface[:3] == ["chat", "quiz", "book"]
+    assert [t.label for t in topics] == [
+        "Chain rule",
+        "What is an eigenvalue?",
+        "Calculus notes",
+    ]
 
 
-def test_topics_merge_kb_queries_from_the_trace(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_trace_count_bounds_the_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_material(monkeypatch, [_hit("chat", f"Session {i}", age=i) for i in range(1, 30)])
+
+    assert len(suggestions._collect_material(5).topics) == 5
+    assert len(suggestions._collect_material(20).topics) == 20
+
+
+def test_traces_merge_kb_queries(monkeypatch: pytest.MonkeyPatch) -> None:
     from deeptutor.services.memory import recall
 
-    monkeypatch.setattr(recall, "recent", lambda **_: [_hit("chat", "Chain rule")])
+    monkeypatch.setattr(recall, "recent", lambda **_: [_hit("chat", "Chain rule", age=2)])
     monkeypatch.setattr(
-        recall, "recent_queries", lambda **_: [_hit("kb", "how does backprop work")]
+        recall, "recent_queries", lambda **_: [_hit("kb", "how does backprop work", age=1)]
     )
 
-    labels = [topic.label for topic in suggestions._collect_topics()]
+    labels = [t.label for t in suggestions._collect_material(10).topics]
 
-    assert labels == ["Chain rule", "how does backprop work"]
+    assert labels == ["how does backprop work", "Chain rule"]
 
 
-def test_topics_survive_a_broken_recall(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_traces_drop_noise_before_the_cut(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Filtering after the cut would let a run of placeholders eat the budget.
+
+    Placeholder titles are the *newest* rows by definition — a conversation is
+    created before it is named — so a naive "take k then filter" returns
+    nothing on an install where someone just opened three blank chats.
+    """
+    _stub_material(
+        monkeypatch,
+        [
+            _hit("chat", "New conversation", age=0),
+            _hit("chat", "新对话", age=0),
+            _hit("kb", "q", age=0),
+            _hit("chat", "LangGraph checkpointing", age=4),
+        ],
+    )
+
+    assert [t.label for t in suggestions._collect_material(2).topics] == ["LangGraph checkpointing"]
+
+
+def test_traces_dedupe_by_label(monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_material(
+        monkeypatch,
+        [_hit("chat", "Chain rule", age=1), _hit("book", "chain RULE", age=3)],
+    )
+
+    assert len(suggestions._collect_material(10).topics) == 1
+
+
+def test_traces_survive_a_broken_recall(monkeypatch: pytest.MonkeyPatch) -> None:
     from deeptutor.services.memory import recall
 
     def _boom(**_):
         raise RuntimeError("memory unreadable")
 
     monkeypatch.setattr(recall, "recent", _boom)
-    monkeypatch.setattr(recall, "recent_queries", lambda **_: [_hit("kb", "a query")])
+    monkeypatch.setattr(recall, "recent_queries", lambda **_: [_hit("kb", "a real query")])
 
-    assert [topic.label for topic in suggestions._collect_topics()] == ["a query"]
+    assert [t.label for t in suggestions._collect_material(10).topics] == ["a real query"]
+
+
+# ── Material: L3 ─────────────────────────────────────────────────────────
+
+
+class _FakeDoc:
+    def __init__(self, title: str, sections: list[tuple[str, list[str]]]) -> None:
+        self.title = title
+        self.sections = [
+            (name, [type("E", (), {"text": t})() for t in texts]) for name, texts in sections
+        ]
+
+
+def test_l3_renders_sections_and_bullets(monkeypatch: pytest.MonkeyPatch) -> None:
+    import deeptutor.services.memory as memory
+
+    docs = {
+        "scope": _FakeDoc("Knowledge scope", [("Unsure", ["Reranking trade-offs"])]),
+        "profile": _FakeDoc("User profile", [("Level", ["Comfortable with Python"])]),
+    }
+
+    class _Store:
+        def read_doc(self, layer: str, key: str):
+            return docs.get(key, _FakeDoc("", []))
+
+    monkeypatch.setattr(memory, "get_memory_store", lambda: _Store())
+    monkeypatch.setattr(suggestions, "_render_l3", _REAL_RENDER_L3)
+
+    rendered = suggestions._render_l3(6000)
+
+    assert "## Knowledge scope" in rendered
+    # Section names pass through untranslated — the consolidator writes them in
+    # the deployment's language and reading them is the model's job.
+    assert "### Unsure" in rendered
+    assert "- Reranking trade-offs" in rendered
+    assert "## User profile" in rendered
+
+
+def test_l3_is_bounded_and_carries_unspent_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A tiny preferences doc must not cost scope its share."""
+    import deeptutor.services.memory as memory
+
+    docs = {
+        "preferences": _FakeDoc("Preferences", [("P", ["Terse"])]),
+        "scope": _FakeDoc("Scope", [("Unsure", [f"item {i} " + "x" * 40 for i in range(40)])]),
+    }
+
+    class _Store:
+        def read_doc(self, layer: str, key: str):
+            return docs.get(key, _FakeDoc("", []))
+
+    monkeypatch.setattr(memory, "get_memory_store", lambda: _Store())
+    monkeypatch.setattr(suggestions, "_render_l3", _REAL_RENDER_L3)
+
+    small = suggestions._render_l3(200)
+    large = suggestions._render_l3(4000)
+
+    assert len(small) <= 400  # bounded, with per-section headers as overhead
+    assert len(large) > len(small)
+    # The scope entries got more than a bare quarter share, because preferences
+    # spent almost none of its own.
+    assert large.count("item ") > 4
+
+
+def test_l3_failure_is_not_fatal(monkeypatch: pytest.MonkeyPatch) -> None:
+    import deeptutor.services.memory as memory
+
+    def _boom():
+        raise RuntimeError("memory offline")
+
+    monkeypatch.setattr(memory, "get_memory_store", _boom)
+    monkeypatch.setattr(suggestions, "_render_l3", _REAL_RENDER_L3)
+
+    assert suggestions._render_l3(6000) == ""
 
 
 # ── Reads ────────────────────────────────────────────────────────────────
@@ -258,7 +370,7 @@ def test_topics_survive_a_broken_recall(monkeypatch: pytest.MonkeyPatch) -> None
 
 @pytest.mark.asyncio
 async def test_read_without_a_cache_is_empty_and_stale(no_material) -> None:
-    result = await suggestions.get_suggestions("zh")
+    result = await suggestions.get_suggestions()
 
     assert result["suggestions"] == []
     assert result["stale"] is True
@@ -275,15 +387,15 @@ async def test_read_never_calls_the_model(
         isolated_scope,
         {
             "suggestions": [{"label": "cached", "prompt": "from disk"}],
-            "language": "zh",
+            "language": "en",
             "generated_at": time.time(),
             "fingerprint": "whatever",
         },
     )
 
-    result = await suggestions.get_suggestions("zh")
+    result = await suggestions.get_suggestions()
 
-    assert [item["label"] for item in result["suggestions"]] == ["cached"]
+    assert [i["label"] for i in result["suggestions"]] == ["cached"]
     assert result["stale"] is False
     assert calls == []
 
@@ -298,43 +410,39 @@ async def test_expired_cache_is_still_served_while_it_regenerates(
         isolated_scope,
         {
             "suggestions": [{"label": "yesterday", "prompt": "old"}],
-            "language": "zh",
+            "language": "en",
             "generated_at": time.time() - suggestions._TTL_SECONDS - 1,
             "fingerprint": "old",
         },
     )
 
-    result = await suggestions.get_suggestions("zh")
+    result = await suggestions.get_suggestions()
 
     # Served immediately, flagged for a second look.
-    assert [item["label"] for item in result["suggestions"]] == ["yesterday"]
+    assert [i["label"] for i in result["suggestions"]] == ["yesterday"]
     assert result["stale"] is True
 
-    # The background pass replaces it.
     await asyncio.gather(*suggestions._inflight.values())
-    after = await suggestions.get_suggestions("zh")
-    assert [item["label"] for item in after["suggestions"]] == [
-        "复习链式法则",
-        "练特征值",
-        "回到 Agentic RAG",
-    ]
+    after = await suggestions.get_suggestions()
+    assert len(after["suggestions"]) == 3
 
 
 @pytest.mark.asyncio
-async def test_a_language_switch_is_not_served_from_the_other_language(
-    isolated_scope: Path, no_material
+async def test_a_cache_in_another_language_is_not_served(
+    monkeypatch: pytest.MonkeyPatch, isolated_scope: Path, no_material
 ) -> None:
+    """Changing the model-output setting invalidates what was generated before."""
     _write_cache(
         isolated_scope,
         {
-            "suggestions": [{"label": "cached", "prompt": "from disk"}],
+            "suggestions": [{"label": "缓存的", "prompt": "旧的"}],
             "language": "zh",
             "generated_at": time.time(),
             "fingerprint": "x",
         },
     )
 
-    result = await suggestions.get_suggestions("en")
+    result = await suggestions.get_suggestions()  # setting says "en"
 
     assert result["suggestions"] == []
     assert result["stale"] is True
@@ -344,44 +452,18 @@ async def test_a_language_switch_is_not_served_from_the_other_language(
 async def test_probe_is_throttled_across_a_burst_of_loads(
     monkeypatch: pytest.MonkeyPatch, no_material
 ) -> None:
-    scheduled: list[str] = []
-    monkeypatch.setattr(
-        suggestions, "_regenerate_if_due", lambda language: _noop(scheduled, language)
-    )
+    scheduled: list[int] = []
+
+    async def _noop() -> None:
+        scheduled.append(1)
+
+    monkeypatch.setattr(suggestions, "_regenerate_if_due", _noop)
 
     for _ in range(5):
-        await suggestions.get_suggestions("en")
+        await suggestions.get_suggestions()
     await asyncio.gather(*suggestions._inflight.values())
 
     assert len(scheduled) == 1
-
-
-@pytest.mark.asyncio
-async def test_the_throttle_does_not_swallow_a_language_switch(
-    monkeypatch: pytest.MonkeyPatch, no_material
-) -> None:
-    """A cached set in one language is not an answer for another.
-
-    The UI can ask in English before i18n settles and in Chinese immediately
-    after. If the second ask is throttled behind the first, the Chinese user
-    stares at an empty slot while a perfectly fresh English set sits in the
-    cache, unusable — for the whole throttle interval.
-    """
-    scheduled: list[str] = []
-    monkeypatch.setattr(
-        suggestions, "_regenerate_if_due", lambda language: _noop(scheduled, language)
-    )
-
-    await suggestions.get_suggestions("en")
-    await suggestions.get_suggestions("zh")
-    await suggestions.get_suggestions("zh")  # this one IS throttled
-    await asyncio.gather(*suggestions._inflight.values())
-
-    assert scheduled == ["en", "zh"]
-
-
-async def _noop(sink: list[str], language: str) -> None:
-    sink.append(language)
 
 
 # ── Generation ───────────────────────────────────────────────────────────
@@ -394,24 +476,55 @@ async def test_no_material_means_no_model_call(
     """A brand-new learner has no history to ground a suggestion in."""
     calls = _stub_llm(monkeypatch, _THREE)
 
-    result = await suggestions.refresh_suggestions("en")
+    result = await suggestions.refresh_suggestions()
 
     assert result.suggestions == ()
     assert calls == []
 
 
 @pytest.mark.asyncio
-async def test_generation_describes_the_material_in_the_learners_words(
+async def test_l3_alone_is_enough_material(monkeypatch: pytest.MonkeyPatch, no_material) -> None:
+    """Someone whose traces have aged out still has a consolidated profile."""
+    monkeypatch.setattr(suggestions, "_render_l3", lambda cap: "## Scope\n### Unsure\n- Rerankers")
+    calls = _stub_llm(monkeypatch, _THREE)
+
+    result = await suggestions.refresh_suggestions()
+
+    assert len(result.suggestions) == 3
+    assert "Rerankers" in calls[0]
+
+
+@pytest.mark.asyncio
+async def test_generation_shows_both_halves_of_the_material(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _stub_material(monkeypatch, [_hit("quiz", "What is an eigenvalue?", age=0)])
+    monkeypatch.setattr(suggestions, "_render_l3", lambda cap: "## Scope\n### Unsure\n- Eigenbases")
     calls = _stub_llm(monkeypatch, _THREE)
 
-    await suggestions.refresh_suggestions("zh")
+    await suggestions.refresh_suggestions()
 
-    assert "错题" in calls[0]
+    prompt = calls[0]
+    assert "Eigenbases" in prompt  # L3
+    assert "What is an eigenvalue?" in prompt  # trace
+    assert "practice question" in prompt  # surface, in the learner's words
+    assert "today" in prompt  # recency
+
+
+@pytest.mark.asyncio
+async def test_output_language_comes_from_the_setting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Not from the caller: the UI locale can resolve before settings load."""
+    monkeypatch.setattr(suggestions, "_output_language", lambda: "zh")
+    _stub_material(monkeypatch, [_hit("quiz", "特征值的几何意义", age=0)])
+    calls = _stub_llm(monkeypatch, _THREE)
+
+    result = await suggestions.refresh_suggestions()
+
+    assert result.language == "zh"
+    assert "错题" in calls[0]  # Chinese surface vocabulary
     assert "今天" in calls[0]
-    assert "What is an eigenvalue?" in calls[0]
 
 
 @pytest.mark.asyncio
@@ -427,7 +540,7 @@ async def test_a_failing_model_leaves_an_empty_set_not_an_exception(
 
     monkeypatch.setattr(llm, "complete", _boom)
 
-    result = await suggestions.refresh_suggestions("en")
+    result = await suggestions.refresh_suggestions()
 
     assert result.suggestions == ()
 
@@ -450,23 +563,23 @@ async def test_a_failed_generation_is_not_cached_over_the_material(
         raise RuntimeError("provider timed out")
 
     monkeypatch.setattr(llm, "complete", _boom)
-    await suggestions.refresh_suggestions("en")
+    await suggestions.refresh_suggestions()
 
     assert not (isolated_scope / "suggestions" / "starters.json").exists()
 
     # And the retry lands, rather than being skipped as "nothing due".
     calls = _stub_llm(monkeypatch, _THREE)
-    await suggestions._regenerate_if_due("en")
+    await suggestions._regenerate_if_due()
     assert len(calls) == 1
-    assert len((await suggestions.get_suggestions("en"))["suggestions"]) == 3
+    assert len((await suggestions.get_suggestions())["suggestions"]) == 3
 
 
 @pytest.mark.asyncio
 async def test_an_empty_result_with_no_material_is_cached(
-    monkeypatch: pytest.MonkeyPatch, isolated_scope: Path, no_material
+    isolated_scope: Path, no_material
 ) -> None:
     """Empty is the right answer here, and repeating it should stay free."""
-    await suggestions.refresh_suggestions("en")
+    await suggestions.refresh_suggestions()
 
     assert (isolated_scope / "suggestions" / "starters.json").exists()
 
@@ -478,16 +591,33 @@ async def test_unchanged_material_inside_the_ttl_skips_the_model(
     _stub_material(monkeypatch, [_hit("chat", "Chain rule")])
     calls = _stub_llm(monkeypatch, _THREE)
 
-    await suggestions.refresh_suggestions("en")
+    await suggestions.refresh_suggestions()
     assert len(calls) == 1
 
     # Same material, still fresh: the background pass must not spend a call.
-    await suggestions._regenerate_if_due("en")
+    await suggestions._regenerate_if_due()
     assert len(calls) == 1
 
     # New material: it must.
     _stub_material(monkeypatch, [_hit("chat", "Eigenvalues")])
-    await suggestions._regenerate_if_due("en")
+    await suggestions._regenerate_if_due()
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_changed_l3_alone_triggers_regeneration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The profile is half the material, so it belongs in the fingerprint."""
+    _stub_material(monkeypatch, [_hit("chat", "Chain rule")])
+    monkeypatch.setattr(suggestions, "_render_l3", lambda cap: "## Scope\n- A")
+    calls = _stub_llm(monkeypatch, _THREE)
+
+    await suggestions.refresh_suggestions()
+    assert len(calls) == 1
+
+    monkeypatch.setattr(suggestions, "_render_l3", lambda cap: "## Scope\n- B")
+    await suggestions._regenerate_if_due()
     assert len(calls) == 2
 
 
@@ -499,7 +629,7 @@ async def test_two_users_never_see_each_others_suggestions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The cache is addressed through the multi-user path service, so one
-    user's chips must not leak into another's response."""
+    user's lines must not leak into another's response."""
     import deeptutor.services.path_service as path_service
 
     alice, bob = tmp_path / "alice", tmp_path / "bob"
@@ -508,10 +638,10 @@ async def test_two_users_never_see_each_others_suggestions(
     _stub_material(monkeypatch, [_hit("chat", "Chain rule")])
     _stub_llm(monkeypatch, _THREE)
 
-    await suggestions.refresh_suggestions("zh")
-    mine = await suggestions.get_suggestions("zh")
+    await suggestions.refresh_suggestions()
+    mine = await suggestions.get_suggestions()
     assert len(mine["suggestions"]) == 3
 
     current["root"] = bob
-    theirs = await suggestions.get_suggestions("zh")
+    theirs = await suggestions.get_suggestions()
     assert theirs["suggestions"] == []

@@ -60,12 +60,9 @@ export default function StarterSuggestions({
   onPick: (prompt: string) => void;
   disabled?: boolean;
 }) {
-  const { t, i18n, ready } = useTranslation();
-  // Asking before i18n settles resolves to "en" for everyone, and the backend
-  // caches per language — so one early request makes an English set that a
-  // Chinese UI can then never use. Wait for the real answer.
-  const language = i18n.language?.toLowerCase().startsWith("zh") ? "zh" : "en";
-  // Everything rendered here is generated, already in the learner's language,
+  const { t } = useTranslation();
+  // Everything rendered here is generated, already in the learner's chosen
+  // output language (resolved server-side from their model-output setting),
   // and never goes through the i18n table — a label that happened to match a
   // key would be silently replaced by an unrelated translation.
   const [items, setItems] = useState<Suggestion[]>([]);
@@ -76,7 +73,7 @@ export default function StarterSuggestions({
     async (signal?: AbortSignal): Promise<SuggestionPayload | null> => {
       try {
         const response = await apiFetch(
-          apiUrl(`/api/v1/dashboard/suggestions?language=${language}`),
+          apiUrl("/api/v1/dashboard/suggestions"),
           { signal, cache: "no-store" },
         );
         if (!response.ok) return null;
@@ -85,11 +82,10 @@ export default function StarterSuggestions({
         return null;
       }
     },
-    [language],
+    [],
   );
 
   useEffect(() => {
-    if (!ready) return;
     const controller = new AbortController();
     void (async () => {
       const payload = await load(controller.signal);
@@ -118,13 +114,13 @@ export default function StarterSuggestions({
       controller.abort();
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [load, ready]);
+  }, [load]);
 
   const reroll = useCallback(async () => {
     setRefreshing(true);
     try {
       const response = await apiFetch(
-        apiUrl(`/api/v1/dashboard/suggestions/refresh?language=${language}`),
+        apiUrl("/api/v1/dashboard/suggestions/refresh"),
         { method: "POST" },
       );
       if (response.ok) {
@@ -138,7 +134,7 @@ export default function StarterSuggestions({
     } finally {
       setRefreshing(false);
     }
-  }, [language]);
+  }, []);
 
   if (!items.length) return null;
 

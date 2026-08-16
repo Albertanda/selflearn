@@ -10,7 +10,7 @@ never be reached.
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException
 
 from deeptutor.services.session import get_session_store
 
@@ -47,21 +47,24 @@ async def get_recent_activities(limit: int = 50, type: str | None = None):
 
 
 @router.get("/suggestions")
-async def get_starter_suggestions(language: str = Query(default="en")):
+async def get_starter_suggestions():
     """The three starting points for the home composer.
 
     Returns immediately, even when the set is stale — regeneration happens
     behind the response. An empty ``suggestions`` list means there is nothing
-    in memory to ground a suggestion in; the client shows its own fixed
-    starters then. See :mod:`deeptutor.services.suggestions`.
+    in memory to ground a suggestion in, and the client renders nothing.
+
+    No language parameter: the output language is the learner's own
+    model-output setting, resolved server-side. See
+    :mod:`deeptutor.services.suggestions`.
     """
     from deeptutor.services.suggestions import get_suggestions
 
-    return await get_suggestions(language)
+    return await get_suggestions()
 
 
 @router.post("/suggestions/refresh")
-async def refresh_starter_suggestions(language: str = Query(default="en")):
+async def refresh_starter_suggestions():
     """Generate a new set now. Backs the reroll control.
 
     Synchronous, unlike the read: a human clicked and is waiting for a
@@ -69,7 +72,7 @@ async def refresh_starter_suggestions(language: str = Query(default="en")):
     """
     from deeptutor.services.suggestions import refresh_suggestions
 
-    result = await refresh_suggestions(language)
+    result = await refresh_suggestions()
     return {**result.to_dict(), "stale": False}
 
 

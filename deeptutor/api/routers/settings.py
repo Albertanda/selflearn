@@ -51,6 +51,9 @@ from deeptutor.services.settings.interface_settings import (
     DEFAULT_UI_SETTINGS as INTERFACE_DEFAULTS,
 )
 from deeptutor.services.settings.interface_settings import resolve_languages
+from deeptutor.services.settings.starter_settings import (
+    TRACE_COUNT_RANGE as STARTER_TRACE_COUNT_RANGE,
+)
 from deeptutor.tools.builtin import USER_TOGGLEABLE_TOOL_NAMES
 
 router = APIRouter()
@@ -218,6 +221,16 @@ class ChatAttachmentSettingsUpdate(BaseModel):
     max_chars_total: int = Field(
         ge=CHAT_ATTACHMENT_CHARS_RANGE[0], le=CHAT_ATTACHMENT_CHARS_RANGE[1]
     )
+
+
+class ChatStarterSettingsUpdate(BaseModel):
+    """How much recent activity shapes the home screen's starting points.
+
+    Bounds mirror ``starter_settings.TRACE_COUNT_RANGE`` so the API rejects
+    loudly what the file layer would silently clamp.
+    """
+
+    trace_count: int = Field(ge=STARTER_TRACE_COUNT_RANGE[0], le=STARTER_TRACE_COUNT_RANGE[1])
 
 
 class MinerUSettingsUpdate(BaseModel):
@@ -760,6 +773,33 @@ async def get_chat_attachment_settings():
     """Chat attachment policy. Readable by any user — the composer needs the
     caps to gate file picks client-side; only the PUT is admin-gated."""
     return _chat_attachments_payload()
+
+
+@router.get("/chat-starters")
+async def get_chat_starter_settings():
+    """How many recent activities shape the home screen's starting points.
+
+    Per user and not admin-gated, unlike the attachment caps next door: this
+    changes the size of one prompt built from the caller's own memory, not any
+    resource other people share.
+    """
+    from deeptutor.services.settings.starter_settings import (
+        TRACE_COUNT_RANGE,
+        get_starter_settings,
+    )
+
+    return {"settings": get_starter_settings(), "bounds": {"trace_count": TRACE_COUNT_RANGE}}
+
+
+@router.put("/chat-starters")
+async def update_chat_starter_settings(payload: ChatStarterSettingsUpdate):
+    from deeptutor.services.settings.starter_settings import (
+        TRACE_COUNT_RANGE,
+        save_starter_settings,
+    )
+
+    saved = save_starter_settings({"trace_count": payload.trace_count})
+    return {"settings": saved, "bounds": {"trace_count": TRACE_COUNT_RANGE}}
 
 
 @router.put("/chat-attachments")
