@@ -1,8 +1,16 @@
-"""Dashboard API backed by the unified SQLite session store."""
+"""Dashboard API — what the home screen shows before a conversation starts.
+
+Recent activity comes from the unified SQLite session store; the starter chips
+come from :mod:`deeptutor.services.suggestions`, which reads memory.
+
+Route order matters here: ``/{entry_id}`` at the bottom of this module matches
+any single segment, so every literal path must be declared above it or it will
+never be reached.
+"""
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from deeptutor.services.session import get_session_store
 
@@ -36,6 +44,33 @@ async def get_recent_activities(limit: int = 50, type: str | None = None):
         )
 
     return activities[:limit]
+
+
+@router.get("/suggestions")
+async def get_starter_suggestions(language: str = Query(default="en")):
+    """The three starter chips for the home composer.
+
+    Returns immediately, even when the set is stale — regeneration happens
+    behind the response. An empty ``suggestions`` list means there is nothing
+    in memory to ground a suggestion in; the client shows its own fixed
+    starters then. See :mod:`deeptutor.services.suggestions`.
+    """
+    from deeptutor.services.suggestions import get_suggestions
+
+    return await get_suggestions(language)
+
+
+@router.post("/suggestions/refresh")
+async def refresh_starter_suggestions(language: str = Query(default="en")):
+    """Generate a new set now. Backs the reroll control.
+
+    Synchronous, unlike the read: a human clicked and is waiting for a
+    different set.
+    """
+    from deeptutor.services.suggestions import refresh_suggestions
+
+    result = await refresh_suggestions(language)
+    return {**result.to_dict(), "stale": False}
 
 
 @router.get("/{entry_id}")
