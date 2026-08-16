@@ -37,9 +37,11 @@ when the *content* should change, the second is so the same three lines do not
 greet someone all week. A manual refresh bypasses both and generates
 synchronously, because there a human is deliberately waiting.
 
-Empty is a valid answer. A learner with no history gets no generated lines and
-no LLM call; the frontend shows a fixed set of product starters instead, which
-is honest about knowing nothing yet.
+Empty is a valid answer. A learner with no usable history gets no lines and no
+LLM call, and the frontend renders nothing at all — generic copy in that slot
+would teach people to stop reading it. But empty is only *cached* when it is
+the right answer: an empty result produced despite having material is a
+failure, and writing it would pin that failure in place for a whole TTL.
 """
 
 from __future__ import annotations
@@ -65,12 +67,37 @@ _TTL_SECONDS = 6 * 3600
 # meaningfully change that fast.
 _PROBE_INTERVAL_SECONDS = 60.0
 _LLM_TIMEOUT = 25.0
-# How much history shapes the lines.
-_LOOKBACK_DAYS = 7
+# How much history shapes the lines. A month rather than a week: labels are
+# deduplicated by name and capped per surface, so a long window does not mean a
+# long list — it means a learner who spent this week on one thing still has
+# something to be offered. A week left an active user with a single usable
+# trace once repeats were collapsed.
+_LOOKBACK_DAYS = 30
 _MAX_TOPICS = 8
-# Per surface, so three chats cannot crowd out the quiz and the KB. The whole
-# point of reading every surface is that the three differ in kind.
-_MAX_PER_SURFACE = 2
+# Per surface, so chat cannot crowd out the quiz and the KB. The whole point of
+# reading every surface is that the three differ in kind.
+_MAX_PER_SURFACE = 3
+# Below this a label carries no subject to propose anything about — a knowledge
+# base named "q", a search for "q2", an untitled draft. They are real activity
+# and recall is right to return them; they just cannot ground a suggestion, and
+# left in they crowd out traces that can.
+_MIN_TOPIC_CHARS = 3
+# Titles a surface assigns before the learner (or the model) names the thing.
+# They are the *newest* rows by definition — a conversation is created before
+# it is titled — so without this they take the per-surface budget and leave the
+# named work outside it. Mirrors ``DEFAULT_SESSION_TITLE`` in
+# ``web/lib/session-title.ts``; drifting means one placeholder slips through,
+# which costs a suggestion rather than breaking anything.
+_PLACEHOLDER_LABELS = frozenset(
+    {
+        "new conversation",
+        "new chat",
+        "新对话",
+        "untitled",
+        "untitled draft",
+        "无标题",
+    }
+)
 # The line the learner reads, and the message behind it. Over-long output means
 # the model ignored the brief; the item is dropped rather than truncated,
 # because half a sentence is worse than one fewer starting point. The label
@@ -220,6 +247,9 @@ def _collect_topics() -> list[_Topic]:
     by_surface: dict[str, list[_Topic]] = {}
 
     def _add(surface: str, label: str, age: int | None) -> None:
+        stripped = label.strip()
+        if len(stripped) < _MIN_TOPIC_CHARS or stripped.casefold() in _PLACEHOLDER_LABELS:
+            return
         bucket = by_surface.setdefault(surface, [])
         if len(bucket) >= _MAX_PER_SURFACE:
             return
@@ -280,6 +310,7 @@ Other good shapes: "Why the chain rule underlies backpropagation" / "Where self-
 Rules:
 - Reply with ONLY a JSON array of exactly 3 such objects. No prose, no markdown fence.
 - Every proposal must be traceable to the material below. Going one step beyond what it literally says is the point — but never introduce a subject with no root in it.
+- The material is raw activity and some of it is noise: a scratch file, a one-word search, a conversation that went nowhere. Skip those and build on the traces that carry a real subject. Three proposals from two good traces beat three that include one about "hello".
 - Make the three differ: different subjects from the material, and different kinds of question (a distinction, a mechanism, a why, a boundary case).
 - No greetings, no emoji, no quotes around the fields' text."""
 
@@ -302,6 +333,7 @@ _SYSTEM_ZH = """你要提出三个"接下来值得探索什么"。每一个都�
 规则：
 - 只回复一个 JSON 数组，正好 3 个这样的对象。不要有任何解释文字，不要 markdown 代码块。
 - 每一个都必须能追溯到下面的素材。比素材字面上说的**多走一步**正是要点——但绝不能引入素材里毫无根据的话题。
+- 素材是原始活动记录，其中有噪音：随手建的文件、一个词的检索、没聊起来的对话。跳过它们，只在真正有内容的痕迹上做文章。宁可三个都从两条好素材里长出来，也不要有一个是关于 "hello" 的。
 - 三个之间要有区别：取素材里不同的内容，也问不同类型的问题（一个区别、一个机制、一个为什么、一个边界情况）。
 - 不要问候语、不要 emoji、字段文本里不要加引号。"""
 
@@ -357,9 +389,13 @@ def _sanitize(raw: str) -> tuple[Suggestion, ...]:
     return tuple(items[:_COUNT]) if len(items) >= _COUNT else ()
 
 
-async def _generate(language: str) -> SuggestionSet:
-    """Build a fresh set. Always returns one — empty on any failure."""
-    topics = _collect_topics()
+async def _generate(language: str, topics: list[_Topic]) -> SuggestionSet:
+    """Build a fresh set from *topics*. Always returns one — empty on failure.
+
+    Takes the material rather than collecting it, so one pass reads the
+    surfaces once and every downstream decision — the fingerprint, whether an
+    empty result is meaningful — is made about the same snapshot.
+    """
     fingerprint = _fingerprint(topics, language)
     empty = SuggestionSet(
         suggestions=(),
@@ -420,11 +456,26 @@ def _is_fresh(cached: SuggestionSet | None, language: str, *, now: float) -> boo
     )
 
 
+async def _generate_and_cache(language: str, topics: list[_Topic]) -> SuggestionSet:
+    """Generate from *topics* and cache the result — unless it is a failure.
+
+    An empty result is only written when it is the *right* answer: there was no
+    material to work from, and saying so costs nothing to repeat. An empty
+    result produced *despite* having material means the call failed or the
+    model ignored the brief, and writing that would pin the failure in place
+    for a full TTL — the fingerprint would keep matching, so the background
+    pass would see nothing due and never retry. Those are dropped instead, and
+    the next visit tries again.
+    """
+    value = await _generate(language, topics)
+    if value.suggestions or not topics:
+        _save(value)
+    return value
+
+
 async def refresh_suggestions(language: str = "en") -> SuggestionSet:
     """Generate a new set now and cache it. For the manual reroll."""
-    value = await _generate(language)
-    _save(value)
-    return value
+    return await _generate_and_cache(language, _collect_topics())
 
 
 async def _regenerate_if_due(language: str) -> None:
@@ -440,16 +491,24 @@ async def _regenerate_if_due(language: str) -> None:
     cached = _load()
     if _is_fresh(cached, language, now=time.time()) and cached.fingerprint == fingerprint:
         return
-    await refresh_suggestions(language)
+    await _generate_and_cache(language, topics)
 
 
 def _schedule_probe(language: str) -> None:
-    """Check (and maybe regenerate) in the background, throttled and deduped."""
+    """Check (and maybe regenerate) in the background, throttled and deduped.
+
+    The throttle is keyed by scope *and* language. A cached set in one language
+    is not an answer for another, so a learner whose UI is Chinese must not be
+    held behind a throttle stamped by an English probe — that combination
+    leaves them looking at an empty slot until the interval expires, with a
+    perfectly fresh cache sitting there in the wrong language.
+    """
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         return
-    key = _scope_key()
+    scope = _scope_key()
+    key = f"{scope}\0{language}"
     now = time.monotonic()
     pending = _inflight.get(key)
     if pending is not None and not pending.done():

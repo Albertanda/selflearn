@@ -323,6 +323,30 @@ async def test_probe_is_throttled_across_a_burst_of_loads(
     assert len(scheduled) == 1
 
 
+@pytest.mark.asyncio
+async def test_the_throttle_does_not_swallow_a_language_switch(
+    monkeypatch: pytest.MonkeyPatch, no_material
+) -> None:
+    """A cached set in one language is not an answer for another.
+
+    The UI can ask in English before i18n settles and in Chinese immediately
+    after. If the second ask is throttled behind the first, the Chinese user
+    stares at an empty slot while a perfectly fresh English set sits in the
+    cache, unusable — for the whole throttle interval.
+    """
+    scheduled: list[str] = []
+    monkeypatch.setattr(
+        suggestions, "_regenerate_if_due", lambda language: _noop(scheduled, language)
+    )
+
+    await suggestions.get_suggestions("en")
+    await suggestions.get_suggestions("zh")
+    await suggestions.get_suggestions("zh")  # this one IS throttled
+    await asyncio.gather(*suggestions._inflight.values())
+
+    assert scheduled == ["en", "zh"]
+
+
 async def _noop(sink: list[str], language: str) -> None:
     sink.append(language)
 
@@ -373,6 +397,45 @@ async def test_a_failing_model_leaves_an_empty_set_not_an_exception(
     result = await suggestions.refresh_suggestions("en")
 
     assert result.suggestions == ()
+
+
+@pytest.mark.asyncio
+async def test_a_failed_generation_is_not_cached_over_the_material(
+    monkeypatch: pytest.MonkeyPatch, isolated_scope: Path
+) -> None:
+    """Caching a failure would pin it in place for a whole TTL.
+
+    The fingerprint of a failed run matches the material it failed on, so the
+    background pass would then see "fresh, unchanged" and never retry — the
+    learner gets an empty slot for six hours because one call timed out.
+    """
+    import deeptutor.services.llm as llm
+
+    _stub_material(monkeypatch, [_hit("chat", "Chain rule")])
+
+    async def _boom(**_):
+        raise RuntimeError("provider timed out")
+
+    monkeypatch.setattr(llm, "complete", _boom)
+    await suggestions.refresh_suggestions("en")
+
+    assert not (isolated_scope / "suggestions" / "starters.json").exists()
+
+    # And the retry lands, rather than being skipped as "nothing due".
+    calls = _stub_llm(monkeypatch, _THREE)
+    await suggestions._regenerate_if_due("en")
+    assert len(calls) == 1
+    assert len((await suggestions.get_suggestions("en"))["suggestions"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_an_empty_result_with_no_material_is_cached(
+    monkeypatch: pytest.MonkeyPatch, isolated_scope: Path, no_material
+) -> None:
+    """Empty is the right answer here, and repeating it should stay free."""
+    await suggestions.refresh_suggestions("en")
+
+    assert (isolated_scope / "suggestions" / "starters.json").exists()
 
 
 @pytest.mark.asyncio

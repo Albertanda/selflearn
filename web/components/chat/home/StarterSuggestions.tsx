@@ -19,13 +19,17 @@ interface SuggestionPayload {
 }
 
 /**
- * How long to wait before re-reading a set the backend said was stale.
+ * How long to wait before re-reading a set the backend said was stale, and how
+ * many times.
  *
- * The backend answers instantly with the previous set and regenerates behind
- * the request, so a fresh one exists a moment later. One delayed re-read picks
- * it up without polling.
+ * The backend answers instantly and regenerates behind the request, so the
+ * fresh set exists a moment later — but "a moment" is a model call, which on a
+ * cold provider is comfortably longer than one interval. A few spaced re-reads
+ * cover that without turning into a poll; they stop as soon as something
+ * arrives, and the first visit of a session is the only time they all run.
  */
 const RESETTLE_MS = 3500;
+const RESETTLE_ATTEMPTS = 4;
 
 /**
  * The three things worth exploring next, under the home composer.
@@ -56,7 +60,10 @@ export default function StarterSuggestions({
   onPick: (prompt: string) => void;
   disabled?: boolean;
 }) {
-  const { t, i18n } = useTranslation();
+  const { t, i18n, ready } = useTranslation();
+  // Asking before i18n settles resolves to "en" for everyone, and the backend
+  // caches per language — so one early request makes an English set that a
+  // Chinese UI can then never use. Wait for the real answer.
   const language = i18n.language?.toLowerCase().startsWith("zh") ? "zh" : "en";
   // Everything rendered here is generated, already in the learner's language,
   // and never goes through the i18n table — a label that happened to match a
@@ -82,6 +89,7 @@ export default function StarterSuggestions({
   );
 
   useEffect(() => {
+    if (!ready) return;
     const controller = new AbortController();
     void (async () => {
       const payload = await load(controller.signal);
@@ -90,18 +98,27 @@ export default function StarterSuggestions({
       if (!payload.stale) return;
       // A fresher set is being generated — which is also the ordinary first
       // visit, where memory has material but nothing has been generated from
-      // it yet. Collect it once rather than poll.
-      timerRef.current = setTimeout(() => {
+      // it yet. Collect it as it lands rather than poll: the first look is
+      // early enough for a cache hit, the later ones cover a slow model.
+      let attempt = 0;
+      const collect = () => {
         void load(controller.signal).then((next) => {
-          if (next?.suggestions.length) setItems(next.suggestions);
+          if (next?.suggestions.length) {
+            setItems(next.suggestions);
+            return;
+          }
+          if (++attempt < RESETTLE_ATTEMPTS && !controller.signal.aborted) {
+            timerRef.current = setTimeout(collect, RESETTLE_MS);
+          }
         });
-      }, RESETTLE_MS);
+      };
+      timerRef.current = setTimeout(collect, RESETTLE_MS);
     })();
     return () => {
       controller.abort();
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [load]);
+  }, [load, ready]);
 
   const reroll = useCallback(async () => {
     setRefreshing(true);
