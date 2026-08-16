@@ -38,6 +38,7 @@ import type { ContextBudget } from "@/components/chat/home/ContextBudgetChip";
 import { ChatMessageList } from "@/components/chat/home/ChatMessages";
 import { TurnNavigator } from "@/components/chat/home/TurnNavigator";
 import SessionLoadingView from "@/components/chat/home/SessionLoadingView";
+import StarterSuggestions from "@/components/chat/home/StarterSuggestions";
 // Imported eagerly so the drawer shell is always mounted off-screen —
 // clicking a chip becomes a single CSS class flip, no chunk fetch + double
 // render. The heavy renderers inside still load lazily.
@@ -2152,6 +2153,18 @@ export default function ChatPage() {
               onCancelStreaming={cancelStreamingTurn}
               prefillInputRef={prefillInputRef}
             />
+            {/* Starter chips sit between the composer and the spacer, so they
+                ride up with the composer on the empty screen and disappear the
+                moment the conversation has a first message. Clicking one sends
+                it through the normal send path: this page is already a draft
+                session when it has no messages, so that both creates the
+                session and starts it on the topic. */}
+            {!hasMessages ? (
+              <StarterSuggestions
+                onPick={(prompt) => void handleSend(prompt)}
+                disabled={state.isStreaming}
+              />
+            ) : null}
             <div
               aria-hidden="true"
               className="shrink-0"
