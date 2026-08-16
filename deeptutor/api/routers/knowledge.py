@@ -28,7 +28,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from deeptutor.api.utils.progress_broadcaster import ProgressBroadcaster
 from deeptutor.api.utils.task_id_manager import TaskIDManager
@@ -66,6 +66,13 @@ from deeptutor.services.rag.linked_kb import (
     assert_path_allowed,
     probe_linked_folder,
 )
+from deeptutor.services.rag.pipelines.ima.client import (
+    ImaAPIError,
+    ImaAuthError,
+    ImaClient,
+    ImaRateLimitError,
+)
+from deeptutor.services.rag.pipelines.ima.config import ImaConfig
 from deeptutor.utils.document_extractor import (
     MAX_EXTRACTED_CHARS_PER_DOC,
     DocumentExtractionError,
@@ -1692,6 +1699,50 @@ async def connect_lightrag_server_route(payload: ConnectLightRagServerRequest):
     }
 
 
+class ListImaRequest(BaseModel):
+    client_id: str
+    api_key: str
+    cursor: str = ""
+    limit: int = Field(default=20, ge=1, le=20)
+
+
+class ImaKnowledgeBaseSummary(BaseModel):
+    id: str
+    name: str
+    description: str | None = None
+
+
+class ListImaResponse(BaseModel):
+    knowledge_bases: list[ImaKnowledgeBaseSummary]
+    next_cursor: str
+    is_end: bool
+
+
+@router.post("/list-ima", response_model=ListImaResponse)
+async def list_ima_route(payload: ListImaRequest):
+    """List IMA knowledge bases without storing or echoing credentials."""
+    client_id = payload.client_id.strip()
+    api_key = payload.api_key.strip()
+    if not client_id or not api_key:
+        raise HTTPException(status_code=400, detail="Client ID and API key are required.")
+
+    client = ImaClient(ImaConfig(client_id=client_id, api_key=api_key, knowledge_base_id=""))
+    try:
+        return await client.search_knowledge_bases(
+            query="",
+            cursor=payload.cursor.strip(),
+            limit=payload.limit,
+        )
+    except ImaAuthError:
+        raise HTTPException(status_code=401, detail="IMA rejected the supplied credentials.")
+    except ImaRateLimitError:
+        raise HTTPException(status_code=429, detail="IMA rate limit reached. Try again shortly.")
+    except ImaAPIError:
+        raise HTTPException(status_code=502, detail="IMA returned an invalid response.")
+    except Exception:
+        raise HTTPException(status_code=502, detail="Could not reach Tencent IMA.")
+
+
 class ProbeImaRequest(BaseModel):
     client_id: str
     api_key: str
@@ -1761,9 +1812,11 @@ async def connect_ima_route(payload: ConnectImaRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Error connecting IMA knowledge base: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        # Never echo or log an upstream message from this credential-bearing
+        # flow. The exception class is enough for server-side diagnosis.
+        logger.error("Error connecting IMA knowledge base (%s)", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Could not connect the IMA knowledge base.")
 
     return {
         "status": "connected",
