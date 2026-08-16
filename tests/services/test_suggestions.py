@@ -109,16 +109,16 @@ def test_sanitize_discards_a_partial_set() -> None:
 
 
 def test_sanitize_keeps_labels_long_enough_to_be_specific() -> None:
-    """Naming the actual thing costs words, and that is the whole point.
+    """Naming a real distinction costs words, and that is the whole point.
 
     A label bound tight enough to force "Explain a topic" would throw away
     every line worth showing, so these realistic ones must survive.
     """
     raw = json.dumps(
         [
-            {"label": "Redo the two eigenvalue questions you missed", "prompt": "a"},
-            {"label": "Build intuition for the chain rule", "prompt": "b"},
-            {"label": "把上次 Agentic RAG 的检索排序接着讲完", "prompt": "c"},
+            {"label": "How agentic RAG differs from naive RAG", "prompt": "a"},
+            {"label": "Why the chain rule underlies backpropagation", "prompt": "b"},
+            {"label": "自注意力比 RNN 强在哪一步", "prompt": "c"},
         ],
         ensure_ascii=False,
     )

@@ -1,12 +1,21 @@
 """Starter suggestions — the three lines offered under the home composer.
 
-Each is two strings that do different jobs. ``label`` is the line the learner
-reads, and it has one job: name the specific thing worth doing next. "Explain a
-topic" names an activity and would fit any learner's screen; "把链式法则的直觉
-讲透" names theirs. ``prompt`` is what gets *sent as their own message* when
-they click, so it has to be first-person, complete, and specific enough to
-answer — "把我上次做错的那道链式法则的题再讲一遍", not "你上次在学链式法则",
-which a model can only agree with.
+What makes one of these worth showing is a jump, not a summary. The material
+is a set of traces — a session titled "Agentic RAG retrieval flow", a quiz
+question, a knowledge-base search. Restating a trace ("接着讲 Agentic RAG 的检索
+流程") proposes nothing: the learner already knows they were there. Naming a
+field ("探索一下检索") proposes nothing either. What earns the click is the
+specific thing about that subject worth understanding next — "Agentic RAG 和
+naive RAG 的检索差在哪". Same root, one step further.
+
+So ``label`` is that proposal, and it names an idea, a distinction, a
+mechanism or a question — never an activity. ``prompt`` is what gets *sent as
+the learner's own message* when they click, so it is first-person, complete,
+and pointed enough that answering it teaches something.
+
+The jump has a floor: every proposal must be traceable to the material. One
+step beyond what a trace literally says is the point; a subject with no root in
+it is invention, and invention is worse than silence here.
 
 Never on the request path
 -------------------------
@@ -65,8 +74,8 @@ _MAX_PER_SURFACE = 2
 # The line the learner reads, and the message behind it. Over-long output means
 # the model ignored the brief; the item is dropped rather than truncated,
 # because half a sentence is worse than one fewer starting point. The label
-# bound is generous enough for "Redo the two eigenvalue questions you missed" —
-# naming the actual thing costs words, and that specificity is the point.
+# bound is generous enough for "How agentic RAG differs from naive RAG" —
+# naming a real distinction costs words, and that is the whole point.
 _MAX_LABEL_CHARS = 60
 _MAX_PROMPT_CHARS = 240
 
@@ -252,36 +261,48 @@ def _fingerprint(topics: list[_Topic], language: str) -> str:
 # ── Generation ───────────────────────────────────────────────────────────
 
 
-_SYSTEM_EN = """You write the three starting points a learning app offers its learner. Each is one line of text they click to begin.
+_SYSTEM_EN = """You propose the three things a learner should explore next. Each is one line they click to begin.
 
-Each is an object with two fields:
-- "label": the line they read. 4 to 9 words, no ending punctuation. It MUST name the specific thing from the material — the concept, the question, the document. It is a proposal for what to do next, not a category of activity.
-- "prompt": the message sent as the learner's own words when they click. First person, complete, specific enough to answer directly.
+You are given traces of what they have been working on — conversations, practice questions, searches, documents. Your job is to see the *subject* behind those traces and name something specific about it that is worth understanding.
 
-The single most important rule: be concrete. A line that could appear in any learner's app has failed.
-- BAD: "Explain a topic" / "Review your notes" / "Practise some questions" — these name an activity, not a subject.
-- GOOD: "Build intuition for the chain rule" / "Redo the two eigenvalue questions you missed" / "Pick up where Agentic RAG retrieval left off"
+Each proposal is an object with two fields:
+- "label": the line they read. 4 to 10 words, no ending punctuation. It names a specific idea, distinction, mechanism or question — never an activity.
+- "prompt": the message sent as the learner's own words when they click. First person, complete, and pointed enough that a good answer teaches them something.
+
+The move you are making, in one example:
+  Trace: [conversation, 2d ago] Agentic RAG retrieval flow
+  GOOD: "How agentic RAG differs from naive RAG"
+  BAD:  "Continue the Agentic RAG conversation"  <- restates the trace; proposes nothing to understand
+  BAD:  "Explore retrieval"                      <- names a field, not a question
+
+Other good shapes: "Why the chain rule underlies backpropagation" / "Where self-attention beats a plain RNN" / "What an eigenvalue actually measures" / "When BM25 still beats embeddings"
 
 Rules:
 - Reply with ONLY a JSON array of exactly 3 such objects. No prose, no markdown fence.
-- Every line must be grounded in the material given. Name what is actually there; never invent a topic.
-- Make the three differ — different items from the material, and different things to do with them (explain, practise, review, go deeper).
+- Every proposal must be traceable to the material below. Going one step beyond what it literally says is the point — but never introduce a subject with no root in it.
+- Make the three differ: different subjects from the material, and different kinds of question (a distinction, a mechanism, a why, a boundary case).
 - No greetings, no emoji, no quotes around the fields' text."""
 
-_SYSTEM_ZH = """你要为一个学习应用写出三个"从这里开始"的入口。每一个都是一行字，学习者点一下就开始。
+_SYSTEM_ZH = """你要提出三个"接下来值得探索什么"。每一个都是一行字，学习者点一下就开始。
+
+给你的是这个学习者最近留下的痕迹——对话、错题、检索、文档。你要做的是：看出这些痕迹背后是什么**学科内容**，然后点出关于它的、一个具体的、值得搞懂的东西。
 
 每一个是一个对象，含两个字段：
-- "label"：学习者读到的那行字。8 到 16 个字，结尾不加标点。必须点出素材里那个**具体**的东西——具体的概念、具体的题、具体的文档。它是一个"接下来做这个"的提议，不是一类活动的名称。
-- "prompt"：学习者点击后以自己的身份发出的那句话。第一人称、完整、具体到可以直接回答。
+- "label"：学习者读到的那行字。8 到 20 个字，结尾不加标点。它点出的是一个具体的概念、区别、机制或问题，绝不是一类活动。
+- "prompt"：学习者点击后以自己的身份发出的那句话。第一人称、完整、问得足够到位，好的回答能让他真的学到东西。
 
-最重要的一条规则：要具体。一句放在谁的界面上都成立的话，就是失败的。
-- 差："讲解一个主题" / "复习一下笔记" / "做几道练习题"——这些说的是活动类型，不是具体内容。
-- 好："把链式法则的直觉讲透" / "重做上次错的那两道特征值" / "接着 Agentic RAG 的检索排序讲"
+你要做的这个跃迁，看一个例子：
+  痕迹：[对话，2 天前] Agentic RAG 的检索流程
+  好："Agentic RAG 和 naive RAG 的检索差在哪"
+  差："接着讲 Agentic RAG 的检索流程"  <- 只是把痕迹复述一遍，没提出任何要搞懂的东西
+  差："探索一下检索"                    <- 说的是一个领域，不是一个问题
+
+其他好的形态："为什么链式法则是反向传播的基础" / "自注意力比 RNN 强在哪一步" / "特征值到底在度量什么" / "什么时候 BM25 反而比向量检索准"
 
 规则：
 - 只回复一个 JSON 数组，正好 3 个这样的对象。不要有任何解释文字，不要 markdown 代码块。
-- 每一行都要基于下面给出的素材，点出真实存在的内容，绝不编造。
-- 三个之间要有区别——取素材里不同的东西，也做不同的事（讲解、练习、复习、深入）。
+- 每一个都必须能追溯到下面的素材。比素材字面上说的**多走一步**正是要点——但绝不能引入素材里毫无根据的话题。
+- 三个之间要有区别：取素材里不同的内容，也问不同类型的问题（一个区别、一个机制、一个为什么、一个边界情况）。
 - 不要问候语、不要 emoji、字段文本里不要加引号。"""
 
 
@@ -353,11 +374,11 @@ async def _generate(language: str) -> SuggestionSet:
 
     zh = _is_zh(language)
     user_prompt = (
-        f"学习者最近接触的内容：\n{_render_topics(topics, zh)}\n\n请写出那三个按钮。"
+        f"这个学习者最近留下的痕迹：\n{_render_topics(topics, zh)}\n\n请提出那三个探索方向。"
         if zh
         else (
-            "The learner has recently been working on:\n"
-            f"{_render_topics(topics, zh)}\n\nWrite the three starting points."
+            "Traces this learner has left recently:\n"
+            f"{_render_topics(topics, zh)}\n\nPropose the three things worth exploring next."
         )
     )
 
