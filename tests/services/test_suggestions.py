@@ -118,26 +118,59 @@ def test_sanitize_keeps_labels_long_enough_to_be_specific() -> None:
         [
             {"label": "How agentic RAG differs from naive RAG", "prompt": "a"},
             {"label": "Why the chain rule underlies backpropagation", "prompt": "b"},
-            {"label": "自注意力比 RNN 强在哪一步", "prompt": "c"},
-        ],
-        ensure_ascii=False,
+            {"label": "Where self-attention beats a plain RNN", "prompt": "c"},
+        ]
     )
 
-    assert len(suggestions._sanitize(raw)) == 3
+    assert len(suggestions._sanitize(raw, "en")) == 3
+
+
+def test_sanitize_bounds_are_per_language() -> None:
+    """A character is not a unit of meaning, so one bound cannot serve both.
+
+    These three are real model output for an English UI. Judged against a bound
+    sized for Chinese they are all "too long" and the whole batch is discarded
+    — which presents as the model failing, on English installs only.
+    """
+    english = json.dumps(
+        [
+            {
+                "label": "How Self-Correction loops in LangGraph reduce pedagogical hallucinations",
+                "prompt": "How can I use LangGraph's cyclic patterns to implement a "
+                "self-correction loop that verifies factual accuracy before a "
+                "response reaches the student?",
+            },
+            {
+                "label": "Why RAG retrieval constraints differ for educational coaching versus search",
+                "prompt": "In an educational coaching context, how should RAG retrieval be "
+                "constrained to guide the student toward an answer rather than "
+                "simply providing it?",
+            },
+            {
+                "label": "The trade-off between agentic autonomy and curriculum adherence",
+                "prompt": "How do we balance an agent's autonomy to follow student tangents "
+                "against the need to adhere to a syllabus?",
+            },
+        ]
+    )
+
+    assert len(suggestions._sanitize(english, "en")) == 3
+    # The same text under the Chinese bound is correctly judged over-long.
+    assert suggestions._sanitize(english, "zh") == ()
 
 
 def test_sanitize_drops_items_that_ignored_the_brief() -> None:
     raw = json.dumps(
         [
-            {"label": "x" * 80, "prompt": "fine"},  # label is a paragraph
-            {"label": "ok", "prompt": "y" * 400},  # prompt is an essay
+            {"label": "x" * 200, "prompt": "fine"},  # label is a paragraph
+            {"label": "ok", "prompt": "y" * 600},  # prompt is an essay
             {"label": "missing prompt"},
             {"label": "good", "prompt": "a real question"},
         ]
     )
 
     # Three were dropped, so the batch is short and goes entirely.
-    assert suggestions._sanitize(raw) == ()
+    assert suggestions._sanitize(raw, "en") == ()
 
 
 def test_sanitize_dedupes_repeated_labels() -> None:

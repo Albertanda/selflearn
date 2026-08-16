@@ -100,11 +100,15 @@ _PLACEHOLDER_LABELS = frozenset(
 )
 # The line the learner reads, and the message behind it. Over-long output means
 # the model ignored the brief; the item is dropped rather than truncated,
-# because half a sentence is worse than one fewer starting point. The label
-# bound is generous enough for "How agentic RAG differs from naive RAG" —
-# naming a real distinction costs words, and that is the whole point.
-_MAX_LABEL_CHARS = 60
-_MAX_PROMPT_CHARS = 240
+# because half a sentence is worse than one fewer starting point.
+#
+# These are per language because a character is not a unit of meaning. The same
+# proposal is "LangGraph 中状态机与有向无环图的区别" (20 chars) or "How
+# Self-Correction loops in LangGraph reduce pedagogical hallucinations" (72) —
+# the same *line* on screen, three times the characters. A single bound set for
+# one of them silently discards every well-formed answer in the other.
+_MAX_LABEL_CHARS = {"zh": 40, "en": 95}
+_MAX_PROMPT_CHARS = {"zh": 160, "en": 400}
 
 # One in-flight regeneration per scope; a burst of page loads must not fan out
 # into a burst of LLM calls.
@@ -357,12 +361,20 @@ def _render_topics(topics: list[_Topic], zh: bool) -> str:
     return "\n".join(lines)
 
 
-def _sanitize(raw: str) -> tuple[Suggestion, ...]:
+def _bound(table: dict[str, int], language: str) -> int:
+    return table["zh"] if _is_zh(language) else table["en"]
+
+
+def _sanitize(raw: str, language: str = "en") -> tuple[Suggestion, ...]:
     """Exactly :data:`_COUNT` usable lines, or nothing at all.
 
     Partial output is discarded rather than shown: one lonely line under the
-    composer reads as a rendering bug, and the caller has a fixed set of
-    starters that is better than that.
+    composer reads as a rendering bug, and rendering nothing is the honest
+    alternative.
+
+    The length bounds are per language — see :data:`_MAX_LABEL_CHARS`. Applying
+    a CJK-sized bound to English silently rejects every well-formed answer,
+    which looks exactly like the model failing.
     """
     from deeptutor.utils.json_parser import parse_json_response
 
@@ -370,6 +382,8 @@ def _sanitize(raw: str) -> tuple[Suggestion, ...]:
     if not isinstance(decoded, list):
         return ()
 
+    max_label = _bound(_MAX_LABEL_CHARS, language)
+    max_prompt = _bound(_MAX_PROMPT_CHARS, language)
     items: list[Suggestion] = []
     seen: set[str] = set()
     for entry in decoded:
@@ -379,7 +393,7 @@ def _sanitize(raw: str) -> tuple[Suggestion, ...]:
         prompt = " ".join(str(entry.get("prompt") or "").split()).strip("\"'“”‘’ ")
         if not label or not prompt:
             continue
-        if len(label) > _MAX_LABEL_CHARS or len(prompt) > _MAX_PROMPT_CHARS:
+        if len(label) > max_label or len(prompt) > max_prompt:
             continue
         if label.casefold() in seen:
             continue
@@ -438,7 +452,7 @@ async def _generate(language: str, topics: list[_Topic]) -> SuggestionSet:
         return empty
 
     return SuggestionSet(
-        suggestions=_sanitize(raw),
+        suggestions=_sanitize(raw, language),
         language=language,
         generated_at=time.time(),
         fingerprint=fingerprint,
