@@ -292,6 +292,7 @@ def test_sync_completion_caches_explicit_json_object_fallback(
     tmp_path: Path,
 ) -> None:
     litellm = pytest.importorskip("litellm")
+    pytest.importorskip("graphrag")
     from graphrag.index.operations.summarize_communities.community_reports_extractor import (
         CommunityReportResponse,
     )
@@ -333,6 +334,7 @@ def test_authentication_failure_is_not_retried(
     tmp_path: Path,
 ) -> None:
     litellm = pytest.importorskip("litellm")
+    pytest.importorskip("graphrag")
     from graphrag.index.operations.summarize_communities.community_reports_extractor import (
         CommunityReportResponse,
     )
@@ -367,6 +369,7 @@ def test_invalid_fallback_json_fails_strict_validation(
     tmp_path: Path,
 ) -> None:
     litellm = pytest.importorskip("litellm")
+    pytest.importorskip("graphrag")
     from graphrag.index.operations.summarize_communities.community_reports_extractor import (
         CommunityReportResponse,
     )
@@ -404,6 +407,7 @@ def test_truncated_fallback_is_unverifiable_instead_of_incompatible(
     tmp_path: Path,
 ) -> None:
     litellm = pytest.importorskip("litellm")
+    pytest.importorskip("graphrag")
     from graphrag.index.operations.summarize_communities.community_reports_extractor import (
         CommunityReportResponse,
     )
@@ -448,6 +452,7 @@ def test_native_validation_failure_retries_once_without_caching(
     tmp_path: Path,
 ) -> None:
     litellm = pytest.importorskip("litellm")
+    pytest.importorskip("graphrag")
     from graphrag.index.operations.summarize_communities.community_reports_extractor import (
         CommunityReportResponse,
     )
@@ -532,6 +537,7 @@ def test_cached_fallback_is_safe_under_concurrent_sync_calls(
     tmp_path: Path,
 ) -> None:
     litellm = pytest.importorskip("litellm")
+    pytest.importorskip("graphrag")
     from graphrag.index.operations.summarize_communities.community_reports_extractor import (
         CommunityReportResponse,
     )

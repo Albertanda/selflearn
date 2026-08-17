@@ -52,7 +52,8 @@ export default function StarterSettingsPage() {
         setPayload(next);
         setDraft({ ...next.settings });
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+        if (!cancelled)
+          setError(err instanceof Error ? err.message : String(err));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -64,7 +65,10 @@ export default function StarterSettingsPage() {
   }, [t]);
 
   const dirty = useMemo(
-    () => Boolean(payload && draft && payload.settings.trace_count !== draft.trace_count),
+    () =>
+      Boolean(
+        payload && draft && payload.settings.trace_count !== draft.trace_count,
+      ),
     [draft, payload],
   );
 
@@ -76,11 +80,14 @@ export default function StarterSettingsPage() {
     if (!current) return;
     setError(null);
     try {
-      const response = await apiFetch(apiUrl("/api/v1/settings/chat-starters"), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(current),
-      });
+      const response = await apiFetch(
+        apiUrl("/api/v1/settings/chat-starters"),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(current),
+        },
+      );
       const data = (await response.json().catch(() => ({}))) as
         | StarterSettingsPayload
         | { detail?: string };

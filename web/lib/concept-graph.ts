@@ -1,9 +1,9 @@
 import type { ConceptGraph } from "@/lib/book-types";
 
 function safeNodeId(nodeId: string, used: Set<string>): string {
-  const cleaned = (nodeId || "n")
-    .replace(/[^\p{L}\p{N}]/gu, "_")
-    .replace(/^_+|_+$/g, "") || "n";
+  const cleaned =
+    (nodeId || "n").replace(/[^\p{L}\p{N}]/gu, "_").replace(/^_+|_+$/g, "") ||
+    "n";
   let candidate = cleaned.slice(0, 32);
   let suffix = 1;
   while (used.has(candidate)) {

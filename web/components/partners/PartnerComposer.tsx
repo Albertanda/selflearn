@@ -107,10 +107,7 @@ export const PartnerComposer = memo(function PartnerComposer({
 
   useEffect(() => {
     if (disabled || streaming) return;
-    if (
-      !restoreFocusAfterSendRef.current &&
-      !restoreFocusOnReturnRef.current
-    ) {
+    if (!restoreFocusAfterSendRef.current && !restoreFocusOnReturnRef.current) {
       return;
     }
     restoreFocusAfterSendRef.current = false;

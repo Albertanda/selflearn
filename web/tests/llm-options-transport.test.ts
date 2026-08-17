@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  invalidateLLMOptionsCache,
-  listLLMOptions,
-} from "../lib/llm-options";
+import { invalidateLLMOptionsCache, listLLMOptions } from "../lib/llm-options";
 
 test("a timed-out model catalog request can be retried", async () => {
   const originalFetch = globalThis.fetch;
@@ -32,7 +29,8 @@ test("a timed-out model catalog request can be retried", async () => {
   try {
     await assert.rejects(
       listLLMOptions({ force: true, timeoutMs: 5 }),
-      (error: unknown) => error instanceof DOMException && error.name === "AbortError",
+      (error: unknown) =>
+        error instanceof DOMException && error.name === "AbortError",
     );
     const result = await listLLMOptions({ force: true, timeoutMs: 50 });
     assert.deepEqual(result, { active: null, options: [] });

@@ -3,7 +3,7 @@
 Implements the same contract as the other pipelines (see ``..base.RAGPipeline``)
 but owns no index: an ``ima`` KB is a connection pointer (``type: ima`` in
 ``kb_config.json``) to a library the user keeps in IMA and curates there. Only
-:meth:`search` does real work — it reads the KB's credentials, asks IMA for
+:meth:`search` does real work — it resolves the KB's credentials, asks IMA for
 matching passages, and shapes them for the ``rag`` tool. Documents are added in
 IMA, so :meth:`initialize` / :meth:`add_documents` are not part of this engine's
 job and fail with a clear message; :meth:`delete` is a no-op because deleting the
@@ -26,7 +26,7 @@ from deeptutor.utils.document_extractor import (
 )
 
 from .client import MAX_MEDIA_BYTES, ImaMediaContent
-from .config import ImaNotConfiguredError, config_from_entry
+from .config import ImaNotConfiguredError, resolve_kb_config
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +74,7 @@ class ImaPipeline:
 
     async def search(self, query: str, kb_name: str, **kwargs) -> Dict[str, Any]:
         try:
-            config = config_from_entry(load_kb_config_entry(self.kb_base_dir, kb_name))
+            config = resolve_kb_config(load_kb_config_entry(self.kb_base_dir, kb_name))
         except ImaNotConfiguredError as exc:
             return self._error_result(query, exc, error_type="not_configured")
 

@@ -292,6 +292,50 @@ async def test_mastery_path_allows_only_one_live_turn_across_sessions(
 
 
 @pytest.mark.asyncio
+async def test_mastery_turn_takes_over_a_path_parked_on_ask_user(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """A turn waiting on the learner must not lock the path forever."""
+    _isolate_learning_store(monkeypatch, tmp_path)
+    store = SQLiteSessionStore(tmp_path / "chat_history.db")
+    runtime = TurnRuntimeManager(store)
+    first_session = await store.ensure_session("session-1")
+    second_session = await store.ensure_session("session-2")
+    parked = asyncio.Event()
+
+    async def _park_turn(execution) -> None:
+        # Mirrors the real turn: flag the ask_user pause, then wait for a
+        # reply that never comes, then finalize like ``_run_turn`` does.
+        execution.awaiting_user_reply = True
+        try:
+            await parked.wait()
+        finally:
+            execution.awaiting_user_reply = False
+            await store.update_turn_status(execution.turn_id, "cancelled", "Turn cancelled")
+            async with runtime._lock:
+                runtime._executions.pop(execution.turn_id, None)
+
+    monkeypatch.setattr(runtime, "_run_turn", _park_turn)
+    _, parked_turn = await runtime.start_turn(_mastery_payload(first_session["id"], "shared"))
+    while not runtime._executions[parked_turn["id"]].awaiting_user_reply:
+        await asyncio.sleep(0)
+
+    _, resuming_turn = await runtime.start_turn(_mastery_payload(second_session["id"], "shared"))
+
+    superseded = await store.get_turn(parked_turn["id"])
+    assert superseded is not None
+    assert superseded["status"] == "cancelled"
+    lease = LearningStore().get_path_lease("shared")
+    assert lease is not None
+    assert lease.turn_id == resuming_turn["id"]
+    assert lease.session_id == second_session["id"]
+
+    parked.set()
+    await runtime.cancel_turn(resuming_turn["id"])
+    LearningStore().release_path_lease("shared", turn_id=resuming_turn["id"])
+
+
+@pytest.mark.asyncio
 async def test_racing_mastery_start_does_not_steal_pre_task_lease(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
@@ -405,3 +449,45 @@ async def test_mastery_turn_cannot_steal_administrative_path_lease(
         assert lease.turn_id == "api-operation"
     finally:
         learning_store.release_path_lease("shared", turn_id="api-operation")
+
+
+@pytest.mark.asyncio
+async def test_a_mid_turn_path_switch_is_pushed_to_the_client(tmp_path) -> None:
+    """Otherwise the composer keeps naming the path the turn started on."""
+    store = SQLiteSessionStore(tmp_path / "chat_history.db")
+    runtime = TurnRuntimeManager(store)
+    execution = _TurnExecution(
+        turn_id="turn-1",
+        session_id="session-1",
+        capability="mastery_path",
+        payload={},
+    )
+
+    await runtime._publish_mastery_path_change(
+        execution,
+        capability_name="mastery_path",
+        started_on="calculus",
+        ended_on="algebra",
+    )
+
+    pushed = [event for event in execution.events if event["type"] == "session_meta"]
+    assert len(pushed) == 1
+    assert pushed[0]["metadata"]["mastery_path_id"] == "algebra"
+
+
+@pytest.mark.asyncio
+async def test_no_path_push_when_the_turn_never_moved(tmp_path) -> None:
+    store = SQLiteSessionStore(tmp_path / "chat_history.db")
+    runtime = TurnRuntimeManager(store)
+    execution = _TurnExecution(
+        turn_id="turn-1", session_id="session-1", capability="mastery_path", payload={}
+    )
+
+    await runtime._publish_mastery_path_change(
+        execution, capability_name="mastery_path", started_on="calculus", ended_on="calculus"
+    )
+    await runtime._publish_mastery_path_change(
+        execution, capability_name="chat", started_on="", ended_on="algebra"
+    )
+
+    assert [event for event in execution.events if event["type"] == "session_meta"] == []

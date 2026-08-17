@@ -66,6 +66,9 @@ MASTERY_TOOL_NAMES: tuple[str, ...] = (
     "mastery_grade",
     "mastery_assess",
     "mastery_build",
+    "mastery_paths",
+    "mastery_switch",
+    "mastery_leave",
 )
 
 _QUESTION_TYPES = ("choice", "short", "open")
@@ -719,6 +722,151 @@ class MasteryBuildTool(BaseTool):
         )
 
 
+class MasteryPathsTool(BaseTool):
+    """List every path the learner owns and which one this turn is on."""
+
+    def get_definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="mastery_paths",
+            description=(
+                "List every mastery path this learner has — name, how many "
+                "objectives are mastered vs still being learned, reviews due, "
+                "and which one this conversation is currently on. Use it when "
+                "the learner asks what they are studying or what is finished, "
+                "or before mastery_switch, to find the id to switch to."
+            ),
+            parameters=[],
+        )
+
+    async def execute(self, **kwargs: Any) -> ToolResult:
+        service = _new_service()
+        active = _resolve_path_id(kwargs)
+        overviews = await asyncio.to_thread(service.list_path_overviews)
+        # A path with no objectives is one nobody has built yet; listing it
+        # would offer the model an id that teaches nothing.
+        paths = [
+            {**overview, "active": overview["path_id"] == active}
+            for overview in overviews
+            if overview["objectives"] > 0
+        ]
+        return _json_result(
+            {
+                "active_path_id": active,
+                "paths": paths,
+                "instruction": (
+                    "Switch with mastery_switch(path_id=...) — it takes effect "
+                    "from your next round, so call mastery_status afterwards."
+                ),
+            },
+            meta_key="mastery_paths",
+        )
+
+
+class MasterySwitchTool(BaseTool):
+    """Point this conversation at a different mastery path."""
+
+    def get_definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="mastery_switch",
+            description=(
+                "Put this conversation on a different mastery path — use it to "
+                "enter a path the learner names, or to move from the current "
+                "one to another. The path keeps all of its own progress; the "
+                "conversation simply follows it from now on, including on "
+                "later turns. Call mastery_paths first for valid ids, and "
+                "mastery_status afterwards to see where the new path stands."
+            ),
+            parameters=[
+                ToolParameter(
+                    name="path_id",
+                    type="string",
+                    description="Path id from mastery_paths (verbatim).",
+                )
+            ],
+        )
+
+    async def execute(self, **kwargs: Any) -> ToolResult:
+        from deeptutor.capabilities.mastery.binding import (
+            PathBindingError,
+            rebind_active_path,
+        )
+
+        requested = str(kwargs.get("path_id") or "").strip()
+        if not requested:
+            return ToolResult(
+                content="mastery_switch needs a path_id; call mastery_paths for the ids.",
+                success=False,
+            )
+        previous = _resolve_path_id(kwargs)
+        try:
+            active = await rebind_active_path(
+                path_id=requested,
+                session_id=_resolve_session_id(kwargs),
+                turn_id=_resolve_turn_id(kwargs),
+                bind_turn=kwargs.get("_bind_active_path"),
+            )
+        except PathBindingError as exc:
+            return ToolResult(content=str(exc), success=False)
+        return _json_result(
+            {
+                "status": "switched",
+                "previous_path_id": previous,
+                "active_path_id": active,
+                "instruction": (
+                    "This conversation now follows that path, on this turn and "
+                    "later ones. Call mastery_status to see where it stands."
+                ),
+            },
+            meta_key="mastery_switch",
+        )
+
+
+class MasteryLeaveTool(BaseTool):
+    """Detach this conversation from the named path it was following."""
+
+    def get_definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="mastery_leave",
+            description=(
+                "Stop following the current mastery path in this conversation. "
+                "The path keeps every bit of its progress and can be resumed "
+                "any time with mastery_switch; this conversation falls back to "
+                "a scratch path of its own, so the learner can start something "
+                "new here. Use it when the learner says they are done with the "
+                "course for now, or wants to work on something unrelated."
+            ),
+            parameters=[],
+        )
+
+    async def execute(self, **kwargs: Any) -> ToolResult:
+        from deeptutor.capabilities.mastery.binding import (
+            PathBindingError,
+            leave_active_path,
+        )
+
+        previous = _resolve_path_id(kwargs)
+        try:
+            active = await leave_active_path(
+                session_id=_resolve_session_id(kwargs),
+                turn_id=_resolve_turn_id(kwargs),
+                bind_turn=kwargs.get("_bind_active_path"),
+            )
+        except PathBindingError as exc:
+            return ToolResult(content=str(exc), success=False)
+        return _json_result(
+            {
+                "status": "left",
+                "previous_path_id": previous,
+                "active_path_id": active,
+                "instruction": (
+                    "That path is untouched and resumable with mastery_switch. "
+                    "This conversation is now on its own scratch path."
+                ),
+            },
+            meta_key="mastery_leave",
+        )
+
+
 def _parse_modules(
     raw_modules: Any, path_id: str, offset: int
 ) -> tuple[list[LearningModule], str | None]:
@@ -770,15 +918,21 @@ MASTERY_TOOL_TYPES: tuple[type[BaseTool], ...] = (
     MasteryGradeTool,
     MasteryAssessTool,
     MasteryBuildTool,
+    MasteryPathsTool,
+    MasterySwitchTool,
+    MasteryLeaveTool,
 )
 
 
 __all__ = [
     "MASTERY_TOOL_NAMES",
     "MASTERY_TOOL_TYPES",
-    "MasteryStatusTool",
-    "MasteryQuizTool",
-    "MasteryGradeTool",
     "MasteryAssessTool",
     "MasteryBuildTool",
+    "MasteryGradeTool",
+    "MasteryLeaveTool",
+    "MasteryPathsTool",
+    "MasteryQuizTool",
+    "MasteryStatusTool",
+    "MasterySwitchTool",
 ]

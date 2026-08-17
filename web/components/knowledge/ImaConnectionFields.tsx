@@ -15,8 +15,8 @@ export default function ImaConnectionFields({
 }) {
   const { t } = useTranslation();
   const loading = connection.lookup.status === "loading";
-  const credentialsReady =
-    connection.clientId.trim() && connection.apiKey.trim();
+  const credentialsReady = connection.credentialsReady;
+  const showFields = connection.useOwnCredentials;
 
   return (
     <div className="space-y-3">
@@ -26,45 +26,81 @@ export default function ImaConnectionFields({
         )}
       </p>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div>
-          <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-            {t("Client ID")}
-          </label>
-          <input
-            value={connection.clientId}
-            onChange={(event) => connection.setClientId(event.target.value)}
+      {connection.accountConfigured && !showFields ? (
+        <div className="flex items-start justify-between gap-3 rounded-lg border border-[var(--border)] bg-[var(--muted)]/30 px-3 py-2.5">
+          <span className="flex items-start gap-1.5 text-[11.5px] leading-snug text-[var(--muted-foreground)]">
+            <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+            {t(
+              "Using the IMA credentials configured for this engine in the Knowledge Center.",
+            )}
+          </span>
+          <button
+            type="button"
+            onClick={() => connection.setUseOwnCredentials(true)}
             disabled={submitting}
-            autoComplete="off"
-            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 font-mono text-[12.5px] text-[var(--foreground)] outline-none transition-colors focus:border-[var(--foreground)]/25 disabled:opacity-50"
-          />
+            className="shrink-0 text-[11.5px] font-medium text-[var(--foreground)] underline underline-offset-2 disabled:opacity-40"
+          >
+            {t("Use other credentials")}
+          </button>
         </div>
-        <div>
-          <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-            {t("API key")}
-          </label>
-          <input
-            value={connection.apiKey}
-            onChange={(event) => connection.setApiKey(event.target.value)}
-            disabled={submitting}
-            type="password"
-            autoComplete="off"
-            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-[12.5px] text-[var(--foreground)] outline-none transition-colors focus:border-[var(--foreground)]/25 disabled:opacity-50"
-          />
-        </div>
-      </div>
+      ) : (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+                {t("Client ID")}
+              </label>
+              <input
+                value={connection.clientId}
+                onChange={(event) => connection.setClientId(event.target.value)}
+                disabled={submitting}
+                autoComplete="off"
+                className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 font-mono text-[12.5px] text-[var(--foreground)] outline-none transition-colors focus:border-[var(--foreground)]/25 disabled:opacity-50"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+                {t("API key")}
+              </label>
+              <input
+                value={connection.apiKey}
+                onChange={(event) => connection.setApiKey(event.target.value)}
+                disabled={submitting}
+                type="password"
+                autoComplete="off"
+                className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-[12.5px] text-[var(--foreground)] outline-none transition-colors focus:border-[var(--foreground)]/25 disabled:opacity-50"
+              />
+            </div>
+          </div>
 
-      <p className="text-[11px] text-[var(--muted-foreground)]">
-        {t("Create these credentials on the Tencent IMA agent interface.")}{" "}
-        <a
-          href="https://ima.qq.com/agent-interface"
-          target="_blank"
-          rel="noreferrer"
-          className="font-medium text-[var(--foreground)] underline underline-offset-2"
-        >
-          {t("Open IMA")}
-        </a>
-      </p>
+          <p className="text-[11px] text-[var(--muted-foreground)]">
+            {connection.accountConfigured ? (
+              <button
+                type="button"
+                onClick={() => connection.setUseOwnCredentials(false)}
+                disabled={submitting}
+                className="font-medium text-[var(--foreground)] underline underline-offset-2 disabled:opacity-40"
+              >
+                {t("Use the engine's credentials instead")}
+              </button>
+            ) : (
+              <>
+                {t(
+                  "Set these once for the engine in the Knowledge Center to skip this step next time.",
+                )}{" "}
+                <a
+                  href="https://ima.qq.com/agent-interface"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-[var(--foreground)] underline underline-offset-2"
+                >
+                  {t("Open IMA")}
+                </a>
+              </>
+            )}
+          </p>
+        </>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <ModeButton
@@ -146,9 +182,7 @@ export default function ImaConnectionFields({
                   disabled={submitting || loading}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[11.5px] font-medium text-[var(--foreground)] disabled:opacity-40"
                 >
-                  {loading && (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  )}
+                  {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                   {t("Load more")}
                 </button>
               )}

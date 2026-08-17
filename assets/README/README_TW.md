@@ -47,141 +47,6 @@
 
 > 🤝 **我們歡迎任何形式的貢獻！** 歡迎在 [`Roadmap`](https://github.com/HKUDS/DeepTutor/issues/498) 為規劃項目投票或提出新構想，並參閱[貢獻指南](../../CONTRIBUTING.md)，了解分支策略、程式碼規範與參與方式。
 
-### 📦 發行版本
-
-> **[2026.8.13]** [v1.5.12](https://github.com/HKUDS/DeepTutor/releases/tag/v1.5.12) — Web 搜尋以六個新供應商（**Doubao**、**Bocha**、**Zhipu**、**Firecrawl**、**Qianfan**、**Aliyun IQS**）重建，新增 **LiteParse** 解析引擎、會在憑證變更時重新連線的 MCP 伺服器，以及 **CodeBuddy** 與 **OrcaRouter**。
-
-> **[2026.8.10]** [v1.5.11](https://github.com/HKUDS/DeepTutor/releases/tag/v1.5.11) — DSML 工具呼叫前後的文字不再消失、遭截斷的回覆會繼續生成而非直接結束、設定中可查看即時記憶體用量，且 LightRAG 索引作業不再阻塞事件迴圈。
-
-> **[2026.8.7]** [v1.5.10](https://github.com/HKUDS/DeepTutor/releases/tag/v1.5.10) — 每個帳號都能登入自己的 **Codex**、模型輸出語言成為獨立設定、空白工具呼叫會被拒絕而非重試，且上傳作業不再阻塞事件迴圈。
-
-> **[2026.8.4]** [v1.5.9](https://github.com/HKUDS/DeepTutor/releases/tag/v1.5.9) — 透過原生端點使用 Gemini **Embedding 2**、可針對各模型調整 **reasoning effort**、新增 **Novita AI** 閘道，以及查詢的檢索角色與保留完整 `data/` 的 Compose 部署。
-
-<details>
-<summary><b>過往發行版本（超過一週）</b></summary>
-
-> **[2026.8.2]** [v1.5.8](https://github.com/HKUDS/DeepTutor/releases/tag/v1.5.8) — 記憶體：開發伺服器具備真正的 heap 上限、原始碼安裝會提供正式環境建置、LLM 用戶端與索引快取受到限制，並修正游離 500 錯誤的 keep-alive 問題。
-
-> **[2026.7.31]** [v1.5.7](https://github.com/HKUDS/DeepTutor/releases/tag/v1.5.7) — 每個帳號各自擁有 **MCP Services** 商店、導師可執行 101 個 **CLI Apps**、憑證移出沙箱可觸及範圍，並新增行動版版面。
-
-> **[2026.7.29]** [v1.5.6](https://github.com/HKUDS/DeepTutor/releases/tag/v1.5.6) — 遠端 **Codex** 登入可透過 SSH 通道完成、產生的檔案在活動面板中有獨立卡片、非英語語言不再一律退回中文，且建立書籍不再逾時。
-
-> **[2026.7.26]** [v1.5.5](https://github.com/HKUDS/DeepTutor/releases/tag/v1.5.5) — 可透過 **OpenAI Codex** OAuth 使用 ChatGPT 方案登入、新增 **Eden AI** 供應商、知識庫會回報所含內容、`rag` 引用可追溯，且 GraphRAG 索引無須因應措施即可運作。
-
-> **[2026.7.24]** [v1.5.4](https://github.com/HKUDS/DeepTutor/releases/tag/v1.5.4) — 維護更新：回答後卡在「產生中」的問題已排除、IM 夥伴能正確呈現 Markdown 表格、LLM JSON 解析更穩健，並修正測驗、建立知識庫表單與 Math Animator。
-
-> **[2026.7.24]** [v1.5.3](https://github.com/HKUDS/DeepTutor/releases/tag/v1.5.3) — 可套用主題的程式碼區塊、My Agents 新增四個程式設計 CLI（Gemini、Kimi、opencode、MiMo）、新增 Atlas Cloud LLM 供應商，並全面提升聊天、記憶、嵌入與解析的可靠性。
-
-> **[2026.7.19]** [v1.5.2](https://github.com/HKUDS/DeepTutor/releases/tag/v1.5.2) — 可設定聊天附件上限、PageIndex 檢索可透過代理程式工具呼叫跨文件推理、更廣泛的 Anthropic／OpenAI 模型支援，以及更穩定的 Book、Knowledge Base 與聊天介面。
-
-> **[2026.7.9]** [v1.5.1](https://github.com/HKUDS/DeepTutor/releases/tag/v1.5.1) — 可從知識庫移除單一失敗文件（即使處於 **error** 狀態），無須刪除並重建整個知識庫。
-
-> **[2026.7.4]** [v1.5.0](https://github.com/HKUDS/DeepTutor/releases/tag/v1.5.0) — LlamaIndex 擷取流程現在會採用你設定的 **Document Parsing** 引擎與多模態影像擷取、Partner 與 Soul ID 對非拉丁字元名稱保持 URL 安全，且選用的 RAG 額外套件可在 Python 3.14+ 正確安裝。
-
-> **[2026.6.30]** [v1.4.15](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.15) — Partners 新增原生 **Mattermost** 頻道，並修正 Guided Learning 選擇題評分與設定為零的區塊重疊值未被採用的問題。
-
-> **[2026.6.29]** [v1.4.14](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.14) — 點選指派的夥伴即可一步開始聊天、Deep Research 會標示不完整報告、LightRAG 無須 MinerU 也能建立索引、FAISS 可處理非 ASCII 路徑，且 PocketBase 工作階段依使用者隔離。
-
-> **[2026.6.27]** [v1.4.13](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.13) — Partners 支援非拉丁字元名稱並可指派給使用者、登入後標誌可正確呈現（#599）、小型知識庫能可靠檢索，且容器可在 rootless Podman 下順利啟動。
-
-> **[2026.6.24]** [v1.4.12](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.12) — 新增 **LightRAG Server** 檢索引擎、輕量 **PyMuPDF4LLM** 解析引擎，以及能大幅加速大型知識庫檢索的 FAISS 向量後端。
-
-> **[2026.6.23]** [v1.4.11](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.11) — 所有雲端 OpenAI 相容供應商皆支援原生工具呼叫、重新設計管理員 Users 頁面、測驗選項支援 LaTeX、工作階段載入指示更如實，且容器主機繫結可設定。
-
-> **[2026.6.21]** [v1.4.10](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.10) — 新增具備頭像的自助式 **Profile** 頁面、單一連接埠請求代理且支援 rootless 的容器指南，以及非管理員預設拒絕使用 MCP 工具。
-
-> **[2026.6.19]** [v1.4.9](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.9) — 設定改善：Search 只顯示供應商需要的欄位、連線設定檔可重新命名或依供應商自動命名，且已評分的 Mastery Path 題目會送入 Question Bank。
-
-> **[2026.6.18]** [v1.4.8](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.8) — 可在 **My Agents** 下連接自己的 **Partners**，並在聊天中即時諮詢；它們會透過各自的角色、知識庫與技能回答，並擁有獨立的私人記憶。
-
-> **[2026.6.18]** [v1.4.7](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.7) — 可連接本機 **Claude Code／Codex** 並在回合中即時諮詢、**My Agents** 升格為頂層 `/agents`，且 Partner 對話新增分支、繼續與刪除功能，並保留可重播的軌跡。
-
-> **[2026.6.17]** [v1.4.6](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.6) — 四大介面整合：Space 學習儀表板可匯入 **My Agents** 並提供頂層 Memory、**Knowledge Center** 支援 GraphRAG／PageIndex／LightRAG／連結知識庫／Obsidian、開放更多設定，且各模型能力具備閘控。
-
-> **[2026.6.14]** [v1.4.5](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.5) — Guided Learning 以聊天代理程式迴圈重建，針對各主題類型設置嚴格的精熟度門檻並新增 `/learning` 儀表板、引入新的迴圈外掛架構，且 Partner 對話支援 Markdown 匯出與儲存至筆記本。
-
-> **[2026.6.13]** [v1.4.4](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.4) — 可透過安全閘道從 [ClawHub](https://clawhub.ai/) 安裝社群技能 `deeptutor skill install`，知識庫檔案也支援真正的瀏覽器內 DOCX／XLSX 預覽。
-
-> **[2026.6.12]** [v1.4.3](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.3) — TutorBot 演進為正式環境等級 IM 管線上的 **Partners**（15 種頻道、即時串流）、Chat 改用單一代理程式迴圈、提供真正的每位使用者隔離，並重建 Visualize。
-
-> **[2026.5.28]** [v1.4.2](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.2) — 穩定性與細節改善：解除 Visualize 與 Chat 對 Gemini 2.5+ 的限制、修正驗證路由（#485）、改善聊天串流流暢度、加入 Recents 側邊欄，並支援 Lemonade 本機供應商。
-
-> **[2026.5.27]** [v1.4.1](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.1) — 安全性與穩定性：鎖定 TutorBot 工具沙箱、提供每位使用者資源隔離、多模態影像備援、TutorBot 的 HTTP／SSE API，並修正 v1.4.0 聊天迴歸問題。
-
-> **[2026.5.22]** [v1.4.0](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.0) — v1.4 正式版：Auto Mode、三層 Memory、代理式 Deep Research／Solve／Question、LlamaIndex RAG 重構、Visualize／Animator 合併，以及重新啟動後仍可恢復的回合執行階段。
-
-> **[2026.5.21]** [v1.4.0-beta](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.0-beta) — 三層 Memory 工作台、所有聊天能力以單一代理式引擎重建、僅使用 LlamaIndex 的 RAG，以及整合的 Settings 與 Capabilities 介面。
-
-> **[2026.5.10]** [v1.3.10](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.10) — 遠端 Docker CORS 復原、SDK 供應商全面支援 `DISABLE_SSL_VERIFY`、更安全的程式碼區塊引用，以及選用的 Matrix E2EE 附加套件。
-
-> **[2026.5.9]** [v1.3.9](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.9) — TutorBot 支援 Zulip 與 NVIDIA NIM、更安全的思考模型路由、`deeptutor start`、側邊欄工具提示，以及工作階段儲存的一致性。
-
-> **[2026.5.8]** [v1.3.8](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.8) — 選用的多使用者部署，具備隔離的使用者工作區、管理員授權、驗證路由與限定範圍的執行階段存取。
-
-> **[2026.5.4]** [v1.3.7](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.7) — 思考模型／供應商修正、可見的 Knowledge 索引記錄，以及更安全的 Co-Writer 清除與範本編輯。
-
-> **[2026.5.3]** [v1.3.6](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.6) — 以型錄為基礎選擇聊天與 TutorBot 模型、更安全的 RAG 重新索引、OpenAI Responses token 上限修正，以及 Skills 編輯器驗證。
-
-> **[2026.5.2]** [v1.3.5](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.5) — 更順暢的本機啟動設定、更安全的 RAG 查詢、更簡潔的本機 embedding 驗證，以及 Settings 深色模式改善。
-
-> **[2026.5.1]** [v1.3.4](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.4) — Book 頁面聊天持久化與重建流程、聊天轉書籍引用、更可靠的語言／推理處理，以及 RAG 文件擷取強化。
-
-> **[2026.4.30]** [v1.3.3](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.3) — 支援 NVIDIA NIM 與 Gemini embedding、統一 Chat 歷程／skills／memory 的 Space 情境、工作階段快照，以及 RAG 重新索引韌性。
-
-> **[2026.4.29]** [v1.3.2](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.2) — 透明的 embedding 端點 URL、對無效持久化向量提供 RAG 重新索引韌性、清理思考模型輸出的記憶，並修正 Deep Solve 執行階段。
-
-> **[2026.4.28]** [v1.3.1](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.1) — 穩定性：更安全的 RAG 路由與 embedding 驗證、Docker 持久化、支援輸入法的輸入，以及 Windows／GBK 強化。
-
-> **[2026.4.27]** [v1.3.0](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.0) — 具備重新索引流程的版本化知識庫索引、重建 Knowledge 工作區、embedding 自動探索與新轉接器，以及 Space 中心。
-
-> **[2026.4.25]** [v1.2.5](https://github.com/HKUDS/DeepTutor/releases/tag/v1.2.5) — 持久化聊天附件與檔案預覽抽屜、可感知附件的能力管線，以及 TutorBot Markdown 匯出。
-
-> **[2026.4.25]** [v1.2.4](https://github.com/HKUDS/DeepTutor/releases/tag/v1.2.4) — 文字／程式碼／SVG 附件、一鍵 Setup Tour、Markdown 聊天匯出，以及精簡的知識庫管理介面。
-
-> **[2026.4.24]** [v1.2.3](https://github.com/HKUDS/DeepTutor/releases/tag/v1.2.3) — 文件附件（PDF／DOCX／XLSX／PPTX）、推理思考區塊顯示、Soul 範本編輯器，以及 Co-Writer 儲存至筆記本。
-
-> **[2026.4.22]** [v1.2.2](https://github.com/HKUDS/DeepTutor/releases/tag/v1.2.2) — 使用者自訂 Skills 系統、全面改善聊天輸入效能、TutorBot 自動啟動、Book Library 介面，以及視覺化全螢幕。
-
-> **[2026.4.21]** [v1.2.1](https://github.com/HKUDS/DeepTutor/releases/tag/v1.2.1) — 各階段 token 上限、所有入口皆支援 Regenerate 回覆，並修正 RAG 與 Gemma 相容性。
-
-> **[2026.4.20]** [v1.2.0](https://github.com/HKUDS/DeepTutor/releases/tag/v1.2.0) — Book Engine「活書」編譯器、多文件 Co-Writer、互動式 HTML 視覺化，以及 Question Bank @ 提及。
-
-> **[2026.4.18]** [v1.1.2](https://github.com/HKUDS/DeepTutor/releases/tag/v1.1.2) — 結構描述驅動的 Channels 分頁、RAG 單一管線整合，以及外部化聊天提示。
-
-> **[2026.4.17]** [v1.1.1](https://github.com/HKUDS/DeepTutor/releases/tag/v1.1.1) — 通用「Answer now」、Co-Writer 捲動同步、統一設定面板，以及串流 Stop 按鈕。
-
-> **[2026.4.15]** [v1.1.0](https://github.com/HKUDS/DeepTutor/releases/tag/v1.1.0) — LaTeX 區塊數學全面翻修、LLM 診斷探測，以及 Docker 與本機 LLM 指南。
-
-> **[2026.4.14]** [v1.1.0-beta](https://github.com/HKUDS/DeepTutor/releases/tag/v1.1.0-beta) — 可加入書籤的工作階段、Snow 主題、WebSocket 心跳與自動重新連線、embedding registry 全面翻修。
-
-> **[2026.4.13]** [v1.0.3](https://github.com/HKUDS/DeepTutor/releases/tag/v1.0.3) — Question Notebook 支援書籤與分類、Visualize 支援 Mermaid、embedding 不相符偵測、Qwen／vLLM 相容性、LM Studio 與 llama.cpp 支援，以及 Glass 主題。
-
-> **[2026.4.11]** [v1.0.2](https://github.com/HKUDS/DeepTutor/releases/tag/v1.0.2) — 整合搜尋並提供 SearXNG 備援、修正供應商切換，以及前端資源洩漏。
-
-> **[2026.4.10]** [v1.0.1](https://github.com/HKUDS/DeepTutor/releases/tag/v1.0.1) — Visualize 能力（Chart.js／SVG）、防止測驗重複，以及支援 o4-mini 模型。
-
-> **[2026.4.10]** [v1.0.0-beta.4](https://github.com/HKUDS/DeepTutor/releases/tag/v1.0.0-beta.4) — embedding 進度追蹤與速率限制重試、跨平台相依性修正，以及 MIME 驗證修正。
-
-> **[2026.4.8]** [v1.0.0-beta.3](https://github.com/HKUDS/DeepTutor/releases/tag/v1.0.0-beta.3) — 原生 OpenAI／Anthropic SDK（移除 litellm）、Windows Math Animator 支援、更穩健的 JSON 解析，以及完整中文國際化。
-
-> **[2026.4.7]** [v1.0.0-beta.2](https://github.com/HKUDS/DeepTutor/releases/tag/v1.0.0-beta.2) — 熱載入設定、MinerU 巢狀輸出、WebSocket 修正，以及 Python 3.11+ 最低版本。
-
-> **[2026.4.4]** [v1.0.0-beta.1](https://github.com/HKUDS/DeepTutor/releases/tag/v1.0.0-beta.1) — 代理程式原生架構重寫（約 20 萬行）：Tools＋Capabilities 外掛模型、CLI 與 SDK、TutorBot、Co-Writer、Guided Learning，以及持久化記憶。
-
-> **[2026.1.23]** [v0.6.0](https://github.com/HKUDS/DeepTutor/releases/tag/v0.6.0) — 工作階段持久化、增量文件上傳、彈性的 RAG 管線匯入，以及完整中文在地化。
-
-> **[2026.1.18]** [v0.5.2](https://github.com/HKUDS/DeepTutor/releases/tag/v0.5.2) — RAG-Anything 支援 Docling、記錄系統最佳化，以及錯誤修正。
-
-> **[2026.1.15]** [v0.5.0](https://github.com/HKUDS/DeepTutor/releases/tag/v0.5.0) — 統一服務設定、每個知識庫可選 RAG 管線、重新設計問題生成，以及側邊欄自訂。
-
-> **[2026.1.9]** [v0.4.0](https://github.com/HKUDS/DeepTutor/releases/tag/v0.4.0) — 多供應商 LLM 與 embedding 支援、新首頁、RAG 模組解耦，以及環境變數重構。
-
-> **[2026.1.5]** [v0.3.0](https://github.com/HKUDS/DeepTutor/releases/tag/v0.3.0) — 統一 PromptManager 架構、GitHub Actions CI／CD，以及 GHCR 預先建置的 Docker 映像檔。
-
-> **[2026.1.2]** [v0.2.0](https://github.com/HKUDS/DeepTutor/releases/tag/v0.2.0) — Docker 部署、Next.js 16 與 React 19 升級、WebSocket 安全強化，以及重大弱點修正。
-
-</details>
-
 ### 📰 最新消息
 
 - **2026-05-22** 🌐 官方文件網站 [**deeptutor.info**](https://deeptutor.info/) 正式上線 — 指南、參考資料與能力導覽集中在同一處。
@@ -544,7 +409,7 @@ Book 會將選定來源轉換成互動式**活書**；它不是靜態 PDF，而�
 <img src="../../assets/figs/web-1.4.6+/book/03-book-demo%20interactive%20module.png" alt="Book 互動式元件區塊" width="31%">
 </p>
 
-每章都會編譯成具型別區塊：文字、提示框、測驗、單字卡、時間軸、程式碼、圖表、互動式 HTML、動畫、概念圖、深入探討與使用者筆記；每一頁也都有自己的 Page Chat。區塊皆可編輯：插入、移動、重新生成或切換區塊型別都不必重寫整章。`deeptutor book health` 與 `deeptutor book refresh-fingerprints` 等維護指令可協助偵測來源知識何時已與編譯後的頁面不同步。
+每章都會編譯成具型別區塊：文字、提示框、測驗、單字卡、時間軸、程式碼、圖表、互動式 HTML、動畫、概念圖、深入探討與使用者筆記；每一頁也都有自己的 Page Chat。區塊皆可編輯：插入、移動、重新生成、重寫內文或切換型別，都不必重做整章。已瀏覽頁面、書籤與測驗嘗試會彙整成完成度分數與待加強章節；任何書籍皆可匯出為 Markdown。長時間的編譯可暫停並續行；`deeptutor book health` 與 `refresh-fingerprints` 可標記出已與編譯頁面不同步的來源知識。
 
 </details>
 
@@ -561,7 +426,7 @@ Book 會將選定來源轉換成互動式**活書**；它不是靜態 PDF，而�
 <img src="../../assets/figs/web-1.4.6+/knowledge/01-create%20knowledge%20base.png" alt="建立知識庫" width="900">
 </div>
 
-建立知識庫時，可以選擇**建立新的知識庫**（上傳文件並建立全新索引），或**連結現有知識庫**（重複使用在其他位置建立的索引、就地讀取且不重新建立索引）。重新建立索引時，系統會寫入新的扁平 `version-N` 目錄並保留先前版本，因此可用索引不會在重建途中遭到破壞。即使知識庫處於 **error** 狀態，也能移除單一文件；可直接刪除解析失敗的檔案，無須刪除並重建全部內容。文件解析方式（Text-only、MinerU、Docling、markitdown 或 PyMuPDF4LLM）可在 **Settings → Knowledge Base** 選擇，預設不下載本機模型。CLI 也提供對應的完整生命週期指令：`deeptutor kb list`、`info`、`create`、`add`、`search`、`set-default` 與 `delete`。
+建立知識庫時，可以選擇**建立新的知識庫**（上傳文件並建立全新索引），或**連結現有知識庫**（重複使用在其他位置建立的索引、就地讀取且不重新建立索引）。重新建立索引時，系統會寫入新的扁平 `version-N` 目錄並保留先前版本，因此可用索引不會在重建途中遭到破壞。即使知識庫處於 **error** 狀態，也能移除單一文件；可直接刪除解析失敗的檔案，無須刪除並重建全部內容。文件解析方式（Text-only、MinerU、Docling、markitdown 或 PyMuPDF4LLM）可在 **Settings → Knowledge Base** 選擇，預設不下載本機模型。Docling 也可以在**遠端（remote）**模式下運作，改連線至 Docling Serve 伺服器（無須本機安裝或下載模型），可透過 **Settings → Document Parsing**（設定 `mode=remote`、伺服器基礎 URL 與選用的 API 金鑰）或 `DOCLING_MODE`／`DOCLING_API_BASE_URL`／`DOCLING_API_TOKEN` 環境變數進行設定。CLI 也提供對應的完整生命週期指令：`deeptutor kb list`、`info`、`create`、`add`、`search`、`set-default` 與 `delete`。
 
 </details>
 

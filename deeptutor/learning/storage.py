@@ -168,7 +168,7 @@ class LearningTransaction:
             SELECT * FROM mastery_interactions
             WHERE path_id = ? AND status IN ({placeholders})
             ORDER BY created_at DESC LIMIT 1
-            """,
+            """,  # nosec B608 - placeholders is a generated "?,?" list; every value is bound
             (self.progress.book_id, *_ACTIVE_INTERACTION_STATES),
         ).fetchone()
         return self._interaction_from_row(row)
@@ -230,7 +230,7 @@ class LearningTransaction:
             UPDATE mastery_interactions
             SET status = ?, updated_at = ?
             WHERE path_id = ? AND status IN ({placeholders})
-            """,
+            """,  # nosec B608 - placeholders is a generated "?,?" list; every value is bound
             (
                 InteractionStatus.ABANDONED.value,
                 time.time(),
@@ -888,6 +888,27 @@ class LearningStore:
             path_id=path_id, session_id=session_id, turn_id=turn_id, acquired_at=now
         )
 
+    def release_leases_for_turn(self, turn_id: str) -> str:
+        """Release whatever path *turn_id* currently holds; return that path id.
+
+        ``turn_id`` is unique across the lease table, so a turn holds at most
+        one path — which makes this the only release that stays correct when a
+        turn changes paths mid-flight. Releasing by the path id the turn *began*
+        with would free the wrong one and leak the other.
+        """
+        turn_id = str(turn_id or "").strip()
+        if not turn_id:
+            return ""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT path_id FROM mastery_path_leases WHERE turn_id = ?", (turn_id,)
+            ).fetchone()
+            if row is None:
+                return ""
+            conn.execute("DELETE FROM mastery_path_leases WHERE turn_id = ?", (turn_id,))
+            conn.commit()
+        return str(row["path_id"])
+
     def release_path_lease(self, path_id: str, *, turn_id: str | None = None) -> bool:
         path_id = self._validate_id(path_id)
         with self._connect() as conn:
@@ -928,10 +949,32 @@ class LearningStore:
                 SELECT * FROM mastery_interactions
                 WHERE path_id = ? AND status IN ({placeholders})
                 ORDER BY created_at DESC LIMIT 1
-                """,
+                """,  # nosec B608 - placeholders is a generated "?,?" list; every value is bound
                 (path_id, *_ACTIVE_INTERACTION_STATES),
             ).fetchone()
         return LearningTransaction._interaction_from_row(row)
+
+    def list_interactions(self, path_id: str, *, limit: int = 200) -> list[MasteryInteraction]:
+        """Question/answer transactions for a path, most recent first.
+
+        The aggregate keeps only the *current* question; the durable history of
+        what was asked lives here, which is what lets a review surface the
+        actual prompts behind an objective's attempts.
+        """
+        path_id = self._validate_id(path_id)
+        self._import_legacy_if_needed(path_id)
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM mastery_interactions
+                WHERE path_id = ?
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT ?
+                """,
+                (path_id, max(1, int(limit))),
+            ).fetchall()
+        interactions = (LearningTransaction._interaction_from_row(row) for row in rows)
+        return [interaction for interaction in interactions if interaction is not None]
 
     def list_events(self, path_id: str, *, after_revision: int = 0) -> list[MasteryEvent]:
         path_id = self._validate_id(path_id)

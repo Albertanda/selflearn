@@ -31,11 +31,20 @@ class Entity:
 
 @runtime_checkable
 class Stamped(Protocol):
-    """The three fields the diff engine actually reads off an entity."""
+    """The three fields the diff engine actually reads off an entity.
 
-    id: str
-    label: str
-    fingerprint: str
+    Declared read-only so a frozen carrier (:class:`EntityStamp`) satisfies it
+    as readily as a mutable one (:class:`Entity`); the diff never writes back.
+    """
+
+    @property
+    def id(self) -> str: ...
+
+    @property
+    def label(self) -> str: ...
+
+    @property
+    def fingerprint(self) -> str: ...
 
 
 @dataclass(frozen=True, slots=True)

@@ -52,10 +52,13 @@ export async function listLLMOptions(options?: {
         options?.timeoutMs ?? DEFAULT_LLM_OPTIONS_TIMEOUT_MS,
       );
       try {
-        const response = await apiFetch(apiUrl("/api/v1/settings/llm-options"), {
-          cache: "no-store",
-          signal: controller.signal,
-        });
+        const response = await apiFetch(
+          apiUrl("/api/v1/settings/llm-options"),
+          {
+            cache: "no-store",
+            signal: controller.signal,
+          },
+        );
         if (!response.ok) {
           throw new Error(`Failed to load LLM options: ${response.status}`);
         }

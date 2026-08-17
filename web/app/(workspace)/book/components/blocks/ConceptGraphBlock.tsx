@@ -132,7 +132,7 @@ export default function ConceptGraphBlock({
               return (
                 <li key={chapter.id}>
                   <Link
-                    href={`/book/${bookId}?page=${chapter.page_id}`}
+                    href={`/book?book=${encodeURIComponent(bookId)}&page=${encodeURIComponent(chapter.page_id)}`}
                     title={chapter.title}
                     className="block rounded-md px-2 py-1.5 hover:bg-[var(--background)]"
                   >

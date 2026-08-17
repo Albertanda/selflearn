@@ -136,6 +136,7 @@ export default function CreateKbModal({
     name,
     onNameChange: setName,
     onError: setError,
+    active: linkIsIma,
   });
 
   const firstLinkable = providers.find((p) => p.linkable)?.id;
@@ -295,8 +296,10 @@ export default function CreateKbModal({
       } else if (linkIsIma) {
         await onConnectIma({
           name: trimmed,
-          clientId: imaConnection.clientId.trim(),
-          apiKey: imaConnection.apiKey.trim(),
+          // Empty when the engine's account credentials are used — the server
+          // resolves them and the KB stores no copy.
+          clientId: imaConnection.submittedClientId,
+          apiKey: imaConnection.submittedApiKey,
           knowledgeBaseId: imaConnection.knowledgeBaseId,
         });
       } else if (linkIsObsidian) {

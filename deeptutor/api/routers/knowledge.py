@@ -73,7 +73,11 @@ from deeptutor.services.rag.pipelines.ima.client import (
     ImaClient,
     ImaRateLimitError,
 )
-from deeptutor.services.rag.pipelines.ima.config import ImaConfig
+from deeptutor.services.rag.pipelines.ima.config import (
+    ImaConfig,
+    ImaCredentials,
+    get_account_credentials,
+)
 from deeptutor.utils.document_extractor import (
     MAX_EXTRACTED_CHARS_PER_DOC,
     DocumentExtractionError,
@@ -1186,6 +1190,62 @@ async def update_pageindex_pipeline_config(payload: PageIndexConfigUpdate):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class ImaConfigUpdate(BaseModel):
+    # Same tri-state as PageIndex for the secret half of the pair: omit/None
+    # keeps the stored key, "" clears it, any other value replaces it. The
+    # Client ID is not a secret and round-trips in the clear.
+    client_id: str | None = None
+    api_key: str | None = None
+
+
+def _ima_config_payload() -> dict:
+    """Account-level IMA credential state for the UI, with the key redacted."""
+    from deeptutor.services.config import get_runtime_settings_service
+
+    settings = get_runtime_settings_service().load_ima()
+    client_id = str(settings.get("client_id") or "")
+    api_key_set = bool(settings.get("api_key"))
+    return {
+        "client_id": client_id,
+        "api_key_set": api_key_set,
+        "configured": bool(client_id) and api_key_set,
+    }
+
+
+@router.get("/rag-pipelines/ima/config")
+async def get_ima_pipeline_config():
+    """Read the account-level IMA credentials (key redacted to a boolean)."""
+    try:
+        return _ima_config_payload()
+    except Exception as e:
+        logger.error(f"Error reading IMA config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/rag-pipelines/ima/config")
+async def update_ima_pipeline_config(payload: ImaConfigUpdate):
+    """Persist the account-level IMA Client ID / API key."""
+    try:
+        from deeptutor.services.config import get_runtime_settings_service
+
+        service = get_runtime_settings_service()
+        current = service.load_ima(include_process_overrides=False)
+
+        client_id = current.get("client_id", "")
+        if payload.client_id is not None:
+            client_id = payload.client_id.strip()
+
+        api_key = current.get("api_key", "")
+        if payload.api_key is not None:
+            api_key = payload.api_key.strip()
+
+        service.save_ima({"client_id": client_id, "api_key": api_key})
+        return _ima_config_payload()
+    except Exception as e:
+        logger.error(f"Error updating IMA config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 class LlamaIndexConfigUpdate(BaseModel):
     """Partial update for the LlamaIndex engine knobs (omitted fields kept)."""
 
@@ -1781,8 +1841,10 @@ async def connect_lightrag_server_route(payload: ConnectLightRagServerRequest):
 
 
 class ListImaRequest(BaseModel):
-    client_id: str
-    api_key: str
+    # Empty means "use the account-level credentials from the engine settings",
+    # so the connect flow never has to re-send what is already stored.
+    client_id: str = ""
+    api_key: str = ""
     cursor: str = ""
     limit: int = Field(default=20, ge=1, le=20)
 
@@ -1799,15 +1861,33 @@ class ListImaResponse(BaseModel):
     is_end: bool
 
 
+def _resolve_ima_credentials(client_id: str, api_key: str) -> ImaCredentials:
+    """A request's credentials, falling back to the account-level pair.
+
+    A request that supplies only one half is not silently completed from the
+    account pair: mixing two accounts' halves would fail at IMA with a confusing
+    verdict.
+    """
+    supplied = ImaCredentials(client_id=(client_id or "").strip(), api_key=(api_key or "").strip())
+    if supplied.client_id or supplied.api_key:
+        return supplied
+    return get_account_credentials()
+
+
 @router.post("/list-ima", response_model=ListImaResponse)
 async def list_ima_route(payload: ListImaRequest):
     """List IMA knowledge bases without storing or echoing credentials."""
-    client_id = payload.client_id.strip()
-    api_key = payload.api_key.strip()
-    if not client_id or not api_key:
+    credentials = _resolve_ima_credentials(payload.client_id, payload.api_key)
+    if not credentials.complete:
         raise HTTPException(status_code=400, detail="Client ID and API key are required.")
 
-    client = ImaClient(ImaConfig(client_id=client_id, api_key=api_key, knowledge_base_id=""))
+    client = ImaClient(
+        ImaConfig(
+            client_id=credentials.client_id,
+            api_key=credentials.api_key,
+            knowledge_base_id="",
+        )
+    )
     try:
         return await client.search_knowledge_bases(
             query="",
@@ -1825,15 +1905,15 @@ async def list_ima_route(payload: ListImaRequest):
 
 
 class ProbeImaRequest(BaseModel):
-    client_id: str
-    api_key: str
+    client_id: str = ""
+    api_key: str = ""
     knowledge_base_id: str
 
 
 class ConnectImaRequest(BaseModel):
     name: str
-    client_id: str
-    api_key: str
+    client_id: str = ""
+    api_key: str = ""
     knowledge_base_id: str
 
 
@@ -1847,9 +1927,10 @@ async def probe_ima_route(payload: ProbeImaRequest):
     """
     from deeptutor.services.rag.pipelines.ima.probe import probe_knowledge_base
 
+    credentials = _resolve_ima_credentials(payload.client_id, payload.api_key)
     result = await probe_knowledge_base(
-        payload.client_id,
-        payload.api_key,
+        credentials.client_id,
+        credentials.api_key,
         payload.knowledge_base_id,
     )
     return result.to_dict()
@@ -1862,6 +1943,9 @@ async def connect_ima_route(payload: ConnectImaRequest):
     Re-probes server-side (never trusts the client's verdict), then registers a
     pointer (``type: ima``). Retrieval is offloaded to IMA's ``search_knowledge``
     OpenAPI — no copy, no local index.
+
+    Credentials the request omits come from the account-level settings and are
+    *not* copied onto the KB, so rotating them there keeps this KB working.
     """
     from deeptutor.services.rag.pipelines.ima.probe import probe_knowledge_base
 
@@ -1869,9 +1953,14 @@ async def connect_ima_route(payload: ConnectImaRequest):
     if not name:
         raise HTTPException(status_code=400, detail="Knowledge base name is required.")
 
+    overrides = ImaCredentials(
+        client_id=payload.client_id.strip(),
+        api_key=payload.api_key.strip(),
+    )
+    credentials = _resolve_ima_credentials(payload.client_id, payload.api_key)
     result = await probe_knowledge_base(
-        payload.client_id,
-        payload.api_key,
+        credentials.client_id,
+        credentials.api_key,
         payload.knowledge_base_id,
     )
     if not result.ok:
@@ -1884,8 +1973,8 @@ async def connect_ima_route(payload: ConnectImaRequest):
         manager = get_kb_manager()
         entry = manager.register_ima_kb(
             name,
-            payload.client_id,
-            payload.api_key,
+            overrides.client_id,
+            overrides.api_key,
             payload.knowledge_base_id,
             description=result.description or "",
         )

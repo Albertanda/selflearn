@@ -42,6 +42,13 @@ export interface PageIndexConfig {
   configured: boolean;
 }
 
+/** Account-level Tencent IMA credentials, shared by every `ima` KB. */
+export interface ImaAccountConfig {
+  client_id: string;
+  api_key_set: boolean;
+  configured: boolean;
+}
+
 export interface LlamaIndexConfig {
   version: number;
   /** "hybrid" (BM25 + vector fusion) or "vector" only. */
@@ -277,6 +284,48 @@ export async function updatePageIndexConfig(payload: {
   // The provider list's `configured` flag depends on this; refresh it.
   invalidateKnowledgeCaches();
   return (await res.json()) as PageIndexConfig;
+}
+
+const IMA_CONFIG_PATH = "/api/v1/knowledge/rag-pipelines/ima/config";
+
+export async function getImaConfig(options?: {
+  force?: boolean;
+}): Promise<ImaAccountConfig> {
+  return withClientCache<ImaAccountConfig>(
+    `${KNOWLEDGE_CACHE_PREFIX}ima-config`,
+    async () => {
+      const response = await apiFetch(apiUrl(IMA_CONFIG_PATH), {
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        throw new Error(
+          await readErrorDetail(response, "Failed to read Tencent IMA config"),
+        );
+      }
+      return (await response.json()) as ImaAccountConfig;
+    },
+    { force: options?.force, ttlMs: 15_000 },
+  );
+}
+
+export async function updateImaConfig(payload: {
+  client_id?: string;
+  /** Omit to keep the stored key, "" to clear it, any value to replace it. */
+  api_key?: string;
+}): Promise<ImaAccountConfig> {
+  const res = await apiFetch(apiUrl(IMA_CONFIG_PATH), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(
+      await readErrorDetail(res, "Failed to update Tencent IMA config"),
+    );
+  }
+  // The provider list's `configured` flag depends on this; refresh it.
+  invalidateKnowledgeCaches();
+  return (await res.json()) as ImaAccountConfig;
 }
 
 const LLAMAINDEX_CONFIG_PATH =
@@ -705,8 +754,9 @@ export interface ImaProbe {
 }
 
 export async function listImaKnowledgeBases(payload: {
-  clientId: string;
-  apiKey: string;
+  /** Empty falls back to the account credentials stored on the engine page. */
+  clientId?: string;
+  apiKey?: string;
   cursor?: string;
   limit?: number;
 }): Promise<ImaKnowledgeBasePage> {
@@ -714,8 +764,8 @@ export async function listImaKnowledgeBases(payload: {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      client_id: payload.clientId,
-      api_key: payload.apiKey,
+      client_id: payload.clientId ?? "",
+      api_key: payload.apiKey ?? "",
       cursor: payload.cursor ?? "",
       limit: payload.limit ?? 20,
     }),
@@ -730,16 +780,16 @@ export async function listImaKnowledgeBases(payload: {
 }
 
 export async function probeImaKnowledgeBase(payload: {
-  clientId: string;
-  apiKey: string;
+  clientId?: string;
+  apiKey?: string;
   knowledgeBaseId: string;
 }): Promise<ImaProbe> {
   const res = await apiFetch(apiUrl("/api/v1/knowledge/probe-ima"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      client_id: payload.clientId,
-      api_key: payload.apiKey,
+      client_id: payload.clientId ?? "",
+      api_key: payload.apiKey ?? "",
       knowledge_base_id: payload.knowledgeBaseId,
     }),
     skipAuthRedirect: true,
@@ -754,8 +804,9 @@ export async function probeImaKnowledgeBase(payload: {
 
 export async function connectImaKnowledgeBase(payload: {
   name: string;
-  clientId: string;
-  apiKey: string;
+  /** Empty binds the KB to the account credentials instead of pinning a copy. */
+  clientId?: string;
+  apiKey?: string;
   knowledgeBaseId: string;
 }): Promise<{
   status: string;
@@ -768,8 +819,8 @@ export async function connectImaKnowledgeBase(payload: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       name: payload.name,
-      client_id: payload.clientId,
-      api_key: payload.apiKey,
+      client_id: payload.clientId ?? "",
+      api_key: payload.apiKey ?? "",
       knowledge_base_id: payload.knowledgeBaseId,
     }),
     skipAuthRedirect: true,

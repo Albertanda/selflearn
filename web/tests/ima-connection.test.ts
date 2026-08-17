@@ -40,7 +40,10 @@ test("leaving the IMA source clears credentials from the mounted flow", () => {
   );
 
   assert.match(hookSource, /setClientId\(""\);\s+setApiKey\(""\);/);
-  assert.match(modalSource, /const handleClose = \(\) => {\s+imaConnection\.reset\(\);/);
+  assert.match(
+    modalSource,
+    /const handleClose = \(\) => {\s+imaConnection\.reset\(\);/,
+  );
   assert.match(
     modalSource,
     /if \(source !== IMA_PROVIDER\) imaConnection\.reset\(\);/,
@@ -93,14 +96,32 @@ test("automatic IMA connection requires credentials and a selected id", () => {
     name: "Notes",
     clientId: "cid",
     apiKey: "key",
+    credentialsReady: true,
     selectedId: "kb-1",
     manualKnowledgeBaseId: "",
     manualVerification: null,
   };
 
   assert.equal(canConnectIma(base), true);
-  assert.equal(canConnectIma({ ...base, clientId: "" }), false);
+  assert.equal(canConnectIma({ ...base, credentialsReady: false }), false);
   assert.equal(canConnectIma({ ...base, selectedId: "" }), false);
+});
+
+test("the account credential pair connects without any typed credentials", () => {
+  // Nothing is typed and nothing is sent — the server resolves the pair.
+  assert.equal(
+    canConnectIma({
+      mode: "automatic",
+      name: "Notes",
+      clientId: "",
+      apiKey: "",
+      credentialsReady: true,
+      selectedId: "kb-1",
+      manualKnowledgeBaseId: "",
+      manualVerification: null,
+    }),
+    true,
+  );
 });
 
 test("manual IMA connection accepts only the current verified credential tuple", () => {
@@ -109,6 +130,7 @@ test("manual IMA connection accepts only the current verified credential tuple",
     name: "Notes",
     clientId: "cid",
     apiKey: "key",
+    credentialsReady: true,
     selectedId: "",
     manualKnowledgeBaseId: "kb-1",
     manualVerification: {

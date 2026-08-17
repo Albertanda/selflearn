@@ -181,13 +181,24 @@ def _lightrag_preflight() -> dict:
 
 
 def _ima_preflight() -> dict:
+    try:
+        from .pipelines.ima.config import get_account_credentials
+
+        credentials = get_account_credentials()
+    except Exception:
+        from .pipelines.ima.config import ImaCredentials
+
+        credentials = ImaCredentials()
     return _finalize(
         [
             _check(
-                "per_kb_credentials",
-                "Credentials supplied when connecting a knowledge base",
-                True,
-                "Enter the IMA Client ID and API key in the link-existing flow.",
+                "credentials",
+                "IMA Client ID and API key configured",
+                credentials.complete,
+                credentials.client_id
+                if credentials.complete
+                else "Add them under Credentials, or supply a pair per knowledge base "
+                "when connecting one.",
             )
         ]
     )

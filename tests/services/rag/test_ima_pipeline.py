@@ -32,6 +32,7 @@ from deeptutor.services.rag.pipelines.ima.client import (
 )
 from deeptutor.services.rag.pipelines.ima.config import (
     ImaConfig,
+    ImaCredentials,
     ImaNotConfiguredError,
     config_from_entry,
 )
@@ -80,6 +81,26 @@ class TestConfigFromEntry:
             config_from_entry({"client_id": "cid"})
         message = str(exc.value)
         assert "API key" in message and "knowledge base ID" in message
+
+    def test_account_credentials_fill_in_what_the_entry_omits(self) -> None:
+        config = config_from_entry(
+            {"knowledge_base_id": "kb-1"},
+            fallback=ImaCredentials(client_id="cid", api_key="key"),
+        )
+        assert config == CONFIG
+
+    def test_entry_credentials_win_over_the_account_pair(self) -> None:
+        # A KB pinned to a second IMA account must not silently retrieve
+        # through the account-level credentials.
+        config = config_from_entry(
+            {"client_id": "other", "api_key": "other-key", "knowledge_base_id": "kb-1"},
+            fallback=ImaCredentials(client_id="cid", api_key="key"),
+        )
+        assert config == ImaConfig(client_id="other", api_key="other-key", knowledge_base_id="kb-1")
+
+    def test_knowledge_base_id_is_never_inherited(self) -> None:
+        with pytest.raises(ImaNotConfiguredError, match="knowledge base ID"):
+            config_from_entry({}, fallback=ImaCredentials(client_id="cid", api_key="key"))
 
 
 # ---------------------------------------------------------------------------
@@ -712,6 +733,28 @@ class TestPipelineSearch:
         asyncio.run(pipeline.search("q", "IMA", top_k=999))
 
         assert stub.limit == 50
+
+    def test_kb_without_credentials_uses_the_account_pair(self, tmp_path, monkeypatch) -> None:
+        import deeptutor.services.config as config_module
+        from deeptutor.services.config.runtime_settings import RuntimeSettingsService
+
+        service = RuntimeSettingsService(tmp_path / "settings", process_env={})
+        service.save_ima({"client_id": "cid", "api_key": "key"})
+        monkeypatch.setattr(config_module, "get_runtime_settings_service", lambda: service)
+
+        base = _kb_config(tmp_path, {"type": "ima", "knowledge_base_id": "kb-1"})
+        seen: list[ImaConfig] = []
+
+        def factory(config: ImaConfig):
+            seen.append(config)
+            return _SearchStub([{"media_id": "m1", "title": "Alpha", "highlight_content": "a"}])
+
+        pipeline = ImaPipeline(kb_base_dir=base, client_factory=factory)
+
+        result = asyncio.run(pipeline.search("q", "IMA"))
+
+        assert seen == [CONFIG]
+        assert [source["title"] for source in result["sources"]] == ["Alpha"]
 
     def test_unconfigured_kb_reports_not_configured(self, tmp_path) -> None:
         base = _kb_config(tmp_path, {"type": "ima", "rag_provider": "ima"})

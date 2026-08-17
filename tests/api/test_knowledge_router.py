@@ -7,11 +7,14 @@ from pathlib import Path
 
 import pytest
 
+import deeptutor.services.config as config_module
+from deeptutor.services.config.runtime_settings import RuntimeSettingsService
 from deeptutor.services.rag.pipelines.ima.client import (
     ImaAPIError,
     ImaAuthError,
     ImaRateLimitError,
 )
+import deeptutor.services.rag.pipelines.ima.config as ima_config_module
 
 try:
     from fastapi import FastAPI
@@ -133,7 +136,8 @@ def _write_ready_llamaindex_version(kb_dir: Path) -> None:
     )
 
 
-def test_rag_providers_lists_llamaindex_and_pageindex() -> None:
+def test_rag_providers_lists_llamaindex_and_pageindex(monkeypatch) -> None:
+    monkeypatch.setattr(ima_config_module, "is_ima_configured", lambda: True)
     with TestClient(_build_app()) as client:
         response = client.get("/api/v1/knowledge/rag-providers")
 
@@ -158,9 +162,9 @@ def test_rag_providers_lists_llamaindex_and_pageindex() -> None:
     # (the per-KB endpoint is configured at connect time).
     assert by_id["lightrag-server"]["requires_api_key"] is False
     assert by_id["lightrag-server"]["configured"] is True
-    # Same for IMA: a thin HTTPS client, credentials bound per-KB at connect
-    # time rather than gated by one global key.
-    assert by_id["ima"]["requires_api_key"] is False
+    # IMA is a thin HTTPS client with no install, but it does need an account
+    # credential pair — configured here by the patched account settings.
+    assert by_id["ima"]["requires_api_key"] is True
     assert by_id["ima"]["configured"] is True
     # Mode-aware engines advertise their retrieval modes; vector engines don't.
     assert "hybrid" in by_id["lightrag"]["modes"]
@@ -299,6 +303,177 @@ def test_list_ima_maps_upstream_errors_without_leaking_credentials(
     assert expected_detail in response.json()["detail"]
     assert "private-client" not in response.text
     assert "private-key" not in response.text
+
+
+@pytest.fixture
+def ima_account(tmp_path: Path, monkeypatch) -> RuntimeSettingsService:
+    """Account-level IMA settings backed by a throwaway directory."""
+    service = RuntimeSettingsService(tmp_path / "settings", process_env={})
+    monkeypatch.setattr(config_module, "get_runtime_settings_service", lambda: service)
+    return service
+
+
+def test_list_ima_falls_back_to_the_account_credentials(monkeypatch, ima_account) -> None:
+    ima_account.save_ima({"client_id": "account-client", "api_key": "account-key"})
+    captured: dict = {}
+    stub = _ImaListStub()
+
+    def build_client(config):
+        captured["config"] = config
+        return stub
+
+    monkeypatch.setattr(knowledge_router_module, "ImaClient", build_client, raising=False)
+    with TestClient(_build_app()) as client:
+        response = client.post("/api/v1/knowledge/list-ima", json={})
+
+    assert response.status_code == 200
+    assert captured["config"].client_id == "account-client"
+    assert captured["config"].api_key == "account-key"
+
+
+def test_list_ima_does_not_complete_half_a_supplied_pair(monkeypatch, ima_account) -> None:
+    # Mixing one account's Client ID with another's key would fail at IMA with
+    # a confusing verdict; ask for the missing half instead.
+    ima_account.save_ima({"client_id": "account-client", "api_key": "account-key"})
+
+    with TestClient(_build_app()) as client:
+        response = client.post("/api/v1/knowledge/list-ima", json={"client_id": "other"})
+
+    assert response.status_code == 400
+    assert "required" in response.json()["detail"]
+
+
+def test_ima_config_reports_state_without_echoing_the_key(ima_account) -> None:
+    with TestClient(_build_app()) as client:
+        assert client.get("/api/v1/knowledge/rag-pipelines/ima/config").json() == {
+            "client_id": "",
+            "api_key_set": False,
+            "configured": False,
+        }
+
+        response = client.put(
+            "/api/v1/knowledge/rag-pipelines/ima/config",
+            json={"client_id": " account-client ", "api_key": " private-key "},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "client_id": "account-client",
+        "api_key_set": True,
+        "configured": True,
+    }
+    assert "private-key" not in response.text
+    assert ima_account.load_ima(include_process_overrides=False)["api_key"] == "private-key"
+
+
+def test_ima_config_keeps_the_stored_key_when_omitted(ima_account) -> None:
+    ima_account.save_ima({"client_id": "account-client", "api_key": "private-key"})
+
+    with TestClient(_build_app()) as client:
+        response = client.put(
+            "/api/v1/knowledge/rag-pipelines/ima/config",
+            json={"client_id": "renamed-client"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["api_key_set"] is True
+    stored = ima_account.load_ima(include_process_overrides=False)
+    assert stored == {"version": 1, "client_id": "renamed-client", "api_key": "private-key"}
+
+
+def test_ima_config_clears_the_key_on_an_empty_string(ima_account) -> None:
+    ima_account.save_ima({"client_id": "account-client", "api_key": "private-key"})
+
+    with TestClient(_build_app()) as client:
+        response = client.put(
+            "/api/v1/knowledge/rag-pipelines/ima/config",
+            json={"api_key": ""},
+        )
+
+    assert response.json() == {
+        "client_id": "account-client",
+        "api_key_set": False,
+        "configured": False,
+    }
+
+
+class _ProbeResult:
+    def __init__(self) -> None:
+        self.ok = True
+        self.error = None
+        self.description = "notes"
+
+    def to_dict(self) -> dict:
+        return {"ok": True, "error": None, "description": self.description}
+
+
+def _capture_probe(monkeypatch) -> list[tuple[str, str, str]]:
+    """Record the credentials the router probes with, without any network."""
+    import deeptutor.services.rag.pipelines.ima.probe as probe_module
+
+    calls: list[tuple[str, str, str]] = []
+
+    async def fake_probe(client_id: str, api_key: str, knowledge_base_id: str, **_kwargs):
+        calls.append((client_id, api_key, knowledge_base_id))
+        return _ProbeResult()
+
+    monkeypatch.setattr(probe_module, "probe_knowledge_base", fake_probe)
+    return calls
+
+
+def _real_manager(monkeypatch, tmp_path: Path):
+    from deeptutor.knowledge.manager import KnowledgeBaseManager
+
+    manager = KnowledgeBaseManager(base_dir=str(tmp_path / "kbs"))
+    monkeypatch.setattr(knowledge_router_module, "get_kb_manager", lambda: manager)
+    return manager
+
+
+def test_connect_ima_uses_the_account_pair_without_copying_it(
+    monkeypatch, tmp_path: Path, ima_account
+) -> None:
+    ima_account.save_ima({"client_id": "account-client", "api_key": "account-key"})
+    calls = _capture_probe(monkeypatch)
+    manager = _real_manager(monkeypatch, tmp_path)
+
+    with TestClient(_build_app()) as client:
+        response = client.post(
+            "/api/v1/knowledge/connect-ima",
+            json={"name": "IMA", "knowledge_base_id": "kb-1"},
+        )
+
+    assert response.status_code == 200
+    # Probed with the account credentials …
+    assert calls == [("account-client", "account-key", "kb-1")]
+    # … but the KB keeps only the pointer, so rotating the key keeps it working.
+    entry = manager.config["knowledge_bases"]["IMA"]
+    assert entry["knowledge_base_id"] == "kb-1"
+    assert "client_id" not in entry and "api_key" not in entry
+
+
+def test_connect_ima_pins_supplied_credentials_to_the_kb(
+    monkeypatch, tmp_path: Path, ima_account
+) -> None:
+    ima_account.save_ima({"client_id": "account-client", "api_key": "account-key"})
+    calls = _capture_probe(monkeypatch)
+    manager = _real_manager(monkeypatch, tmp_path)
+
+    with TestClient(_build_app()) as client:
+        response = client.post(
+            "/api/v1/knowledge/connect-ima",
+            json={
+                "name": "Other",
+                "client_id": "other-client",
+                "api_key": "other-key",
+                "knowledge_base_id": "kb-2",
+            },
+        )
+
+    assert response.status_code == 200
+    assert calls == [("other-client", "other-key", "kb-2")]
+    entry = manager.config["knowledge_bases"]["Other"]
+    assert entry["client_id"] == "other-client"
+    assert entry["api_key"] == "other-key"
 
 
 def test_set_rag_provider_mode_persists_validates_and_reflects() -> None:

@@ -16,8 +16,11 @@ from deeptutor.tools.mastery_tool import (
     MasteryAssessTool,
     MasteryBuildTool,
     MasteryGradeTool,
+    MasteryLeaveTool,
+    MasteryPathsTool,
     MasteryQuizTool,
     MasteryStatusTool,
+    MasterySwitchTool,
 )
 
 
@@ -756,3 +759,166 @@ async def test_assess_rejects_quantitative_type(path_id):
         _mastery_path_id=path_id, knowledge_point_id=mem_kp, passed=True
     )
     assert result.success is False
+
+
+# ── path switching: a conversation is not bound to one path ───────────────
+
+
+async def _build_named(path_id: str, module_name: str) -> None:
+    await MasteryBuildTool().execute(
+        _mastery_path_id=path_id,
+        mode="replace",
+        modules=[
+            {
+                "name": module_name,
+                "knowledge_points": [{"name": f"{module_name} basics", "type": "concept"}],
+            }
+        ],
+    )
+
+
+@pytest.mark.asyncio
+async def test_paths_tool_reports_every_path_and_marks_the_active_one(path_id):
+    await _build_named("calculus", "Calculus")
+    await _build_named("algebra", "Algebra")
+
+    payload = json.loads((await MasteryPathsTool().execute(_mastery_path_id="algebra")).content)
+
+    assert payload["active_path_id"] == "algebra"
+    by_id = {entry["path_id"]: entry for entry in payload["paths"]}
+    assert by_id.keys() == {"calculus", "algebra"}
+    assert by_id["algebra"]["active"] is True
+    assert by_id["calculus"]["active"] is False
+    assert by_id["calculus"]["objectives"] == 1
+    assert by_id["calculus"]["mastered"] == 0
+
+
+@pytest.mark.asyncio
+async def test_paths_tool_hides_paths_with_nothing_to_teach(path_id):
+    await _build_named("calculus", "Calculus")
+    # A conversation-owned scratch path exists as soon as a mastery turn runs,
+    # long before anyone builds objectives into it.
+    with LearningStore().transaction("empty_scratch", create=True):
+        pass
+
+    payload = json.loads((await MasteryPathsTool().execute(_mastery_path_id="calculus")).content)
+
+    assert [entry["path_id"] for entry in payload["paths"]] == ["calculus"]
+
+
+@pytest.mark.asyncio
+async def test_switch_rebinds_the_running_turn_and_hands_over_the_lease(path_id, session_store):
+    await _build_named("calculus", "Calculus")
+    await _build_named("algebra", "Algebra")
+    store = LearningStore()
+    store.acquire_path_lease("calculus", "session-1", "turn-1")
+    bound: list[str] = []
+
+    result = await MasterySwitchTool().execute(
+        path_id="algebra",
+        _mastery_path_id="calculus",
+        _session_id="session-1",
+        _turn_id="turn-1",
+        _bind_active_path=bound.append,
+    )
+
+    assert result.success
+    payload = json.loads(result.content)
+    assert payload["previous_path_id"] == "calculus"
+    assert payload["active_path_id"] == "algebra"
+    # The rest of THIS turn must operate on the new path...
+    assert bound == ["algebra"]
+    # ...and exclusion moves with it, rather than being held on both or neither.
+    assert store.get_path_lease("calculus") is None
+    assert store.get_path_lease("algebra").turn_id == "turn-1"
+
+
+@pytest.mark.asyncio
+async def test_switch_to_an_unknown_path_changes_nothing(path_id):
+    await _build_named("calculus", "Calculus")
+    store = LearningStore()
+    store.acquire_path_lease("calculus", "session-1", "turn-1")
+    bound: list[str] = []
+
+    result = await MasterySwitchTool().execute(
+        path_id="not_a_path",
+        _mastery_path_id="calculus",
+        _session_id="session-1",
+        _turn_id="turn-1",
+        _bind_active_path=bound.append,
+    )
+
+    assert not result.success
+    assert "mastery_paths" in result.content
+    assert bound == []
+    assert store.get_path_lease("calculus").turn_id == "turn-1"
+
+
+@pytest.mark.asyncio
+async def test_switch_into_a_path_busy_elsewhere_keeps_the_current_one(path_id):
+    await _build_named("calculus", "Calculus")
+    await _build_named("algebra", "Algebra")
+    store = LearningStore()
+    store.acquire_path_lease("calculus", "session-1", "turn-1")
+    store.acquire_path_lease("algebra", "session-2", "turn-2")
+    bound: list[str] = []
+
+    result = await MasterySwitchTool().execute(
+        path_id="algebra",
+        _mastery_path_id="calculus",
+        _session_id="session-1",
+        _turn_id="turn-1",
+        _bind_active_path=bound.append,
+    )
+
+    assert not result.success
+    assert "another conversation" in result.content
+    assert bound == []
+    # Rolled back onto the path the learner was already on.
+    assert store.get_path_lease("calculus").turn_id == "turn-1"
+    assert store.get_path_lease("algebra").turn_id == "turn-2"
+
+
+@pytest.mark.asyncio
+async def test_leave_falls_back_to_the_conversation_scratch_path(path_id, session_store):
+    await _build_named("calculus", "Calculus")
+    store = LearningStore()
+    store.acquire_path_lease("calculus", "session-1", "turn-1")
+    bound: list[str] = []
+
+    result = await MasteryLeaveTool().execute(
+        _mastery_path_id="calculus",
+        _session_id="session-1",
+        _turn_id="turn-1",
+        _bind_active_path=bound.append,
+    )
+
+    assert result.success
+    payload = json.loads(result.content)
+    assert payload["previous_path_id"] == "calculus"
+    assert payload["active_path_id"] == "session-1"
+    assert bound == ["session-1"]
+    # The course keeps everything and stays resumable.
+    assert store.load("calculus") is not None
+    assert store.get_path_lease("calculus") is None
+    assert store.get_path_lease("session-1").turn_id == "turn-1"
+
+
+@pytest.mark.asyncio
+async def test_leave_makes_the_conversation_own_its_scratch_path(path_id, session_store):
+    """Otherwise leaving strews empty orphan paths that nothing cleans up."""
+    await _build_named("calculus", "Calculus")
+    store = LearningStore()
+    store.acquire_path_lease("calculus", "session-1", "turn-1")
+
+    await MasteryLeaveTool().execute(
+        _mastery_path_id="calculus",
+        _session_id="session-1",
+        _turn_id="turn-1",
+        _bind_active_path=lambda _path_id: None,
+    )
+    removed = store.detach_session("session-1", delete_owned_orphans=True)
+
+    assert removed == ["session-1"]
+    assert store.exists("session-1") is False
+    assert store.exists("calculus") is True

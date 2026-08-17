@@ -644,6 +644,38 @@ class LearningService:
         progress, _ = self._store.mutate(book_id, replace, create=True)
         return progress
 
+    def abandon_active_question(self, book_id: str) -> tuple[LearningProgress, bool]:
+        """Drop the outstanding question so the path can move on.
+
+        A posed question outranks everything in ``policy.next_objective`` and
+        blocks ``register_question`` from posing another, which is what keeps
+        the gate honest — but it also means a question the learner can no
+        longer answer (its conversation is gone, the card was never shown)
+        would stall the path with no way out short of resetting all progress.
+        Abandoning is deliberately explicit rather than automatic: an
+        unanswered question is normally resumable across turns, so only the
+        learner can say this one is not.
+
+        Returns the progress and whether anything was outstanding.
+        """
+
+        def abandon(tx):
+            interaction = tx.active_interaction()
+            abandoned = tx.abandon_active_interactions() > 0
+            if tx.progress.pending_question is not None:
+                tx.progress.pending_question = None
+                abandoned = True
+            if not abandoned:
+                return False
+            tx.touch()
+            tx.emit(
+                "interaction.abandoned",
+                {"interaction_id": interaction.interaction_id if interaction else ""},
+            )
+            return True
+
+        return self._store.mutate(book_id, abandon)
+
     def reset_path(self, book_id: str) -> LearningProgress:
         def reset(tx):
             progress = tx.progress
@@ -763,6 +795,48 @@ class LearningService:
                 progress.repetition_states[kp_id] = scheduler.get_initial_state(kp_type)
             progress.review_queue = scheduler.build_review_queue(progress)
         progress.updated_at = time.time()
+
+    def list_path_overviews(self) -> list[dict]:
+        """Gate-accurate one-line state for every path the learner owns.
+
+        ``list_progress`` reports an *average* mastery percentage, which is the
+        right number for a progress bar and the wrong one for deciding what is
+        finished: mastery is a per-objective gate, so "3 of 4 cleared" is the
+        fact, and an average can sit at 75% with nothing actually mastered.
+        This reports the counts the gate itself produces.
+        """
+        from deeptutor.learning import policy
+
+        overviews: list[dict] = []
+        for path_id in self._store.list_all():
+            try:
+                progress = self._store.load(path_id)
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "Failed to load mastery path %s for overview", path_id, exc_info=True
+                )
+                continue
+            if progress is None:
+                continue
+            summary = policy.map_summary(progress)
+            counts = summary["counts"]
+            overviews.append(
+                {
+                    "path_id": progress.book_id,
+                    "name": (progress.modules[0].name if progress.modules else "")
+                    or progress.book_id,
+                    "objectives": counts["total"],
+                    "mastered": counts["mastered"],
+                    "learning": counts["learning"],
+                    "not_started": counts["new"],
+                    "due_reviews": summary["due_reviews"],
+                    "complete": summary["complete"],
+                    "open_question": progress.pending_question is not None,
+                    "updated_at": progress.updated_at,
+                }
+            )
+        overviews.sort(key=lambda overview: overview["updated_at"], reverse=True)
+        return overviews
 
     def list_progress(self) -> dict:
         """Return summary of all book progress with per-book error info."""

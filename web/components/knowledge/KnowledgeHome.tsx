@@ -58,13 +58,6 @@ function EngineStatusBadge({ status }: { status: ProviderConnectionStatus }) {
       </span>
     );
   }
-  if (status === "per_kb") {
-    return (
-      <span className="inline-flex items-center rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 dark:bg-sky-950/30 dark:text-sky-300">
-        {t("Connect per knowledge base")}
-      </span>
-    );
-  }
   if (status === "needs_key") {
     return (
       <span className="inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">

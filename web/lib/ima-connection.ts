@@ -2,7 +2,12 @@ export const IMA_PROVIDER = "ima";
 
 export type ImaConnectionMode = "automatic" | "manual";
 export type ImaLookupStatus =
-  "idle" | "loading" | "ready" | "empty" | "error" | "manual_verified";
+  | "idle"
+  | "loading"
+  | "ready"
+  | "empty"
+  | "error"
+  | "manual_verified";
 
 export interface ImaKnowledgeBaseOption {
   id: string;
@@ -70,8 +75,11 @@ export const emptyImaLookupState = (): ImaLookupState => ({
 export const canConnectIma = (input: {
   mode: ImaConnectionMode;
   name: string;
+  /** Credentials as submitted — empty when the account pair is used. */
   clientId: string;
   apiKey: string;
+  /** Credentials resolve, either from this form or from the account pair. */
+  credentialsReady: boolean;
   selectedId: string;
   manualKnowledgeBaseId: string;
   manualVerification: ImaManualVerification | null;
@@ -79,9 +87,11 @@ export const canConnectIma = (input: {
   const name = input.name.trim();
   const clientId = input.clientId.trim();
   const apiKey = input.apiKey.trim();
-  if (!name || !clientId || !apiKey) return false;
+  if (!name || !input.credentialsReady) return false;
   if (input.mode === "automatic") return Boolean(input.selectedId.trim());
 
+  // A manually typed id is only trusted once the verdict for *these* exact
+  // credentials came back ok — editing either invalidates it.
   const knowledgeBaseId = input.manualKnowledgeBaseId.trim();
   const verified = input.manualVerification;
   return Boolean(

@@ -135,10 +135,23 @@ test("taskFailureMessage keeps trace details out of the primary error", () => {
   );
 });
 
-test("IMA is connected per knowledge base instead of globally ready", () => {
+test("engine status follows the credential and install state", () => {
+  // IMA holds one account credential pair, like PageIndex.
   assert.equal(
-    providerConnectionStatus({ id: "ima", configured: true }),
-    "per_kb",
+    providerConnectionStatus({
+      id: "ima",
+      configured: false,
+      requires_api_key: true,
+    }),
+    "needs_key",
+  );
+  assert.equal(
+    providerConnectionStatus({
+      id: "ima",
+      configured: true,
+      requires_api_key: true,
+    }),
+    "ready",
   );
   assert.equal(
     providerConnectionStatus({ id: "llamaindex", configured: true }),

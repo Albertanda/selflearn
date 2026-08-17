@@ -23,6 +23,7 @@ from deeptutor.services.session.artifact_attachments import (
 from deeptutor.services.session.protocol import SessionStoreProtocol
 
 if TYPE_CHECKING:
+    from deeptutor.learning.storage import MasteryPathLease
     from deeptutor.services.llm.config import LLMConfig
 
 logger = logging.getLogger(__name__)
@@ -613,6 +614,10 @@ class _TurnExecution:
     capability: str
     payload: dict[str, Any]
     task: asyncio.Task[None] | None = None
+    # True while the turn is parked inside ``ask_user`` waiting for a learner
+    # reply. Such a turn holds its resources (notably a mastery path lease)
+    # but is doing no work, so another turn may take over from it.
+    awaiting_user_reply: bool = False
     subscribers: list[_LiveSubscriber] = field(default_factory=list)
     events: list[dict[str, Any]] = field(default_factory=list)
     next_seq: int = 1
@@ -683,6 +688,41 @@ class TurnRuntimeManager:
         for turn in await self.store.list_active_turns(session_id):
             await self._fail_orphan_running_turn(turn)
 
+    async def _is_awaiting_user_reply(self, turn_id: str) -> bool:
+        async with self._lock:
+            execution = self._executions.get(turn_id)
+            return execution is not None and execution.awaiting_user_reply
+
+    async def _release_superseded_lease(self, path_id: str, lease: MasteryPathLease) -> None:
+        """Free ``lease`` when its turn can no longer be working on the path.
+
+        Two cases release it. A turn that is no longer ``running`` (finished,
+        or orphaned by a restart) is simply gone. A turn parked inside
+        ``ask_user`` is alive but idle — it holds the lease for as long as the
+        learner takes to answer, which may be forever. Since the posed question
+        is persisted on the path itself, the arriving turn resumes exactly
+        where the parked one stopped, so handing the path over loses nothing;
+        the parked turn is cancelled rather than left to mutate a path it no
+        longer owns. Only a turn that is actively generating keeps the lease.
+        """
+        from deeptutor.learning.storage import LearningStore
+
+        leased_turn = await self._fail_orphan_running_turn(await self.store.get_turn(lease.turn_id))
+        alive = leased_turn is not None and str(leased_turn.get("status") or "") == "running"
+        if alive:
+            if not await self._is_awaiting_user_reply(lease.turn_id):
+                # Genuinely busy — leave the lease, and let the store report
+                # the conflict to the caller.
+                return
+            await self.cancel_turn(lease.turn_id)
+        # Scoped to the superseded turn id, so a lease already re-taken by
+        # someone else survives.
+        await asyncio.to_thread(
+            LearningStore().release_path_lease,
+            path_id,
+            turn_id=lease.turn_id,
+        )
+
     async def _acquire_mastery_path_lease(
         self,
         *,
@@ -691,7 +731,7 @@ class TurnRuntimeManager:
         turn_id: str,
         owns_path: bool,
     ) -> None:
-        """Bind a session to its path and recover only demonstrably stale leases."""
+        """Bind a session to its path and take over from any superseded turn."""
         from deeptutor.learning.storage import LearningStore, PathLeaseConflictError
 
         learning_store = LearningStore()
@@ -703,14 +743,7 @@ class TurnRuntimeManager:
         )
         lease = await asyncio.to_thread(learning_store.get_path_lease, path_id)
         if lease is not None and lease.turn_id != turn_id and lease.session_id != "__path_api__":
-            leased_turn = await self.store.get_turn(lease.turn_id)
-            leased_turn = await self._fail_orphan_running_turn(leased_turn)
-            if leased_turn is None or str(leased_turn.get("status") or "") != "running":
-                await asyncio.to_thread(
-                    learning_store.release_path_lease,
-                    path_id,
-                    turn_id=lease.turn_id,
-                )
+            await self._release_superseded_lease(path_id, lease)
         try:
             await asyncio.to_thread(
                 learning_store.acquire_path_lease,
@@ -1345,7 +1378,13 @@ class TurnRuntimeManager:
         self._reply_queues[turn_id] = reply_queue
 
         async def _wait_for_user_reply() -> dict[str, Any] | None:
-            return await reply_queue.get()
+            # Publish the pause so a turn that wants the same mastery path can
+            # tell "busy generating" apart from "parked, learner walked away".
+            execution.awaiting_user_reply = True
+            try:
+                return await reply_queue.get()
+            finally:
+                execution.awaiting_user_reply = False
 
         try:
             from deeptutor.agents.notebook import NotebookAnalysisAgent
@@ -1834,6 +1873,18 @@ class TurnRuntimeManager:
                         seen_artifact_urls.add(attachment["url"])
                         generated_attachments.append(attachment)
 
+            # A mastery turn may have changed which path it is on
+            # (``mastery_switch`` / ``mastery_leave``). The conversation's
+            # stored preference already followed it; tell the open client too,
+            # so what it shows as "currently mastering" is not the path the
+            # turn merely started on.
+            await self._publish_mastery_path_change(
+                execution,
+                capability_name=capability_name,
+                started_on=_mastery_path_id(payload.get("mastery_path_id")),
+                ended_on=str(context.metadata.get("mastery_path_id") or ""),
+            )
+
             # Office binaries the browser cannot render need their text pulled
             # out now, while the files are still on disk, or their preview card
             # opens empty. Skipped on the cancelled path below: that one is
@@ -2026,17 +2077,16 @@ class TurnRuntimeManager:
             # that finds the queue gone will return ``False`` rather than
             # accumulating on a dead turn.
             self._reply_queues.pop(turn_id, None)
-            mastery_path_id = _mastery_path_id(payload.get("mastery_path_id"))
-            if capability_name == "mastery_path" and mastery_path_id:
+            if capability_name == "mastery_path":
                 from deeptutor.learning.storage import LearningStore
 
+                # By turn, not by the path the turn started on: mastery_switch
+                # can move a turn onto a different path mid-flight, and freeing
+                # the original id would release someone else's lease while
+                # leaking the one this turn actually holds.
                 with contextlib.suppress(Exception):
                     await asyncio.shield(
-                        asyncio.to_thread(
-                            LearningStore().release_path_lease,
-                            mastery_path_id,
-                            turn_id=turn_id,
-                        )
+                        asyncio.to_thread(LearningStore().release_leases_for_turn, turn_id)
                     )
             async with self._lock:
                 current = self._executions.get(turn_id)
@@ -2051,6 +2101,26 @@ class TurnRuntimeManager:
             from deeptutor.runtime.memory_reclaim import schedule_memory_reclaim
 
             schedule_memory_reclaim()
+
+    async def _publish_mastery_path_change(
+        self,
+        execution: _TurnExecution,
+        *,
+        capability_name: str,
+        started_on: str,
+        ended_on: str,
+    ) -> None:
+        """Announce a path the turn moved onto, so the client stops lying."""
+        if capability_name != "mastery_path" or not ended_on or ended_on == started_on:
+            return
+        await self._publish_live_event(
+            execution,
+            StreamEvent(
+                type=StreamEventType.SESSION_META,
+                source="turn_runtime",
+                metadata={"mastery_path_id": ended_on},
+            ),
+        )
 
     async def _publish_live_event(
         self,

@@ -162,7 +162,8 @@ export default function ModelSelector({
     systemDefaultDetail || t("Use the active default model from Settings");
   const canRefresh = error && Boolean(onRefresh);
   const disabled =
-    loading || (!canRefresh && (error || (options.length === 0 && !allowSystemDefault)));
+    loading ||
+    (!canRefresh && (error || (options.length === 0 && !allowSystemDefault)));
   const label = loading
     ? t("Loading models")
     : error

@@ -2,11 +2,14 @@
 
 There is no bespoke state machine here anymore. The chat agent loop IS the
 tutor: this capability only marks the turn as mastery mode and resolves the
-active path id, then runs the standard agentic chat pipeline. The pipeline
-mounts the mastery tools (``mastery_status`` / ``mastery_quiz`` /
-``mastery_grade`` / ``mastery_assess`` / ``mastery_build``) and injects the
-tutor playbook; the pure engine in :mod:`deeptutor.learning` owns the hard,
-per-type mastery gate and the spaced-repetition arithmetic.
+*initial* active path id, then runs the standard agentic chat pipeline. The
+pipeline mounts the mastery tools — the gate tools (``mastery_status`` /
+``mastery_quiz`` / ``mastery_grade`` / ``mastery_assess`` / ``mastery_build``)
+and the binding tools (``mastery_paths`` / ``mastery_switch`` /
+``mastery_leave``), through which the tutor can move the conversation between
+paths mid-turn — and injects the tutor playbook; the pure engine in
+:mod:`deeptutor.learning` owns the hard, per-type mastery gate and the
+spaced-repetition arithmetic.
 
 Design axiom (shared with chat): the intelligence lives at the loop's exit —
 the model decides what to teach and how to question — while the gate that
@@ -90,14 +93,10 @@ class MasteryPathCapability(BaseCapability):
         try:
             await pipeline.run(context, stream)
         finally:
+            # Released by turn: ``mastery_switch`` may have moved this turn onto
+            # a different path since the lease was taken.
             with contextlib.suppress(Exception):
-                await asyncio.shield(
-                    asyncio.to_thread(
-                        store.release_path_lease,
-                        binding.path_id,
-                        turn_id=turn_id,
-                    )
-                )
+                await asyncio.shield(asyncio.to_thread(store.release_leases_for_turn, turn_id))
 
 
 __all__ = ["MasteryPathCapability", "resolve_mastery_path_id"]

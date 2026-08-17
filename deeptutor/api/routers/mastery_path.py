@@ -195,6 +195,35 @@ async def get_progress_map(book_id: str):
     }
 
 
+@router.get("/progress/{book_id}/objectives/{kp_id}")
+async def get_objective_report(book_id: str, kp_id: str):
+    """The evidence behind one objective: attempts, schedule, errors, prompts.
+
+    ``policy.objective_report`` is pure over the aggregate, so the questions
+    themselves — which live in the durable interaction log, not the aggregate —
+    are joined on here, redacted of their answer keys.
+    """
+    _validate_book_id(book_id)
+    store = LearningStore()
+    progress = await asyncio.to_thread(store.load, book_id)
+    if progress is None:
+        raise HTTPException(status_code=404, detail="Progress not found")
+    report = learning_policy.objective_report(progress, kp_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Objective not found")
+
+    from deeptutor.learning.pending import public_pending_question
+
+    interactions = await asyncio.to_thread(store.list_interactions, book_id)
+    prompts = {
+        interaction.interaction_id: public_pending_question(interaction.question).prompt
+        for interaction in interactions
+    }
+    for attempt in report["attempts"]:
+        attempt["prompt"] = prompts.get(attempt["question_id"], "")
+    return {"book_id": book_id, "path_revision": progress.version, "objective": report}
+
+
 @router.get("/progress/{book_id}/events")
 async def get_progress_events(book_id: str, after_revision: int = 0):
     """Ordered, redacted domain events for reconnect and incremental UI sync."""
@@ -283,6 +312,24 @@ async def delete_progress(book_id: str):
     async with _exclusive_path_mutation(book_id):
         await asyncio.to_thread(store.delete, book_id)
     return {"status": "ok"}
+
+
+@router.post("/progress/{book_id}/skip-question")
+async def skip_pending_question(book_id: str):
+    """Drop an outstanding question the learner can no longer answer.
+
+    The narrow escape hatch for a path stalled on ``answer_pending``; unlike
+    ``redo`` it keeps every mastery level and review the learner has earned.
+    """
+    _validate_book_id(book_id)
+    store = LearningStore()
+    if not await asyncio.to_thread(store.exists, book_id):
+        raise HTTPException(status_code=404, detail="Progress not found")
+    async with _exclusive_path_mutation(book_id):
+        progress, skipped = await asyncio.to_thread(
+            LearningService(store).abandon_active_question, book_id
+        )
+    return {"status": "ok", "skipped": skipped, "path_revision": progress.version}
 
 
 @router.post("/progress/{book_id}/redo")

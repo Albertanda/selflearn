@@ -224,6 +224,18 @@ DEFAULT_PAGEINDEX_SETTINGS: dict[str, Any] = {
     "api_base_url": "https://api.pageindex.ai",
 }
 
+# Tencent IMA. The credential pair (``client_id`` + ``api_key``, issued at
+# https://ima.qq.com/agent-interface) identifies one IMA account, and every
+# library in that account is reachable with it — so it belongs here, beside the
+# other engine credentials, rather than being retyped for each connected KB.
+# A KB may still carry its own pair to reach a *different* IMA account; that
+# per-KB binding wins (see ``pipelines/ima/config.py``).
+DEFAULT_IMA_SETTINGS: dict[str, Any] = {
+    "version": 1,
+    "client_id": "",
+    "api_key": "",
+}
+
 # LlamaIndex local RAG engine. These are the retrieval + chunking knobs the
 # default engine exposes; they were previously hardcoded / env-only. Kept in
 # their own JSON file so the engine's detail page can read/write them.
@@ -485,6 +497,17 @@ class RuntimeSettingsService:
         _atomic_write_json(self.path_for("pageindex"), payload)
         return payload
 
+    def load_ima(self, *, include_process_overrides: bool = True) -> dict[str, Any]:
+        payload = self._load_or_create("ima", DEFAULT_IMA_SETTINGS, self._normalize_ima)
+        if include_process_overrides:
+            payload = self._apply_ima_process_overrides(payload)
+        return payload
+
+    def save_ima(self, settings: dict[str, Any]) -> dict[str, Any]:
+        payload = self._normalize_ima({**DEFAULT_IMA_SETTINGS, **settings})
+        _atomic_write_json(self.path_for("ima"), payload)
+        return payload
+
     def load_llamaindex(self, *, include_process_overrides: bool = True) -> dict[str, Any]:
         payload = self._load_or_create(
             "llamaindex",
@@ -522,6 +545,7 @@ class RuntimeSettingsService:
         self.load_integrations(include_process_overrides=False)
         self.load_mineru(include_process_overrides=False)
         self.load_pageindex(include_process_overrides=False)
+        self.load_ima(include_process_overrides=False)
         self.load_llamaindex(include_process_overrides=False)
         self.load_graphrag()
         self.load_lightrag()
@@ -737,6 +761,21 @@ class RuntimeSettingsService:
             "api_key": _string(settings.get("api_key")),
             "api_base_url": _string(settings.get("api_base_url")).rstrip("/")
             or "https://api.pageindex.ai",
+        }
+
+    def _apply_ima_process_overrides(self, settings: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(settings)
+        if value := self._process_env_value("IMA_CLIENT_ID"):
+            payload["client_id"] = value
+        if value := self._process_env_value("IMA_API_KEY"):
+            payload["api_key"] = value
+        return self._normalize_ima(payload)
+
+    def _normalize_ima(self, settings: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "version": 1,
+            "client_id": _string(settings.get("client_id")),
+            "api_key": _string(settings.get("api_key")),
         }
 
     def _apply_llamaindex_process_overrides(self, settings: dict[str, Any]) -> dict[str, Any]:
@@ -1130,6 +1169,7 @@ __all__ = [
     "DEFAULT_AUTH_SETTINGS",
     "DEFAULT_DOCUMENT_PARSING_SETTINGS",
     "DEFAULT_GRAPHRAG_SETTINGS",
+    "DEFAULT_IMA_SETTINGS",
     "DEFAULT_INTEGRATIONS_SETTINGS",
     "DEFAULT_LIGHTRAG_SETTINGS",
     "DEFAULT_LLAMAINDEX_SETTINGS",
