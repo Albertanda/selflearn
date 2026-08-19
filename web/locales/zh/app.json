@@ -3070,5 +3070,7 @@
   "Generate a chapter on this": "就此生成一章",
   "This book was written without reading your sources.": "这本书生成时没有读取你的资料来源。",
   "Retrieval failed while planning it, so the chapters come from the proposal alone. Rebuilding will try your knowledge bases again.": "规划阶段检索失败，因此各章仅基于方案生成。重建会重新尝试读取你的知识库。",
-  "Source sweep failed": "来源扫描失败"
+  "Source sweep failed": "来源扫描失败",
+  "Vision": "视觉模型",
+  "visionSettings.description": "用于识图工具（如几何图像分析 geogebra_analysis）的多模态模型。如果日常使用的主模型本身支持识图，则无需设置；未设置时，视觉工具将默认调用主模型。"
 }

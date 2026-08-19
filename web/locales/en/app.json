@@ -3070,5 +3070,7 @@
   "Generate a chapter on this": "Generate a chapter on this",
   "This book was written without reading your sources.": "This book was written without reading your sources.",
   "Retrieval failed while planning it, so the chapters come from the proposal alone. Rebuilding will try your knowledge bases again.": "Retrieval failed while planning it, so the chapters come from the proposal alone. Rebuilding will try your knowledge bases again.",
-  "Source sweep failed": "Source sweep failed"
+  "Source sweep failed": "Source sweep failed",
+  "Vision": "Vision",
+  "visionSettings.description": "Multimodal model used by image-understanding tools (e.g. geogebra_analysis). Not required when your everyday main model already supports images; when unset, vision tools fall back to the main model."
 }

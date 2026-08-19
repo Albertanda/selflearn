@@ -37,7 +37,8 @@ export type ServiceName =
   | "tts"
   | "stt"
   | "imagegen"
-  | "videogen";
+  | "videogen"
+  | "vision";
 
 export type CatalogModel = {
   id: string;
@@ -111,6 +112,7 @@ export type Catalog = {
     stt: CatalogService;
     imagegen: CatalogService;
     videogen: CatalogService;
+    vision: CatalogService;
   };
 };
 
@@ -326,6 +328,7 @@ export function defaultCatalog(): Catalog {
         active_model_id: null,
         profiles: [],
       },
+      vision: { active_profile_id: null, active_model_id: null, profiles: [] },
     },
   };
 }
@@ -576,6 +579,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     stt: [],
     imagegen: [],
     videogen: [],
+    vision: [],
   });
   const [toast, setToast] = useState("");
   const [saving, setSaving] = useState(false);

@@ -8,6 +8,7 @@ import {
   BrainCircuit,
   Clapperboard,
   Database,
+  Eye,
   FileScan,
   Image as ImageIcon,
   Library,
@@ -156,6 +157,18 @@ const MODEL_CHILDREN: SettingsLeaf[] = [
     icon: Clapperboard,
     tile: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400",
     service: "videogen",
+  },
+  {
+    key: "vision",
+    href: "/settings/vision",
+    label: { zh: "视觉模型", en: "Vision" },
+    blurb: {
+      zh: "识图工具（如几何图像分析）使用的多模态模型。若日常主模型本身支持识图，则无需设置。",
+      en: "Multimodal model for image-understanding tools (e.g. geometry analysis). Not required when the everyday main model already supports images.",
+    },
+    icon: Eye,
+    tile: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
+    service: "vision",
   },
 ];
 
@@ -379,6 +392,7 @@ const STORAGE_PATHS: Record<string, string> = {
   "/settings/stt": "data/user/settings/model_catalog.json",
   "/settings/image": "data/user/settings/model_catalog.json",
   "/settings/video": "data/user/settings/model_catalog.json",
+  "/settings/vision": "data/user/settings/model_catalog.json",
   "/settings/document-parsing": "data/user/settings/document_parsing.json",
   "/settings/tools": "data/user/settings/interface.json",
   "/settings/attachments": "data/user/settings/system.json",

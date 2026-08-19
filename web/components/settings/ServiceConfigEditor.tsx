@@ -59,6 +59,7 @@ const SERVICE_LABEL: Record<ServiceName, string> = {
   stt: "Speech-to-Text",
   imagegen: "Image Generation",
   videogen: "Video Generation",
+  vision: "Vision",
 };
 
 export function ServiceConfigEditor({ service }: { service: ServiceName }) {
