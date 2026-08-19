@@ -134,6 +134,7 @@ def _default_catalog() -> dict[str, Any]:
             "stt": _service_shell(),
             "imagegen": _service_shell(),
             "videogen": _service_shell(),
+            "vision": _service_shell(),
         },
     }
 
@@ -222,7 +223,17 @@ class ModelCatalogService:
         services.setdefault("stt", _service_shell())
         services.setdefault("imagegen", _service_shell())
         services.setdefault("videogen", _service_shell())
-        for service_name in ("llm", "embedding", "search", "tts", "stt", "imagegen", "videogen"):
+        services.setdefault("vision", _service_shell())
+        for service_name in (
+            "llm",
+            "embedding",
+            "search",
+            "tts",
+            "stt",
+            "imagegen",
+            "videogen",
+            "vision",
+        ):
             service = services[service_name]
             profiles = service.setdefault("profiles", [])
             for profile in profiles:
@@ -288,7 +299,15 @@ class ModelCatalogService:
             if profiles and service.get("active_profile_id") not in profile_ids:
                 service["active_profile_id"] = profiles[0]["id"]
                 changed = True
-            if service_name in {"llm", "embedding", "tts", "stt", "imagegen", "videogen"}:
+            if service_name in {
+                "llm",
+                "embedding",
+                "tts",
+                "stt",
+                "imagegen",
+                "videogen",
+                "vision",
+            }:
                 active_profile = self.get_active_profile(catalog, service_name)
                 models = (active_profile or {}).get("models") or []
                 model_ids = {model.get("id") for model in models}

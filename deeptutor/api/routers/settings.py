@@ -542,6 +542,17 @@ def _provider_choices() -> dict[str, list[dict[str, Any]]]:
         ],
         key=lambda p: p["label"].lower(),
     )
+    # Vision (image understanding) has a single wire shape — OpenAI-compatible
+    # ``image_url`` messages — so the provider dropdown offers one generic
+    # option; users fill in the base URL / model (e.g. a Qwen-VL endpoint).
+    vision = [
+        {
+            "value": "openai",
+            "label": "OpenAI 兼容 / OpenAI-compatible",
+            "base_url": "",
+            "default_model": "",
+        },
+    ]
     return {
         "llm": llm,
         "embedding": embedding,
@@ -550,6 +561,7 @@ def _provider_choices() -> dict[str, list[dict[str, Any]]]:
         "stt": stt,
         "imagegen": imagegen,
         "videogen": videogen,
+        "vision": vision,
     }
 
 

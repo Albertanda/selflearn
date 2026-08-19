@@ -1133,6 +1133,42 @@ def resolve_videogen_runtime_config(
     )
 
 
+def resolve_vision_runtime_config(
+    catalog: dict[str, Any] | None = None,
+    *,
+    service: ModelCatalogService | None = None,
+) -> ResolvedLLMConfig | None:
+    """Resolve the active vision (multimodal image-understanding) config.
+
+    Returns ``None`` when no vision model is configured — callers (e.g. the
+    ``geogebra_analysis`` tool) then fall back to the main LLM config, which
+    is the right default when the everyday model is itself multimodal.
+    """
+    catalog_service = service or get_model_catalog_service()
+    loaded = _load_catalog(catalog)
+    profile, model = _active_profile_and_model(loaded, catalog_service, "vision")
+    resolved_model = _as_str((model or {}).get("model"))
+    if not profile or not resolved_model:
+        return None
+    api_key = _as_str((profile or {}).get("api_key"))
+    api_base = _as_str((profile or {}).get("base_url"))
+    if not api_key and api_base:
+        # Local endpoints (ollama / lm studio) may not need a key.
+        api_key = "sk-no-key-required"
+    return ResolvedLLMConfig(
+        model=resolved_model,
+        provider_name="vision",
+        provider_mode="openai_compat",
+        binding_hint=_as_str((profile or {}).get("binding")) or "openai",
+        binding="openai",
+        api_key=api_key,
+        base_url=api_base or None,
+        effective_url=api_base or None,
+        api_version=_as_str((profile or {}).get("api_version")) or None,
+        extra_headers=_to_headers((profile or {}).get("extra_headers")),
+    )
+
+
 def _resolve_search_max_results(catalog: dict[str, Any], default: int = 5) -> int:
     profile = get_model_catalog_service().get_active_profile(catalog, "search") or {}
     raw = profile.get("max_results")
@@ -1351,6 +1387,7 @@ __all__ = [
     "ResolvedSearchConfig",
     "LLM_LOCALHOST_PROVIDERS",
     "resolve_llm_runtime_config",
+    "resolve_vision_runtime_config",
     "resolve_embedding_runtime_config",
     "resolve_search_runtime_config",
     "search_provider_state",
