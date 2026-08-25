@@ -237,10 +237,12 @@ async def test_run_seeds_coexisting_kb_but_not_owned_vault(
     await _run(pipeline, context)
 
     seeded = {e["kwargs"]["kb_name"] for e in registry.executed if e["name"] == "rag"}
-    assert seeded == {"kb-plain"}  # vault excluded, LlamaIndex KB seeded
+    # M0 trim: the Obsidian capability was removed, so a vault KB is treated
+    # like any other KB and seeded normally.
+    assert seeded == {"kb-plain", "myvault"}
     turn_context = client.calls[0]["messages"][-1]["content"]
     assert "## kb-plain" in turn_context
-    assert "## myvault" not in turn_context
+    assert "## myvault" in turn_context
 
 
 @pytest.mark.asyncio

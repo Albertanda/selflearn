@@ -8,19 +8,11 @@ import logging
 from typing import Any
 
 from deeptutor.capabilities.mastery import MASTERY_TOOL_TYPES
-from deeptutor.capabilities.obsidian import OBSIDIAN_TOOL_TYPES
 from deeptutor.capabilities.solve import SOLVE_TOOL_TYPES
-from deeptutor.capabilities.subagent import SUBAGENT_TOOL_TYPES
 from deeptutor.core.tool_protocol import BaseTool, ToolDefinition, ToolParameter, ToolResult
 from deeptutor.knowledge.manifest import KB_FILES_DEFAULT_LIMIT, KB_FILES_MAX_LIMIT
 from deeptutor.tools.exec_tool import ExecTool
 from deeptutor.tools.media_gen_tool import ImagegenTool, VideogenTool
-from deeptutor.tools.partner_memory import (
-    PARTNER_BUILTIN_TOOL_NAMES,
-    PartnerMemorizeTool,
-    PartnerReadTool,
-    PartnerSearchTool,
-)
 from deeptutor.tools.prompting import load_prompt_hints
 
 logger = logging.getLogger(__name__)
@@ -1148,69 +1140,6 @@ class WriteNoteTool(_PromptHintsMixin, BaseTool):
         )
 
 
-class GithubTool(_PromptHintsMixin, BaseTool):
-    """Read-only GitHub queries via `gh`. Always auto-mounted; the
-    underlying call gracefully reports "gh unavailable" when the CLI
-    isn't installed on the server."""
-
-    _ALLOWED_QUERY_TYPES = ("pr", "issue", "run", "repo", "api")
-
-    def get_definition(self) -> ToolDefinition:
-        return ToolDefinition(
-            name="github",
-            description=(
-                "Read-only queries against GitHub PRs / issues / repos / "
-                "CI runs via the gh CLI. This tool cannot write — no "
-                "comments, no closes, no merges."
-            ),
-            parameters=[
-                ToolParameter(
-                    name="query_type",
-                    type="string",
-                    description=("One of 'pr', 'issue', 'run', 'repo', 'api'."),
-                    enum=list(_ALLOWED_QUERY_TYPES := ("pr", "issue", "run", "repo", "api")),
-                ),
-                ToolParameter(
-                    name="target",
-                    type="string",
-                    description=(
-                        "owner/repo[#number] or full URL for pr/issue; "
-                        "owner/repo for run/repo; gh-api relative path "
-                        "for api."
-                    ),
-                ),
-            ],
-        )
-
-    async def execute(self, **kwargs: Any) -> ToolResult:
-        from deeptutor.tools.github_query import run_github_query
-
-        outcome = await run_github_query(
-            query_type=str(kwargs.get("query_type") or ""),
-            target=str(kwargs.get("target") or ""),
-        )
-        if not outcome.ok:
-            return ToolResult(
-                content=outcome.error,
-                success=False,
-                metadata={"query_type": outcome.query_type, "target": outcome.target},
-            )
-        return ToolResult(
-            content=outcome.output,
-            sources=[
-                {
-                    "type": "github",
-                    "query_type": outcome.query_type,
-                    "target": outcome.target,
-                }
-            ],
-            metadata={
-                "query_type": outcome.query_type,
-                "target": outcome.target,
-            },
-        )
-
-
 class AskUserTool(_PromptHintsMixin, BaseTool):
     """Pause the turn mid-loop to ask the user a clarifying question.
 
@@ -1611,7 +1540,6 @@ BUILTIN_TOOL_TYPES: tuple[type[BaseTool], ...] = (
     WebFetchTool,
     ListNotebookTool,
     WriteNoteTool,
-    GithubTool,
     AskUserTool,
     CronTool,
     # Image → GeoGebra figure reconstruction. User-toggleable in chat; the
@@ -1621,25 +1549,11 @@ BUILTIN_TOOL_TYPES: tuple[type[BaseTool], ...] = (
     # grant-gated; the chat pipeline only mounts them when a model is configured.
     ImagegenTool,
     VideogenTool,
-    # Mastery Path + Solve + Obsidian tools — globally registered so schemas/API
-    # stay stable; the chat loop capabilities decide when to auto-mount them for
-    # a turn. Obsidian is a knowledge capability: when its vault is selected it
-    # runs the turn exclusively on these tools.
+    # Mastery Path + Solve tools — globally registered so schemas/API
+    # stay stable; the chat loop capabilities decide when to auto-mount them
+    # for a turn.
     *MASTERY_TOOL_TYPES,
     *SOLVE_TOOL_TYPES,
-    *OBSIDIAN_TOOL_TYPES,
-    # Subagent consult tool — globally registered; the subagent knowledge
-    # capability runs the turn exclusively on it when a connected agent is the
-    # selected KB.
-    *SUBAGENT_TOOL_TYPES,
-    # Partner-only memory + history tools. Globally registered so schemas/API
-    # stay stable, but never mounted in product chat: the partner runtime
-    # force-mounts them (and suppresses chat's read_memory/write_memory) on
-    # every partner turn. Deliberately absent from CONFIGURABLE_BUILTIN_TOOL_NAMES
-    # — they are mandatory, not owner-configurable.
-    PartnerReadTool,
-    PartnerMemorizeTool,
-    PartnerSearchTool,
 )
 
 # No tools are parked right now. When a tool's implementation is being
@@ -1690,7 +1604,6 @@ CONFIGURABLE_BUILTIN_TOOL_NAMES: tuple[str, ...] = (
     "list_notebook",
     "write_note",
     "web_fetch",
-    "github",
     "exec",
     "load_tools",
     "cron",
@@ -1711,7 +1624,6 @@ __all__ = [
     "COMING_SOON_TOOL_NAMES",
     "COMING_SOON_TOOL_TYPES",
     "CONFIGURABLE_BUILTIN_TOOL_NAMES",
-    "PARTNER_BUILTIN_TOOL_NAMES",
     "TOOL_ALIASES",
     "USER_TOGGLEABLE_TOOL_NAMES",
     "AskUserTool",
@@ -1719,15 +1631,11 @@ __all__ = [
     "CodeExecutionTool",
     "ExecTool",
     "GeoGebraAnalysisTool",
-    "GithubTool",
     "KbFilesTool",
     "ImagegenTool",
     "VideogenTool",
     "ListNotebookTool",
     "PaperSearchToolWrapper",
-    "PartnerMemorizeTool",
-    "PartnerReadTool",
-    "PartnerSearchTool",
     "RAGTool",
     "LoadToolsTool",
     "ReadMemoryTool",

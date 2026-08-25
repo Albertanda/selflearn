@@ -35,11 +35,23 @@ from pathlib import Path
 from typing import Protocol, runtime_checkable
 from urllib.parse import quote
 
-from deeptutor.partners.helpers import safe_filename
 from deeptutor.services.config import load_system_settings
 from deeptutor.services.path_service import get_path_service
 
 logger = logging.getLogger(__name__)
+
+
+import re
+
+
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+_UNSAFE_CHARS = re.compile(r'[<>:"/\\|?*]')
+
+
+def safe_filename(name: str) -> str:
+    """Replace unsafe path / control characters; ``.`` / ``..`` become empty."""
+    cleaned = _CONTROL_CHARS.sub("", _UNSAFE_CHARS.sub("_", name or "")).strip().strip(".")
+    return cleaned
 
 
 _DEFAULT_SUBPATH = ("workspace", "chat", "attachments")

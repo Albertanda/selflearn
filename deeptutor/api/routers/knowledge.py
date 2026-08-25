@@ -1175,14 +1175,6 @@ async def update_pageindex_pipeline_config(payload: PageIndexConfigUpdate):
 
         service.save_pageindex({"api_key": api_key, "api_base_url": api_base_url})
 
-        # The built-in pageindex MCP server derives its URL/Bearer header from
-        # these settings — resync connections so key changes apply immediately.
-        try:
-            from deeptutor.services.mcp import get_mcp_manager
-
-            await get_mcp_manager().reload()
-        except Exception:
-            logger.warning("MCP reload after PageIndex config change failed", exc_info=True)
 
         return _pageindex_config_payload()
     except Exception as e:

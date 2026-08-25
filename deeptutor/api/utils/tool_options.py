@@ -52,13 +52,6 @@ async def build_tool_options(
 
     registry = get_tool_registry()
     language = current_language()
-    try:
-        from deeptutor.services.mcp import get_mcp_manager
-
-        await get_mcp_manager().ensure_started()
-    except Exception:
-        logger.debug("MCP manager unavailable for tool options", exc_info=True)
-
     def _describe(name: str) -> dict[str, Any]:
         tool = registry.get(name)
         description = ""

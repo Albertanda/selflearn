@@ -113,6 +113,7 @@ def test_load_recovers_invalid_catalog_with_defaults(tmp_path: Path):
         "stt",
         "imagegen",
         "videogen",
+        "vision",
     }
     assert set(catalog["services"]) == expected_services
     saved = json.loads(catalog_path.read_text(encoding="utf-8"))

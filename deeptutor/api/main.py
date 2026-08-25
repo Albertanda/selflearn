@@ -131,41 +131,20 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Failed to start EventBus: {e}")
 
     try:
-        from deeptutor.services.partners import get_partner_manager
-
-        await get_partner_manager().auto_start_partners()
-    except Exception as e:
-        logger.warning(f"Failed to auto-start partners: {e}")
-
-    try:
         from deeptutor.services.cron import get_cron_service
 
         await get_cron_service().start()
     except Exception as e:
         logger.warning(f"Failed to start cron service: {e}")
 
-    # Ping PocketBase if configured — logs a warning (not an error) if unreachable
-    try:
-        from deeptutor.services.pocketbase_client import ping_pocketbase
-
-        await ping_pocketbase()
-    except Exception as e:
-        logger.warning(f"PocketBase startup check failed: {e}")
-
     # Migrate any v1 memory files (PROFILE.md / SUMMARY.md) into a
     # backup folder so the v2 three-layer subsystem starts clean.
     try:
-        from deeptutor.services.memory import (
-            migrate_partner_surface_if_needed,
-            migrate_v1_if_needed,
-        )
+        from deeptutor.services.memory import migrate_v1_if_needed
 
         backup = migrate_v1_if_needed()
         if backup is not None:
             logger.info("v1 memory archived to %s", backup)
-        # Rename the legacy ``tutorbot`` memory surface (footnote refs, L2
-        # doc, snapshot/trace dirs, L3 meta keys) to ``partner``.
-        migrate_partner_surface_if_needed()
     except Exception as e:
         logger.warning(f"v1 memory migration failed: {e}")
 
@@ -181,26 +160,6 @@ async def lifespan(app: FastAPI):
         await get_cron_service().stop()
     except Exception as e:
         logger.warning(f"Failed to stop cron service: {e}")
-
-    # Stop partners
-    try:
-        from deeptutor.services.partners import get_partner_manager
-
-        await get_partner_manager().stop_all(preserve_auto_start=True)
-        logger.info("Partners stopped")
-    except Exception as e:
-        logger.warning(f"Failed to stop partners: {e}")
-
-    # Close MCP server connections. Each one owns an AsyncExitStack inside its
-    # own task, so they must be torn down here rather than left to interpreter
-    # exit (stdio servers would otherwise leak child processes).
-    try:
-        from deeptutor.services.mcp import get_mcp_manager
-
-        await get_mcp_manager().shutdown()
-        logger.info("MCP connections closed")
-    except Exception as e:
-        logger.warning(f"Failed to close MCP connections: {e}")
 
     # Close pooled LLM SDK clients so their keep-alive sockets and transports
     # are released deterministically instead of waiting for interpreter GC.
@@ -310,10 +269,8 @@ except Exception:
 # Import routers only after runtime settings are initialized.
 # Some router modules load YAML settings at import time.
 from deeptutor.api.routers import (
-    agent_config,
     attachments,
     auth,
-    book,
     capabilities_settings,
     chat,
     co_writer,
@@ -321,22 +278,16 @@ from deeptutor.api.routers import (
     imports,
     knowledge,
     mastery_path,
-    mcp_settings,
     memory,
     notebook,
     outputs,
-    partners,
     personas,
-    plugins_api,
     question,
     question_notebook,
     quiz_judge,
     sessions,
     settings,
     skills,
-    space_cli_apps,
-    space_mcp,
-    subagents,
     system,
     unified_ws,
     voice,
@@ -390,7 +341,6 @@ app.include_router(
 app.include_router(
     notebook.router, prefix="/api/v1/notebook", tags=["notebook"], dependencies=_auth
 )
-app.include_router(book.router, prefix="/api/v1/book", tags=["book"], dependencies=_auth)
 app.include_router(memory.router, prefix="/api/v1/memory", tags=["memory"], dependencies=_auth)
 app.include_router(
     capabilities_settings.router,
@@ -419,51 +369,21 @@ app.include_router(
 app.include_router(
     settings.router, prefix="/api/v1/settings", tags=["settings"], dependencies=_auth
 )
-app.include_router(
-    mcp_settings.router,
-    prefix="/api/v1/settings/mcp",
-    tags=["mcp-settings"],
-    dependencies=_auth,
-)
 # Per-user MCP servers. Deliberately only ``_auth``: the router's own routes
 # resolve the owner server-side, and everything a non-admin can reach through it
 # is remote-transport-only (see the module docstring). The admin registry above
 # keeps its own ``require_admin``.
-app.include_router(
-    space_mcp.router,
-    prefix="/api/v1/space/mcp",
-    tags=["space-mcp"],
-    dependencies=_auth,
-)
 # CLI apps. Only ``_auth`` here as well, but for a different reason: the two
 # routes that install or remove an app carry their own ``require_admin``, and
 # what is left for an ordinary account is reading the catalog and toggling its
 # own preference among apps an administrator already granted it.
-app.include_router(
-    space_cli_apps.router,
-    prefix="/api/v1/space/cli-apps",
-    tags=["space-cli-apps"],
-    dependencies=_auth,
-)
 app.include_router(skills.router, prefix="/api/v1/skills", tags=["skills"], dependencies=_auth)
-app.include_router(
-    subagents.router, prefix="/api/v1/subagents", tags=["subagents"], dependencies=_auth
-)
 app.include_router(
     personas.router, prefix="/api/v1/personas", tags=["personas"], dependencies=_auth
 )
 app.include_router(tools_router.router, prefix="/api/v1/tools", tags=["tools"], dependencies=_auth)
 app.include_router(system.router, prefix="/api/v1/system", tags=["system"], dependencies=_auth)
 app.include_router(voice.router, prefix="/api/v1/voice", tags=["voice"], dependencies=_auth)
-app.include_router(
-    plugins_api.router, prefix="/api/v1/plugins", tags=["plugins"], dependencies=_auth
-)
-app.include_router(
-    agent_config.router, prefix="/api/v1/agent-config", tags=["agent-config"], dependencies=_auth
-)
-app.include_router(
-    partners.router, prefix="/api/v1/partners", tags=["partners"], dependencies=_admin
-)
 app.include_router(
     attachments.router,
     prefix="/api/attachments",

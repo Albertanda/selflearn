@@ -243,6 +243,7 @@ def test_startup_ensure_creates_missing_runtime_jsons_with_defaults(
         "stt",
         "imagegen",
         "videogen",
+        "vision",
     }
 
 

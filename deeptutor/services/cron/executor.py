@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 async def execute_job(job: CronJob) -> tuple[str, str | None]:
     """Returns ``(status, error)`` — status is ok/error/skipped."""
     if job.owner.kind == "partner":
-        return await _execute_partner_job(job)
+        return "skipped", "partner jobs removed in M0 trim"
     return await _execute_chat_job(job)
 
 
@@ -72,52 +72,6 @@ async def _maybe_send_desktop_notification(job: CronJob, text: str) -> None:
             logger.debug("macOS notification failed: %s", stderr.decode(errors="ignore"))
     except Exception:
         logger.debug("macOS notification failed", exc_info=True)
-
-
-async def _execute_partner_job(job: CronJob) -> tuple[str, str | None]:
-    """Run the partner turn and publish the reply through the original channel."""
-    from deeptutor.partners.bus.events import InboundMessage
-    from deeptutor.services.partners import get_partner_manager
-
-    instance = get_partner_manager().get_partner(job.owner.partner_id)
-    if not instance or not instance.running or not instance.runner:
-        return "skipped", "partner not running"
-
-    metadata = dict(job.owner.channel_meta or {})
-    metadata["_cron_job_id"] = job.id
-    msg = InboundMessage(
-        channel=job.owner.channel or "web",
-        sender_id="cron",
-        chat_id=job.owner.chat_id or "cron",
-        content=_reminder_prompt(job),
-        metadata=metadata,
-        session_key_override=job.owner.session_key or None,
-    )
-    delivery_meta: dict[str, Any] = dict(job.owner.channel_meta or {})
-    try:
-        final = await instance.runner.process_message(msg, delivery_meta=delivery_meta)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Partner cron job %s failed", job.id)
-        return "error", f"{type(exc).__name__}: {exc}"
-
-    final = final.strip()
-    if not final:
-        return "error", "turn produced no answer"
-
-    if not delivery_meta.get("_streamed"):
-        from deeptutor.partners.bus.events import OutboundMessage
-
-        delivery_meta["_cron_job_id"] = job.id
-        await instance.runner.bus.publish_outbound(
-            OutboundMessage(
-                channel=msg.channel,
-                chat_id=msg.chat_id,
-                content=final,
-                metadata=delivery_meta,
-            )
-        )
-    await _maybe_send_desktop_notification(job, final)
-    return "ok", None
 
 
 async def _execute_chat_job(job: CronJob) -> tuple[str, str | None]:

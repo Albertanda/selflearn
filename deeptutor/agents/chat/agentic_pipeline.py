@@ -46,7 +46,6 @@ from deeptutor.runtime.providers import ToolScope
 from deeptutor.runtime.providers.view import ProviderToolView, build_tool_view
 from deeptutor.runtime.registry.deferred_tools import DeferredToolLoader
 from deeptutor.runtime.registry.tool_registry import get_tool_registry
-from deeptutor.services.cli_apps.models import TOOL_PREFIX as CLI_APP_TOOL_PREFIX
 from deeptutor.services.config import get_chat_params
 from deeptutor.services.llm import (
     get_llm_config,
@@ -56,7 +55,6 @@ from deeptutor.services.llm import (
 )
 from deeptutor.services.llm.context_window import resolve_effective_context_window
 from deeptutor.services.prompt import get_prompt_manager
-from deeptutor.tools.builtin import PARTNER_BUILTIN_TOOL_NAMES
 
 logger = logging.getLogger(__name__)
 
@@ -509,8 +507,6 @@ class AgenticChatPipeline:
 
     def _tool_scope(self, context: UnifiedContext) -> ToolScope:
         """Per-turn policy inputs for the provider layer."""
-        from deeptutor.services.mcp.pageindex_server import PAGEINDEX_SERVER_NAME
-
         raw_filter = context.metadata.get("mcp_tools_filter")
         return ToolScope(
             owner_id=self._current_owner_id(),
@@ -621,7 +617,7 @@ class AgenticChatPipeline:
             # chat's read_memory/write_memory suppressed — the split-memory model
             # (own workspace writable, owner's memory read-only) lives in those
             # tools, not in chat's.
-            forced=PARTNER_BUILTIN_TOOL_NAMES if is_partner else (),
+            forced=() if is_partner else (),
             suppressed=_PARTNER_SUPPRESSED_TOOLS if is_partner else (),
         )
         return _drop_unconfigured_generation_tools(composed)
@@ -954,6 +950,7 @@ class AgenticChatPipeline:
         await stream.progress("", source="chat", stage="responding", metadata=meta)
         return True
 
+
     def _augment_tool_kwargs(
         self,
         tool_name: str,
@@ -987,22 +984,6 @@ class AgenticChatPipeline:
                 kwargs["_sandbox_workdir"] = str(exec_dir)
                 kwargs["_sandbox_mounts"] = (
                     Mount(host_path=str(exec_dir), sandbox_path=str(exec_dir), read_only=False),
-                )
-        elif tool_name.startswith(CLI_APP_TOOL_PREFIX):
-            # A CLI app runs like exec, and for the same reason gets its workdir
-            # from here rather than choosing one: one directory per turn shared by
-            # every app, so the model can render with one and post-process with
-            # another, and the files land where /api/outputs will serve them
-            # (``PathService.is_public_output_path`` has the matching branch).
-            from deeptutor.services.sandbox import Mount
-
-            kwargs["_sandbox_user_id"] = self._current_user_id()
-            cli_dir = task_dir / "cli" if task_dir is not None else None
-            if cli_dir is not None:
-                cli_dir.mkdir(parents=True, exist_ok=True)
-                kwargs["_sandbox_workdir"] = str(cli_dir)
-                kwargs["_sandbox_mounts"] = (
-                    Mount(host_path=str(cli_dir), sandbox_path=str(cli_dir), read_only=False),
                 )
         elif tool_name == "code_execution":
             from deeptutor.services.sandbox import Mount

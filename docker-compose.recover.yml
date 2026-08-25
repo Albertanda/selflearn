@@ -1,0 +1,51 @@
+# ============================================
+# DeepTutor Compose — Recovery via named volume
+# ============================================
+# Temporary recovery file used because Docker Desktop's WSL integration
+# is currently disabled on this machine, so bind-mounting ./data from
+# \\wsl.localhost fails ("distro-services/ubuntu.sock not found").
+#
+# Same service as docker-compose.ghcr.yml, but persists data in the
+# existing named volume `deeptutor-data` (created 2026-08-09, refreshed
+# with the local ./data tree on 2026-08-17).
+#
+# Usage:
+#   docker compose -f docker-compose.recover.yml up -d
+#   docker compose -f docker-compose.recover.yml ps
+#   docker compose -f docker-compose.recover.yml logs -f deeptutor
+#
+# Once WSL integration is enabled in Docker Desktop (Settings → Resources
+# → WSL Integration → tick Ubuntu), you can switch back to:
+#   python scripts/docker_compose.py -f docker-compose.ghcr.yml up -d
+# ============================================
+
+services:
+  deeptutor:
+    image: ghcr.io/hkuds/deeptutor:latest
+    container_name: deeptutor
+    restart: unless-stopped
+    ports:
+      - "${DEEPTUTOR_DOCKER_BACKEND_PORT:-8001}:${DEEPTUTOR_DOCKER_BACKEND_PORT:-8001}"
+      - "${DEEPTUTOR_DOCKER_FRONTEND_PORT:-3782}:${DEEPTUTOR_DOCKER_FRONTEND_PORT:-3782}"
+
+    volumes:
+      # Named volume instead of bind mount: works without WSL integration.
+      - deeptutor-data:/app/data
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${DEEPTUTOR_DOCKER_BACKEND_PORT:-8001}/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    networks:
+      - deeptutor-network
+
+volumes:
+  deeptutor-data:
+    external: true
+
+networks:
+  deeptutor-network:
+    driver: bridge

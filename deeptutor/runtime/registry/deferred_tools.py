@@ -187,12 +187,9 @@ class DeferredToolLoader:
         return {"loaded": loaded, "already_loaded": already, "unknown": unknown}
 
     def _persist(self) -> None:
-        try:
-            from deeptutor.services.mcp.session_state import record_loaded_tools
-
-            record_loaded_tools(self._session_id, self._loaded)
-        except Exception:
-            logger.warning("failed to persist deferred-tool state", exc_info=True)
+        # M0 trim: per-session deferred-tool persistence removed with the MCP
+        # layer; the loader still works for the lifetime of the turn.
+        return
 
 
 __all__ = [
