@@ -647,3 +647,38 @@ async def update_subject_profile(
         subject_id, goals=goals, explanation_style=explanation_style
     )
     return {"subject_id": subject_id, "profile": profile}
+
+
+# ==================== Report writing (M7) ====================
+
+@router.post("/{subject_id}/report")
+async def generate_subject_report(
+    subject_id: str,
+    title: str = Form(...),
+    requirements: str = Form(""),
+    _: None = Depends(require_auth),
+):
+    """Generate a chart-bearing report and export it as PDF."""
+    _require_subject(subject_id)
+    if not title.strip():
+        raise HTTPException(status_code=400, detail="title is required")
+    from deeptutor.services.path_service import get_path_service
+    from deeptutor.services.pdf import report as report_mod
+
+    outputs_root = get_path_service().get_public_outputs_root()
+    out_dir = outputs_root / "subjects" / subject_id / "reports"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    result = await report_mod.generate_report(
+        subject_id, title=title, requirements=requirements, out_dir=out_dir
+    )
+    if not result["pdf_ok"]:
+        raise HTTPException(status_code=500, detail="Report PDF render failed")
+    pdf_name = Path(result["pdf_path"]).name
+    return {
+        "title": result["title"],
+        "markdown_tokens": result["markdown_tokens"],
+        "chart_count": result["chart_count"],
+        "url": f"/api/outputs/subjects/{subject_id}/reports/{pdf_name}",
+        "path": result["pdf_path"],
+    }
