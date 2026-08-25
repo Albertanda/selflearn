@@ -195,6 +195,10 @@ class PathService:
         if len(parts) >= 4 and parts[:3] == ("workspace", "chat", "_detached_code_execution"):
             return candidate
 
+        # Subject artifacts (M6): review guides & other per-subject outputs.
+        if len(parts) >= 2 and parts[0] == "subjects":
+            return candidate
+
         return None
 
     def is_public_output_path(self, path: str | Path) -> bool:

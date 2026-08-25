@@ -141,6 +141,7 @@ async def websocket_chat(websocket: WebSocket):
                 # M5: subject-scoped sessions inject the three-layer context:
                 # knowledge-point index + exam-point list + wrong-book summary
                 # (lightweight, no full transcripts). Token cost is logged.
+                subject_context_tokens = 0
                 if subject_id:
                     try:
                         from deeptutor.subjects import exam_points, knowledge_points, wrong_book
@@ -154,17 +155,18 @@ async def websocket_chat(websocket: WebSocket):
                         if block:
                             from deeptutor.services.pdf.review_guide import estimate_tokens
 
-                            logger.info(
+                            subject_context_tokens = estimate_tokens(block)
+                            logger.warning(
                                 "subject context injected: %d chars, ~%d tokens",
                                 len(block),
-                                estimate_tokens(block),
+                                subject_context_tokens,
                             )
                             history = [
                                 {"role": "system", "content": block},
                                 *history,
                             ]
                     except Exception:
-                        logger.debug("subject context injection failed", exc_info=True)
+                        logger.warning("subject context injection failed", exc_info=True)
 
                 sm.add_message(
                     session_id=session_id,
@@ -248,6 +250,8 @@ async def websocket_chat(websocket: WebSocket):
                     {
                         "type": "result",
                         "content": full_response,
+                        "subject_context_tokens": subject_context_tokens,
+                        "history_chars": sum(len(m.get("content", "")) for m in history),
                     }
                 )
 
