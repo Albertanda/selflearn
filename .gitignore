@@ -320,3 +320,7 @@ celerybeat.pid
 *.wav
 *.ogg
 !demo/*.mp4
+
+# M8: binary toolchain and font assets are not versioned
+tools/bin/
+tools/fonts/

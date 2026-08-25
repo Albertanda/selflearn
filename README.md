@@ -1,5 +1,7 @@
 # Subject Learning Assistant（分科学习助手）
 
+> **初版，改自 [DeepTutor](https://github.com/HKUDS/DeepTutor)（HKUDS，Apache-2.0）**（[`UPSTREAM.md`](UPSTREAM.md) 为上游原版文档）
+
 基于 DeepTutor（HKUDS，Apache-2.0）裁剪扩展的**分科学习助手**——面向大学生的科目级 AI 学习工作区。
 本目录是 M0–M8 的完整实现（fork 自 `feat/vision-model`，基线 v1.5.13；上游原版 README 见 `UPSTREAM.md`）。
 
@@ -54,6 +56,17 @@ GET  /api/v1/subjects/{id}/export                     科目数据 ZIP 备份
 ```
 
 ## 工具链
+
+> 二进制与字体不入库（体积大 + 字体版权），首次运行前准备：
+
+```bash
+mkdir -p tools/bin tools/fonts
+# Typst v0.15.1（静态 musl 版）
+curl -L -o /tmp/typst.tar.xz https://github.com/typst/typst/releases/download/v0.15.1/typst-x86_64-unknown-linux-musl.tar.xz
+tar -xJf /tmp/typst.tar.xz -C /tmp/ && cp /tmp/typst-x86_64-unknown-linux-musl/typst tools/bin/
+# 中文字体（Windows 源码或任意 CJK 字体均可；代码默认读取 tools/fonts/SimsunExtG.ttf 与 msyh.ttc）
+cp /mnt/c/Windows/Fonts/SimsunExtG.ttf /mnt/c/Windows/Fonts/msyh.ttc tools/fonts/ 2>/dev/null || true
+```
 
 - **Typst** v0.15.1（`tools/bin/typst`）：PDF 渲染（`--font-path tools/fonts` 提供 Microsoft YaHei / SimSun-ExtG）
 - **matplotlib** 3.11：图表渲染（子进程执行，带 ODE 数值自检：LLM 抄错方程会被拒绝并重试）
