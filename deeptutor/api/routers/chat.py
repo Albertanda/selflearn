@@ -82,6 +82,7 @@ async def websocket_chat(websocket: WebSocket):
             session_id = data.get("session_id")
             explicit_history = data.get("history")
             kb_name = data.get("kb_name", "")
+            subject_id = data.get("subject_id", "")
             enable_rag = data.get("enable_rag", False)
             enable_web_search = data.get("enable_web_search", False)
 
@@ -104,6 +105,7 @@ async def websocket_chat(websocket: WebSocket):
                             title=message[:50] + ("..." if len(message) > 50 else ""),
                             settings={
                                 "kb_name": kb_name,
+                                "subject_id": subject_id,
                                 "enable_rag": enable_rag,
                                 "enable_web_search": enable_web_search,
                             },
@@ -114,6 +116,7 @@ async def websocket_chat(websocket: WebSocket):
                         title=message[:50] + ("..." if len(message) > 50 else ""),
                         settings={
                             "kb_name": kb_name,
+                            "subject_id": subject_id,
                             "enable_rag": enable_rag,
                             "enable_web_search": enable_web_search,
                         },

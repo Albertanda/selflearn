@@ -288,6 +288,7 @@ from deeptutor.api.routers import (
     sessions,
     settings,
     skills,
+    subjects,
     system,
     unified_ws,
     voice,
@@ -378,6 +379,9 @@ app.include_router(
 # what is left for an ordinary account is reading the catalog and toggling its
 # own preference among apps an administrator already granted it.
 app.include_router(skills.router, prefix="/api/v1/skills", tags=["skills"], dependencies=_auth)
+app.include_router(
+    subjects.router, prefix="/api/v1/subjects", tags=["subjects"], dependencies=_auth
+)
 app.include_router(
     personas.router, prefix="/api/v1/personas", tags=["personas"], dependencies=_auth
 )
