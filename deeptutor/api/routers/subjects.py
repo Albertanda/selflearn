@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from pathlib import Path
+import time
 
 from deeptutor.api.routers.auth import require_auth
 from deeptutor.api.routers.knowledge import (
@@ -23,7 +24,7 @@ from deeptutor.api.routers.knowledge import (
 from deeptutor.knowledge.naming import validate_knowledge_base_name
 from deeptutor.knowledge.manager import KnowledgeBaseManager
 from deeptutor.services.rag.service import RAGService
-from deeptutor.subjects import exam_points, store, wrong_book
+from deeptutor.subjects import exam_points, knowledge_points, store, wrong_book
 
 router = APIRouter()
 
@@ -517,3 +518,106 @@ async def delete_exam_point(subject_id: str, point_id: str, _: None = Depends(re
     if not exam_points.delete(subject_id, point_id):
         raise HTTPException(status_code=404, detail="Exam point not found")
     return {"status": "deleted", "point_id": point_id}
+
+
+# ==================== Knowledge points (M5) ====================
+
+@router.get("/{subject_id}/knowledge-points")
+async def list_knowledge_points(subject_id: str, _: None = Depends(require_auth)):
+    _require_subject(subject_id)
+    return {"subject_id": subject_id, "points": knowledge_points.aggregate(subject_id)}
+
+
+@router.post("/{subject_id}/knowledge-points")
+async def add_knowledge_point(
+    subject_id: str,
+    name: str = Form(...),
+    path: str = Form(""),
+    source: str = Form("manual"),
+    _: None = Depends(require_auth),
+):
+    _require_subject(subject_id)
+    point = knowledge_points.add_point(subject_id, name=name, path=path, source=source)
+    return {"point": point}
+
+
+@router.post("/{subject_id}/knowledge-points/build")
+async def build_knowledge_points(subject_id: str, _: None = Depends(require_auth)):
+    """Build/link the knowledge map from existing subject data.
+
+    Creates points for every knowledge point named in the wrong book and
+    the confirmed exam points, then links both ways. Optionally the LLM
+    can enrich with textbook-derived points via ``llm=True`` (future).
+    """
+    _require_subject(subject_id)
+    from deeptutor.subjects import exam_points as ep_mod, wrong_book
+
+    created = []
+    # 1. Points from wrong-book kp labels.
+    for e in wrong_book.load(subject_id):
+        kp = (e.get("kp") or "").strip()
+        if not kp:
+            continue
+        point = knowledge_points.add_point(subject_id, name=kp, source="wrong_book")
+        knowledge_points.link_wrong_entry(subject_id, kp, e["id"])
+        if point["source"] == "wrong_book":
+            created.append(point)
+    # 2. Points from confirmed exam points.
+    for p in ep_mod.load(subject_id):
+        if not p.get("confirmed"):
+            continue
+        kp = (p.get("kp") or "").strip()
+        if not kp:
+            continue
+        point = knowledge_points.add_point(subject_id, name=kp, source="exam_point")
+        knowledge_points.link_exam_point(subject_id, kp, p["id"])
+        if point["source"] == "exam_point":
+            created.append(point)
+    return {
+        "created": len(created),
+        "points": knowledge_points.aggregate(subject_id),
+    }
+
+
+# ==================== Review pack (M6) ====================
+
+@router.post("/{subject_id}/review-pack")
+async def generate_review_pack(
+    subject_id: str,
+    format: str = Form("pdf"),
+    term: str = Form(""),
+    _: None = Depends(require_auth),
+):
+    """Generate a printable review guide from exam points + wrong book.
+
+    Writes the artifact under the public outputs tree and returns a
+    download URL served by ``/api/outputs``.
+    """
+    _require_subject(subject_id)
+    from deeptutor.services.path_service import get_path_service
+    from deeptutor.services.pdf import review_guide
+
+    if format not in ("pdf", "docx"):
+        raise HTTPException(status_code=400, detail="format must be pdf or docx")
+
+    markdown = await review_guide.generate_guide_markdown(subject_id, term=term)
+    outputs_root = get_path_service().get_public_outputs_root()
+    out_dir = outputs_root / "subjects" / subject_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ts = int(time.time())
+    ext = "pdf" if format == "pdf" else "docx"
+    out_path = out_dir / f"review-guide-{ts}.{ext}"
+
+    ok = (
+        review_guide.render_pdf(markdown, out_path)
+        if format == "pdf"
+        else review_guide.render_docx(markdown, out_path)
+    )
+    if not ok:
+        raise HTTPException(status_code=500, detail="Render failed (is Typst installed?)")
+    return {
+        "format": format,
+        "markdown_tokens": review_guide.estimate_tokens(markdown),
+        "url": f"/api/outputs/subjects/{subject_id}/review-guide-{ts}.{ext}",
+        "path": str(out_path),
+    }

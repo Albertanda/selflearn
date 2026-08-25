@@ -138,21 +138,33 @@ async def websocket_chat(websocket: WebSocket):
                         for msg in session.get("messages", [])
                     ]
 
-                # M3: subject-scoped sessions carry a lightweight wrong-book
-                # summary so the model can give targeted review without a full
-                # transcript dump.
+                # M5: subject-scoped sessions inject the three-layer context:
+                # knowledge-point index + exam-point list + wrong-book summary
+                # (lightweight, no full transcripts). Token cost is logged.
                 if subject_id:
                     try:
-                        from deeptutor.subjects import wrong_book
+                        from deeptutor.subjects import exam_points, knowledge_points, wrong_book
 
-                        block = wrong_book.context_summary(subject_id)
+                        blocks = [
+                            knowledge_points.context_summary(subject_id),
+                            exam_points.term_summary(subject_id),
+                            wrong_book.context_summary(subject_id),
+                        ]
+                        block = "\n\n".join(b for b in blocks if b)
                         if block:
+                            from deeptutor.services.pdf.review_guide import estimate_tokens
+
+                            logger.info(
+                                "subject context injected: %d chars, ~%d tokens",
+                                len(block),
+                                estimate_tokens(block),
+                            )
                             history = [
                                 {"role": "system", "content": block},
                                 *history,
                             ]
                     except Exception:
-                        logger.debug("wrong-book context injection failed", exc_info=True)
+                        logger.debug("subject context injection failed", exc_info=True)
 
                 sm.add_message(
                     session_id=session_id,
