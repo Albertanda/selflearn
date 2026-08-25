@@ -120,30 +120,50 @@ def _md_to_typst(md: str) -> str:
 
 
 _TYST_DOC = """#set page(paper: \"a4\", margin: 2cm)
-#set text(size: 11pt, lang: \"zh\", font: \"Noto Sans CJK SC\")
+#set text(size: 11pt, lang: \"zh\", font: \"Microsoft YaHei\")
 #set par(justify: true)
 
 {body}
 """
 
+_FONT_DIR = Path(__file__).resolve().parents[3] / "tools" / "fonts"
 
-def render_pdf(markdown: str, out_path: Path, typst_bin: Path | None = None) -> bool:
-    """Compile Markdown to PDF via Typst. Returns success."""
+
+def typst_compile(typ_path: Path, out_path: Path, typst_bin: Path | None = None) -> bool:
+    """Compile a .typ file to PDF with the project CJK font path.
+
+    Centralizes font-path wiring so every renderer (review guide, report)
+    picks up the Windows CJK fonts (Microsoft YaHei) shipped in tools/fonts.
+    """
     typst_bin = typst_bin or (Path(__file__).resolve().parents[3] / "tools" / "bin" / "typst")
     if not typst_bin.exists():
         return False
-    src = _TYST_DOC.format(body=_md_to_typst(markdown))
-    tmp = out_path.with_suffix(".typ")
-    tmp.write_text(src, encoding="utf-8")
     try:
         proc = subprocess.run(
-            [str(typst_bin), "compile", str(tmp), str(out_path)],
+            [
+                str(typst_bin),
+                "compile",
+                "--font-path",
+                str(_FONT_DIR),
+                str(typ_path),
+                str(out_path),
+            ],
             capture_output=True,
-            timeout=60,
+            timeout=120,
         )
+        if proc.returncode != 0:
+            logger.warning("typst compile failed: %s", proc.stderr.decode(errors="replace")[:300])
         return proc.returncode == 0 and out_path.exists()
     except Exception:
         return False
+
+
+def render_pdf(markdown: str, out_path: Path, typst_bin: Path | None = None) -> bool:
+    """Compile Markdown to PDF via Typst. Returns success."""
+    src = _TYST_DOC.format(body=_md_to_typst(markdown))
+    tmp = out_path.with_suffix(".typ")
+    tmp.write_text(src, encoding="utf-8")
+    return typst_compile(tmp, out_path, typst_bin)
 
 
 def render_docx(markdown: str, out_path: Path) -> bool:

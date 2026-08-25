@@ -17,7 +17,11 @@ from pathlib import Path
 
 from deeptutor.services.llm.config import get_llm_config
 from deeptutor.services.llm.factory import complete
-from deeptutor.services.pdf.review_guide import _md_to_typst, _TYST_DOC, estimate_tokens
+import logging
+
+logger = logging.getLogger(__name__)
+
+from deeptutor.services.pdf.review_guide import _md_to_typst, _TYST_DOC, estimate_tokens, typst_compile
 
 REPORT_PROMPT = """你是一名大学助教，根据题目要求撰写一份课程报告（中文）。
 
@@ -75,10 +79,24 @@ def _extract_json(raw: str) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+_FONT_REGISTER = """import matplotlib.font_manager as _fm
+for _f in {font_paths!r}:
+    try:
+        _fm.fontManager.addfont(_f)
+    except Exception:
+        pass
+"""
+
+
 def _run_chart_code(code: str, workdir: Path) -> bool:
     """Execute LLM-generated matplotlib code in a subprocess."""
+    from deeptutor.services.pdf.review_guide import _FONT_DIR
+
+    font_paths = [str(_FONT_DIR / n) for n in ("SimsunExtG.ttf", "msyh.ttc")]
     script = workdir / "_chart.py"
-    script.write_text(code, encoding="utf-8")
+    script.write_text(
+        _FONT_REGISTER.format(font_paths=font_paths) + code, encoding="utf-8"
+    )
     try:
         proc = subprocess.run(
             [sys.executable, str(script)],
@@ -86,8 +104,13 @@ def _run_chart_code(code: str, workdir: Path) -> bool:
             capture_output=True,
             timeout=60,
         )
+        if proc.returncode != 0:
+            (workdir / "_chart_err.txt").write_text(
+                (proc.stderr or b"").decode(errors="replace")[:500], encoding="utf-8"
+            )
         return proc.returncode == 0
-    except Exception:
+    except Exception as exc:
+        (workdir / "_chart_err.txt").write_text(str(exc)[:500], encoding="utf-8")
         return False
 
 
@@ -105,15 +128,7 @@ def _render_report_pdf(markdown: str, charts: list[Path], out_path: Path, typst_
     src = _TYST_DOC.format(body=body)
     tmp = out_path.with_suffix(".typ")
     tmp.write_text(src, encoding="utf-8")
-    try:
-        proc = subprocess.run(
-            [str(typst_bin), "compile", str(tmp), str(out_path)],
-            capture_output=True,
-            timeout=120,
-        )
-        return proc.returncode == 0 and out_path.exists()
-    except Exception:
-        return False
+    return typst_compile(tmp, out_path, typst_bin)
 
 
 async def generate_report(
@@ -142,12 +157,21 @@ async def generate_report(
         )
         data = _extract_json(raw)
         code = data.get("code", "")
+        ok = False
         if code and _run_chart_code(code, out_dir) and png.exists():
             chart_paths.append(png)
-        # Replace the placeholder with an image line (or drop on failure).
-        markdown = markdown.replace(
-            "{CHART: " + spec + "}", f"![chart {i + 1}]({png.name})", 1
+            ok = True
+        else:
+            err = (out_dir / "_chart_err.txt").read_text(encoding="utf-8")[:200] \
+                if (out_dir / "_chart_err.txt").exists() else "no chart code"
+            logger.warning("chart %d generation failed: %s", i + 1, err)
+        # Replace the placeholder with an image line, or a plain-text note
+        # when the chart could not be produced (never leave dangling refs).
+        replacement = (
+            f"![chart {i + 1}]({png.name})" if ok
+            else f"**（图 {i + 1} 生成失败：{spec.strip()[:60]}）**"
         )
+        markdown = markdown.replace("{CHART: " + spec + "}", replacement, 1)
 
     typst_bin = Path(__file__).resolve().parents[3] / "tools" / "bin" / "typst"
     ts = int(time.time())
