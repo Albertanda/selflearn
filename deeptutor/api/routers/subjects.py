@@ -23,7 +23,7 @@ from deeptutor.api.routers.knowledge import (
 from deeptutor.knowledge.naming import validate_knowledge_base_name
 from deeptutor.knowledge.manager import KnowledgeBaseManager
 from deeptutor.services.rag.service import RAGService
-from deeptutor.subjects import store
+from deeptutor.subjects import store, wrong_book
 
 router = APIRouter()
 
@@ -248,3 +248,162 @@ async def subject_kb_query(
     rag = RAGService(kb_base_dir=str(store.subject_kb_base_dir(subject_id)))
     result = await rag.search(query=query, kb_name=kb_name)
     return {"query": query, "kb_name": kb_name, "result": result}
+
+
+# ==================== Wrong-question book (M3) ====================
+
+@router.get("/{subject_id}/wrong-book/stats")
+async def wrong_book_stats(subject_id: str, _: None = Depends(require_auth)):
+    _require_subject(subject_id)
+    return {"subject_id": subject_id, **wrong_book.stats(subject_id)}
+
+
+@router.get("/{subject_id}/wrong-book")
+async def list_wrong_book(
+    subject_id: str,
+    status: str = "",
+    include_archived: bool = False,
+    _: None = Depends(require_auth),
+):
+    _require_subject(subject_id)
+    entries = wrong_book.list_entries(
+        subject_id, status=status or None, archived=None if include_archived else False
+    )
+    return {"subject_id": subject_id, "entries": entries}
+
+
+@router.post("/{subject_id}/wrong-book")
+async def add_wrong_entry(
+    subject_id: str,
+    question: str = Form(...),
+    answer: str = Form(""),
+    analysis: str = Form(""),
+    kp: str = Form(""),
+    question_type: str = Form("written"),
+    source: str = Form("manual"),
+    error_type: str = Form(""),
+    _: None = Depends(require_auth),
+):
+    _require_subject(subject_id)
+    if not question.strip():
+        raise HTTPException(status_code=400, detail="question is required")
+    entry = wrong_book.add_entry(
+        subject_id,
+        question=question,
+        answer=answer,
+        analysis=analysis,
+        kp=kp,
+        question_type=question_type,
+        source=source,
+        error_type=error_type,
+    )
+    return {"entry": entry}
+
+
+@router.post("/{subject_id}/wrong-book/{entry_id}/attempt")
+async def record_wrong_attempt(
+    subject_id: str,
+    entry_id: str,
+    correct: bool = Form(...),
+    session_id: str = Form(""),
+    _: None = Depends(require_auth),
+):
+    _require_subject(subject_id)
+    entry = wrong_book.record_attempt(
+        subject_id, entry_id, correct=correct, session_id=session_id
+    )
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Wrong-book entry not found")
+    return {"entry": entry}
+
+
+@router.post("/{subject_id}/wrong-book/{entry_id}/archive")
+async def archive_wrong_entry(subject_id: str, entry_id: str, _: None = Depends(require_auth)):
+    _require_subject(subject_id)
+    entry = wrong_book.archive(subject_id, entry_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Wrong-book entry not found")
+    return {"entry": entry}
+
+
+@router.delete("/{subject_id}/wrong-book/{entry_id}")
+async def delete_wrong_entry(subject_id: str, entry_id: str, _: None = Depends(require_auth)):
+    _require_subject(subject_id)
+    if not wrong_book.delete(subject_id, entry_id):
+        raise HTTPException(status_code=404, detail="Wrong-book entry not found")
+    return {"status": "deleted", "entry_id": entry_id}
+
+
+@router.post("/{subject_id}/wrong-book/check")
+async def check_answer(
+    subject_id: str,
+    question: str = Form(...),
+    student_answer: str = Form(...),
+    reference_answer: str = Form(""),
+    kp: str = Form(""),
+    _: None = Depends(require_auth),
+):
+    """AI-graded answer check: grades the submission, then writes the
+    outcome into the wrong-question book (new entry on a miss, attempt
+    on a hit of an existing entry)."""
+    _require_subject(subject_id)
+    if not question.strip() or not student_answer.strip():
+        raise HTTPException(status_code=400, detail="question and student_answer are required")
+
+    verdict, feedback = await _ai_grade(question, student_answer, reference_answer)
+    is_correct = verdict == "correct"
+
+    entry = wrong_book.find_by_question(subject_id, question)
+    if entry is None:
+        entry = wrong_book.add_entry(
+            subject_id,
+            question=question,
+            answer=reference_answer,
+            kp=kp,
+            source="check",
+        )
+    entry = wrong_book.record_attempt(subject_id, entry["id"], correct=is_correct)
+
+    return {
+        "verdict": verdict,
+        "feedback": feedback,
+        "correct": is_correct,
+        "entry": entry,
+    }
+
+
+async def _ai_grade(question: str, student_answer: str, reference_answer: str) -> tuple[str, str]:
+    """Grade one answer via the main LLM (verdict: correct / partial / wrong)."""
+    from deeptutor.services.llm.config import get_llm_config
+    from deeptutor.services.llm.factory import complete
+
+    cfg = get_llm_config()
+    prompt = (
+        "你是一名严谨且鼓励学习者的助教，正在批改一道题。\n\n"
+        f"题目：{question}\n"
+        + (f"参考答案：{reference_answer}\n" if reference_answer else "")
+        + f"学生作答：{student_answer}\n\n"
+        "请只输出 JSON：{\"verdict\": \"correct|partial|wrong\", \"feedback\": \"简短分条反馈（哪里对、哪里错、如何改正）\"}"
+    )
+    try:
+        raw = await complete(
+            prompt=prompt,
+            system_prompt="你是严格的批改助教。",
+            model=cfg.model,
+            api_key=cfg.api_key,
+            base_url=cfg.base_url,
+        )
+        import json as _json
+        import re as _re
+
+        text = raw.strip()
+        m = _re.search(r"\{[\s\S]*\}", text)
+        if m:
+            data = _json.loads(m.group(0))
+            verdict = str(data.get("verdict", "wrong")).lower()
+            if verdict not in ("correct", "partial", "wrong"):
+                verdict = "wrong"
+            return verdict, str(data.get("feedback", ""))[:500]
+        return "wrong", text[:300]
+    except Exception as exc:  # noqa: BLE001
+        return "wrong", f"批改服务不可用：{exc}"

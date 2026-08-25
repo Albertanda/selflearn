@@ -138,6 +138,22 @@ async def websocket_chat(websocket: WebSocket):
                         for msg in session.get("messages", [])
                     ]
 
+                # M3: subject-scoped sessions carry a lightweight wrong-book
+                # summary so the model can give targeted review without a full
+                # transcript dump.
+                if subject_id:
+                    try:
+                        from deeptutor.subjects import wrong_book
+
+                        block = wrong_book.context_summary(subject_id)
+                        if block:
+                            history = [
+                                {"role": "system", "content": block},
+                                *history,
+                            ]
+                    except Exception:
+                        logger.debug("wrong-book context injection failed", exc_info=True)
+
                 sm.add_message(
                     session_id=session_id,
                     role="user",
