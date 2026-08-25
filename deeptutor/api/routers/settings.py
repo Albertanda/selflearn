@@ -814,6 +814,24 @@ async def update_chat_starter_settings(payload: ChatStarterSettingsUpdate):
     return {"settings": saved, "bounds": {"trace_count": TRACE_COUNT_RANGE}}
 
 
+@router.get("/vision-strategy")
+async def get_vision_strategy_endpoint():
+    """Vision routing strategy (auto / prefer_dedicated / dedicated_only)."""
+    from deeptutor.services.settings.vision_strategy import (
+        VALID,
+        get_vision_strategy,
+    )
+
+    return {"strategy": get_vision_strategy(), "options": list(VALID)}
+
+
+@router.put("/vision-strategy")
+async def update_vision_strategy_endpoint(payload: dict):
+    from deeptutor.services.settings.vision_strategy import save_vision_strategy
+
+    return {"strategy": save_vision_strategy(str(payload.get("strategy", "auto")))}
+
+
 @router.get("/token-budget")
 async def get_token_budget_settings_endpoint():
     """Token-saver switch + context ratio (per user)."""

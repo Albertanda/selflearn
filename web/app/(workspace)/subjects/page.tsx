@@ -124,7 +124,9 @@ export default function SubjectsPage() {
           <div key={s.id} className="rounded-xl border p-4">
             <div className="flex items-center justify-between">
               <div>
-                <span className="font-semibold">{s.name}</span>
+                <a href={`/subjects/${s.id}`} className="font-semibold text-blue-600 hover:underline">
+                  {s.name}
+                </a>
                 {s.term && <span className="ml-2 text-sm opacity-60">{s.term}</span>}
                 <span className="ml-2 text-xs opacity-40">id: {s.id}</span>
               </div>

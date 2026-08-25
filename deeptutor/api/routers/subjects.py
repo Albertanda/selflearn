@@ -687,3 +687,33 @@ async def generate_subject_report(
         "url": f"/api/outputs/subjects/{subject_id}/reports/{pdf_name}",
         "path": result["pdf_path"],
     }
+
+
+# ==================== Backup export (M8) ====================
+
+@router.get("/{subject_id}/export")
+async def export_subject_data(subject_id: str, _: None = Depends(require_auth)):
+    """Bundle a subject's whole data tree (knowledge, wrong book, exam
+    points, profile, materials) into a downloadable ZIP."""
+    _require_subject(subject_id)
+    import zipfile
+
+    from deeptutor.services.path_service import get_path_service
+
+    src_dir = store.subject_dir(subject_id)
+    if not src_dir.exists() or not any(src_dir.rglob("*")):
+        raise HTTPException(status_code=404, detail="Subject has no data yet")
+    outputs_root = get_path_service().get_public_outputs_root()
+    out_dir = outputs_root / "subjects" / subject_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ts = int(time.time())
+    zip_path = out_dir / f"subject-backup-{ts}.zip"
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in src_dir.rglob("*"):
+            if f.is_file():
+                zf.write(f, f.relative_to(src_dir.parent))
+    return {
+        "url": f"/api/outputs/subjects/{subject_id}/subject-backup-{ts}.zip",
+        "path": str(zip_path),
+        "size": zip_path.stat().st_size,
+    }
