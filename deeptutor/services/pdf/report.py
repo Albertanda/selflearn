@@ -37,9 +37,15 @@ REPORT_PROMPT = """你是一名大学助教，根据题目要求撰写一份课�
 3. 数学公式用 Unicode 文本（如 y′ = x² − y、e^(−x)），不要用 LaTeX 命令。
 4. 只使用 Markdown 子集：#、##、-、**加粗**；不要表格、代码块、链接。
 5. 正文 800-1200 字（不含图），内容准确、结构完整，直接基于题目要求。
+6. 数学严谨性：凡是给出解析解、平衡点、稳定性等结论，必须代入原方程验证后再写；精确解写出来前先自查（例如 y' = x² − y 的通解是 y = x² − 2x + 2 + C·e^(−x)，代回可验证）；不要臆造公式或结论。
 """
 
 CHART_CODE_PROMPT = """为下面这张图生成 matplotlib Python 代码。
+
+## 微分方程（必须严格遵守，禁止修改）
+本题微分方程为 y′ = f(x, y)，其中：
+f(x, y) = {ode_rhs}
+代码中必须定义：def f(x, y): return {ode_rhs}，不得使用其他任何方程！
 
 ## 图表需求
 {description}
@@ -62,6 +68,35 @@ async def _llm(prompt: str, system: str) -> str:
         api_key=cfg.api_key,
         base_url=cfg.base_url,
     )
+
+
+
+def _chart_ode_matches(workdir: Path, ode_rhs: str) -> bool:
+    """Verify the chart's f(x, y) against the declared ODE on test points."""
+    check = f"""
+import sys
+sys.path.insert(0, {str(workdir)!r})
+import _chart as _c
+_declared = lambda x, y: {ode_rhs}
+_pts = [(-2.5, 1.0), (0.0, 0.5), (1.7, -2.0), (2.2, 2.5), (-0.8, -3.0)]
+_got = [_c.f(x, y) for x, y in _pts]
+_exp = [_declared(x, y) for x, y in _pts]
+_err = max(abs(a - b) for a, b in zip(_got, _exp))
+print("ODE_CHECK_ERR", _err)
+raise SystemExit(0 if _err < 1e-6 else 1)
+"""
+    script = workdir / "_ode_check.py"
+    script.write_text(check, encoding="utf-8")
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(script)],
+            cwd=str(workdir),
+            capture_output=True,
+            timeout=30,
+        )
+        return proc.returncode == 0
+    except Exception:
+        return False
 
 
 def _extract_json(raw: str) -> dict:
@@ -137,6 +172,7 @@ async def generate_report(
     title: str,
     requirements: str,
     out_dir: Path,
+    ode_rhs: str = "",
 ) -> dict:
     """Generate a report with charts and render it to PDF.
 
@@ -151,16 +187,24 @@ async def generate_report(
     chart_paths: list[Path] = []
     for i, spec in enumerate(chart_specs):
         png = out_dir / f"chart_{i + 1}.png"
-        raw = await _llm(
-            CHART_CODE_PROMPT.format(description=spec.strip(), out_path=png.name),
-            "你生成 matplotlib 代码，只输出 JSON。",
-        )
-        data = _extract_json(raw)
-        code = data.get("code", "")
-        ok = False
-        if code and _run_chart_code(code, out_dir) and png.exists():
+        chart_ok = False
+        for attempt in range(3):  # up to 2 retries on failed ODE self-check
+            raw = await _llm(
+                CHART_CODE_PROMPT.format(
+                    description=spec.strip(), out_path=png.name, ode_rhs=ode_rhs or "x**2 - y"
+                ),
+                "你生成 matplotlib 代码，只输出 JSON。",
+            )
+            data = _extract_json(raw)
+            code = data.get("code", "")
+            if code and _run_chart_code(code, out_dir) and png.exists():
+                if not ode_rhs or _chart_ode_matches(out_dir, ode_rhs):
+                    chart_ok = True
+                    break
+                logger.warning("chart %d ODE mismatch (attempt %d)", i + 1, attempt + 1)
+        ok = chart_ok
+        if ok:
             chart_paths.append(png)
-            ok = True
         else:
             err = (out_dir / "_chart_err.txt").read_text(encoding="utf-8")[:200] \
                 if (out_dir / "_chart_err.txt").exists() else "no chart code"

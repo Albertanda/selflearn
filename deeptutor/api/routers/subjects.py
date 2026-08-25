@@ -656,6 +656,7 @@ async def generate_subject_report(
     subject_id: str,
     title: str = Form(...),
     requirements: str = Form(""),
+    ode_rhs: str = Form(""),
     _: None = Depends(require_auth),
 ):
     """Generate a chart-bearing report and export it as PDF."""
@@ -670,7 +671,11 @@ async def generate_subject_report(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     result = await report_mod.generate_report(
-        subject_id, title=title, requirements=requirements, out_dir=out_dir
+        subject_id,
+        title=title,
+        requirements=requirements,
+        out_dir=out_dir,
+        ode_rhs=ode_rhs,
     )
     if not result["pdf_ok"]:
         raise HTTPException(status_code=500, detail="Report PDF render failed")
