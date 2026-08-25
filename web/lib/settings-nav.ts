@@ -8,6 +8,7 @@ import {
   BrainCircuit,
   Clapperboard,
   Database,
+  Gauge,
   Eye,
   FileScan,
   Image as ImageIcon,
@@ -183,6 +184,17 @@ const CHAT_CHILDREN: SettingsLeaf[] = [
     },
     icon: Wrench,
     tile: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
+  },
+  {
+    key: "token-saver",
+    href: "/settings/token-saver",
+    label: { zh: "节省 Token", en: "Token Saver" },
+    blurb: {
+      zh: "上下文压缩开关：默认压缩历史以节省 Token；关闭后完整上下文直到极限比例才压缩。",
+      en: "Context compression: on by default; off sends full history until the configured context ratio.",
+    },
+    icon: Gauge,
+    tile: "bg-teal-500/10 text-teal-600 dark:text-teal-400",
   },
   {
     key: "capabilities",

@@ -24,7 +24,7 @@ from deeptutor.api.routers.knowledge import (
 from deeptutor.knowledge.naming import validate_knowledge_base_name
 from deeptutor.knowledge.manager import KnowledgeBaseManager
 from deeptutor.services.rag.service import RAGService
-from deeptutor.subjects import exam_points, knowledge_points, store, wrong_book
+from deeptutor.subjects import exam_points, knowledge_points, profile as profile_mod, store, wrong_book
 
 router = APIRouter()
 
@@ -621,3 +621,29 @@ async def generate_review_pack(
         "url": f"/api/outputs/subjects/{subject_id}/review-guide-{ts}.{ext}",
         "path": str(out_path),
     }
+
+
+# ==================== Subject profile (M5+) ====================
+
+@router.get("/{subject_id}/profile")
+async def get_subject_profile(subject_id: str, _: None = Depends(require_auth)):
+    _require_subject(subject_id)
+    from deeptutor.subjects import profile as profile_mod
+
+    return {"subject_id": subject_id, "profile": profile_mod.load(subject_id)}
+
+
+@router.post("/{subject_id}/profile")
+async def update_subject_profile(
+    subject_id: str,
+    goals: str = Form(""),
+    explanation_style: str = Form("balanced"),
+    _: None = Depends(require_auth),
+):
+    _require_subject(subject_id)
+    from deeptutor.subjects import profile as profile_mod
+
+    profile = profile_mod.update(
+        subject_id, goals=goals, explanation_style=explanation_style
+    )
+    return {"subject_id": subject_id, "profile": profile}

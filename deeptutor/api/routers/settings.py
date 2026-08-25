@@ -814,6 +814,31 @@ async def update_chat_starter_settings(payload: ChatStarterSettingsUpdate):
     return {"settings": saved, "bounds": {"trace_count": TRACE_COUNT_RANGE}}
 
 
+@router.get("/token-budget")
+async def get_token_budget_settings_endpoint():
+    """Token-saver switch + context ratio (per user)."""
+    from deeptutor.services.settings.token_budget import (
+        MAX_RATIO,
+        MIN_RATIO,
+        get_token_budget_settings,
+    )
+
+    return {
+        "settings": get_token_budget_settings(),
+        "bounds": {"context_ratio": [MIN_RATIO, MAX_RATIO]},
+    }
+
+
+@router.put("/token-budget")
+async def update_token_budget_settings(payload: dict):
+    """Update the token-saver switch / context ratio."""
+    from deeptutor.services.settings.token_budget import save_token_budget_settings
+
+    enabled = bool(payload.get("enabled", True))
+    ratio = float(payload.get("context_ratio", 0.7))
+    return {"settings": save_token_budget_settings(enabled=enabled, context_ratio=ratio)}
+
+
 @router.put("/chat-attachments")
 async def update_chat_attachment_settings(payload: ChatAttachmentSettingsUpdate):
     _require_settings_admin()

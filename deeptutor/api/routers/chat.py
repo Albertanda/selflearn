@@ -138,23 +138,30 @@ async def websocket_chat(websocket: WebSocket):
                         for msg in session.get("messages", [])
                     ]
 
-                # M5: subject-scoped sessions inject the three-layer context:
-                # knowledge-point index + exam-point list + wrong-book summary
-                # (lightweight, no full transcripts). Token cost is logged.
+                # M5+: subject-scoped sessions inject the lightweight context
+                # layer: knowledge-point index + term exam points + wrong-book
+                # summary + learner profile (answer-style preference, facts).
                 subject_context_tokens = 0
+                context_mode = "none"
+                history_summarized = False
                 if subject_id:
                     try:
-                        from deeptutor.subjects import exam_points, knowledge_points, wrong_book
+                        from deeptutor.subjects import (
+                            exam_points,
+                            knowledge_points,
+                            profile as subject_profile,
+                            wrong_book,
+                        )
+                        from deeptutor.services.pdf.review_guide import estimate_tokens
 
                         blocks = [
                             knowledge_points.context_summary(subject_id),
                             exam_points.term_summary(subject_id),
                             wrong_book.context_summary(subject_id),
+                            subject_profile.context_summary(subject_id),
                         ]
                         block = "\n\n".join(b for b in blocks if b)
                         if block:
-                            from deeptutor.services.pdf.review_guide import estimate_tokens
-
                             subject_context_tokens = estimate_tokens(block)
                             logger.warning(
                                 "subject context injected: %d chars, ~%d tokens",
@@ -167,6 +174,52 @@ async def websocket_chat(websocket: WebSocket):
                             ]
                     except Exception:
                         logger.warning("subject context injection failed", exc_info=True)
+
+                # Token-saver policy: full context vs bounded/compressed history.
+                try:
+                    from deeptutor.services.settings.token_budget import (
+                        get_token_budget_settings,
+                    )
+                    from deeptutor.services.llm.context_window import (
+                        resolve_effective_context_window,
+                    )
+
+                    budget = get_token_budget_settings()
+                    llm_model = (llm_config.model if "llm_config" in dir() else "") or ""
+                    context_window = resolve_effective_context_window(model=llm_model or "unknown")
+                    if budget.get("enabled", True):
+                        context_mode = "saved"
+                        history_budget_tokens = 4000
+                    else:
+                        context_mode = "full"
+                        ratio = float(budget.get("context_ratio", 0.7))
+                        history_budget_tokens = max(4000, int(context_window * ratio))
+
+                    ctx_total = sum(
+                        estimate_tokens(str(m.get("content", ""))) for m in history
+                    )
+                    if ctx_total > history_budget_tokens and len(history) > 8:
+                        from deeptutor.services.session.summarize import summarize
+
+                        early, recent = history[:-6], history[-6:]
+                        try:
+                            summary, facts = await summarize(early)
+                            if summary:
+                                history = [
+                                    {
+                                        "role": "system",
+                                        "content": f"【此前对话摘要】\n{summary}",
+                                    },
+                                    *recent,
+                                ]
+                                history_summarized = True
+                                if subject_id:
+                                    for f in facts:
+                                        subject_profile.add_fact(subject_id, f)
+                        except Exception:
+                            logger.warning("history summarization failed", exc_info=True)
+                except Exception:
+                    logger.warning("token budget policy failed", exc_info=True)
 
                 sm.add_message(
                     session_id=session_id,
@@ -190,6 +243,9 @@ async def websocket_chat(websocket: WebSocket):
                     api_key=api_key,
                     base_url=base_url,
                     api_version=api_version,
+                    # History policy is handled above (token-saver switch);
+                    # keep the agent's internal truncation out of the way.
+                    max_history_tokens=10**9,
                 )
 
                 if enable_rag and kb_name:
@@ -252,6 +308,8 @@ async def websocket_chat(websocket: WebSocket):
                         "content": full_response,
                         "subject_context_tokens": subject_context_tokens,
                         "history_chars": sum(len(m.get("content", "")) for m in history),
+                        "context_mode": context_mode,
+                        "history_summarized": history_summarized,
                     }
                 )
 
