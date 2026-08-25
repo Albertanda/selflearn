@@ -23,7 +23,7 @@ from deeptutor.api.routers.knowledge import (
 from deeptutor.knowledge.naming import validate_knowledge_base_name
 from deeptutor.knowledge.manager import KnowledgeBaseManager
 from deeptutor.services.rag.service import RAGService
-from deeptutor.subjects import store, wrong_book
+from deeptutor.subjects import exam_points, store, wrong_book
 
 router = APIRouter()
 
@@ -407,3 +407,113 @@ async def _ai_grade(question: str, student_answer: str, reference_answer: str) -
         return "wrong", text[:300]
     except Exception as exc:  # noqa: BLE001
         return "wrong", f"批改服务不可用：{exc}"
+
+
+# ==================== Exam points (M4) ====================
+
+@router.get("/{subject_id}/exam-points")
+async def list_exam_points(
+    subject_id: str,
+    term: str = "",
+    confirmed_only: bool = False,
+    _: None = Depends(require_auth),
+):
+    _require_subject(subject_id)
+    points = exam_points.list_points(
+        subject_id, term=term or None, confirmed=True if confirmed_only else None
+    )
+    return {"subject_id": subject_id, "points": points}
+
+
+@router.post("/{subject_id}/exam-points")
+async def add_exam_point(
+    subject_id: str,
+    content: str = Form(...),
+    level: str = Form("inferred"),
+    evidence: str = Form(""),
+    kp: str = Form(""),
+    term: str = Form(""),
+    source: str = Form("manual"),
+    anchor: str = Form(""),
+    confirmed: bool = Form(True),
+    _: None = Depends(require_auth),
+):
+    _require_subject(subject_id)
+    if not content.strip():
+        raise HTTPException(status_code=400, detail="content is required")
+    point = exam_points.add_point(
+        subject_id,
+        content=content,
+        level=level,
+        evidence=evidence,
+        kp=kp,
+        term=term,
+        source=source,
+        anchor=anchor,
+        confirmed=confirmed,
+    )
+    return {"point": point}
+
+
+@router.post("/{subject_id}/exam-points/detect")
+async def detect_exam_points(
+    subject_id: str,
+    transcript: str = Form(...),
+    term: str = Form(""),
+    source: str = Form("lecture"),
+    auto_confirm: bool = Form(False),
+    _: None = Depends(require_auth),
+):
+    """Run exam-point detection over a lecture transcript (e.g. ASR text).
+
+    Candidates are stored unconfirmed unless ``auto_confirm``; explicit
+    points are always stored. Returns the detection record + stored points.
+    """
+    _require_subject(subject_id)
+    if not transcript.strip():
+        raise HTTPException(status_code=400, detail="transcript is required")
+    from deeptutor.subjects import exam_detection
+
+    result = await exam_detection.detect_points(transcript, term=term, source=source)
+    candidates = result["points"]
+    stored = []
+    for p in candidates:
+        confirmed = bool(auto_confirm) or p["level"] == "explicit"
+        stored.append(
+            exam_points.add_point(
+                subject_id,
+                content=p["content"],
+                level=p["level"],
+                evidence=p.get("evidence", ""),
+                kp=p.get("kp", ""),
+                term=term,
+                source=source,
+                anchor=p.get("anchor", ""),
+                confirmed=confirmed,
+            )
+        )
+    return {
+        "version": result["version"],
+        "detected": len(candidates),
+        "stored": stored,
+        "raw": result.get("raw", ""),
+    }
+
+
+@router.post("/{subject_id}/exam-points/{point_id}/confirm")
+async def confirm_exam_point(
+    subject_id: str, point_id: str, _: None = Depends(require_auth)
+):
+    _require_subject(subject_id)
+    point = exam_points.set_confirmed(subject_id, point_id, True)
+    if point is None:
+        raise HTTPException(status_code=404, detail="Exam point not found")
+    return {"point": point}
+
+
+@router.delete("/{subject_id}/exam-points/{point_id}")
+async def delete_exam_point(subject_id: str, point_id: str, _: None = Depends(require_auth)):
+    _require_subject(subject_id)
+    if not exam_points.delete(subject_id, point_id):
+        raise HTTPException(status_code=404, detail="Exam point not found")
+    return {"status": "deleted", "point_id": point_id}
