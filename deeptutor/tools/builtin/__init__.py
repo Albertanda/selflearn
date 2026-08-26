@@ -14,6 +14,7 @@ from deeptutor.knowledge.manifest import KB_FILES_DEFAULT_LIMIT, KB_FILES_MAX_LI
 from deeptutor.tools.exec_tool import ExecTool
 from deeptutor.tools.media_gen_tool import ImagegenTool, VideogenTool
 from deeptutor.tools.prompting import load_prompt_hints
+from deeptutor.tools.report_tool import ReportTool
 
 logger = logging.getLogger(__name__)
 
@@ -1545,6 +1546,7 @@ BUILTIN_TOOL_TYPES: tuple[type[BaseTool], ...] = (
     # Image → GeoGebra figure reconstruction. User-toggleable in chat; the
     # solve loop capability force-mounts it for diagram problems.
     GeoGebraAnalysisTool,
+    ReportTool,
     # Text-to-image / text-to-video generation. User-toggleable + per-user
     # grant-gated; the chat pipeline only mounts them when a model is configured.
     ImagegenTool,
@@ -1608,6 +1610,7 @@ CONFIGURABLE_BUILTIN_TOOL_NAMES: tuple[str, ...] = (
     "load_tools",
     "cron",
     "ask_user",
+    "generate_report",
 )
 
 TOOL_ALIASES: dict[str, tuple[str, dict[str, Any]]] = {
@@ -1636,6 +1639,7 @@ __all__ = [
     "VideogenTool",
     "ListNotebookTool",
     "PaperSearchToolWrapper",
+    "ReportTool",
     "RAGTool",
     "LoadToolsTool",
     "ReadMemoryTool",

@@ -94,7 +94,8 @@ export default function SubjectsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-10">
+    <div className="h-full overflow-y-auto [scrollbar-gutter:stable]">
+      <div className="mx-auto max-w-5xl px-6 py-10">
       <h1 className="text-2xl font-semibold">科目（Subjects）</h1>
       <p className="mt-1 text-sm opacity-70">
         每科独立管理对话、知识库与错题集；模型配置全局共享。
@@ -187,6 +188,7 @@ export default function SubjectsPage() {
           </div>
         )}
       </div>
+    </div>
     </div>
   );
 }

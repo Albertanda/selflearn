@@ -144,6 +144,33 @@ async def upload_subject_knowledge(
 
     # Save raw files into the subject's materials tree (authoritative copy).
     materials = store.materials_dir(subject_id, kb_type)
+
+    # ---- Lecture audio: bypass the document whitelist, run ASR ----
+    _AUDIO_EXTS = {".mp3", ".m4a", ".wav", ".flac", ".ogg", ".aac", ".amr", ".wma"}
+    if kb_type == "lecture" and any(
+        Path((f.filename or "")).suffix.lower() in _AUDIO_EXTS for f in files
+    ):
+        from deeptutor.services.asr import transcribe as asr_mod
+
+        saved, transcripts = [], []
+        for f in files:
+            name = f.filename or "lecture"
+            contents = await f.read()
+            (materials / name).write_bytes(contents)
+            saved.append(name)
+            result = await asr_mod.transcribe(materials / name)
+            if result.get("error"):
+                raise HTTPException(status_code=502, detail=result["error"])
+            texts = result.get("text", "")
+            transcripts.append({"file": name, "text": texts, "model": result.get("model", "")})
+            (materials / f"{name}.transcript.txt").write_text(texts, encoding="utf-8")
+        return {
+            "message": f"ASR 转写完成（{transcripts[-1]['model'] if transcripts else 'unknown'}）",
+            "type": "lecture",
+            "files": saved,
+            "transcripts": transcripts,
+        }
+
     saved, _ = await _save_uploaded_files_off_loop(
         files, materials, allowed_extensions=None, rel_paths=None
     )

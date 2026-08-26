@@ -49,7 +49,14 @@ const LEVEL_LABEL: Record<string, string> = {
 };
 
 export default function SubjectDetailPage() {
-  const { id: subjectId } = useParams<{ id: string }>();
+  const { id: rawSubjectId } = useParams<{ id: string }>();
+  const subjectId = (() => {
+    try {
+      return decodeURIComponent(rawSubjectId ?? "");
+    } catch {
+      return rawSubjectId ?? "";
+    }
+  })();
   const { t } = useTranslation();
   const [tab, setTab] = useState("knowledge");
   const [knowledge, setKnowledge] = useState<KnowledgeRecord[]>([]);
@@ -103,11 +110,11 @@ export default function SubjectDetailPage() {
     ["exam", "期末考点"],
     ["profile", "画像"],
     ["review", "复习包"],
-    ["report", "报告"],
   ] as const;
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-10">
+    <div className="h-full overflow-y-auto [scrollbar-gutter:stable]">
+      <div className="mx-auto max-w-5xl px-6 py-10">
       <div className="flex items-center gap-3">
         <Link href="/subjects" className="text-sm text-blue-600 hover:underline">
           ← 科目列表
@@ -294,7 +301,7 @@ export default function SubjectDetailPage() {
         </div>
       )}
 
-      {tab === "report" && <ReportForm subjectId={subjectId} />}
+      </div>
     </div>
   );
 }
@@ -303,6 +310,34 @@ function ExamPointDetect({ subjectId, onDone }: { subjectId: string; onDone: () 
   const [transcript, setTranscript] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState("");
+  const [asrMsg, setAsrMsg] = useState("");
+
+  async function uploadAudio(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    setBusy(true);
+    setAsrMsg("正在上传录音并转写（ASR）…");
+    const body = new FormData();
+    body.append("type", "lecture");
+    for (const f of Array.from(files)) body.append("files", f);
+    const res = await apiFetch(`/api/v1/subjects/${subjectId}/knowledge/upload`, {
+      method: "POST",
+      body,
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const pieces = (data.transcripts ?? []).map((t: { text: string }) => t.text);
+      const joined = pieces.join("\n\n");
+      if (joined) {
+        setTranscript((prev) => (prev ? prev + "\n\n" + joined : joined));
+        setAsrMsg(`转写完成（${(data.transcripts ?? []).length} 段，已填入下方检测框）`);
+      } else {
+        setAsrMsg("转写完成但没有文本内容，请检查录音。");
+      }
+    } else {
+      setAsrMsg(await res.text());
+    }
+    setBusy(false);
+  }
 
   async function run() {
     if (!transcript.trim()) return;
@@ -326,7 +361,15 @@ function ExamPointDetect({ subjectId, onDone }: { subjectId: string; onDone: () 
 
   return (
     <div className="rounded-xl border p-4">
-      <div className="text-sm font-medium">课堂考点检测（粘贴讲课转写文字）</div>
+      <div className="text-sm font-medium">课堂考点检测</div>
+      <div className="mt-2 flex flex-wrap items-center gap-3 text-xs opacity-70">
+        <label className="cursor-pointer rounded-md bg-blue-600 px-3 py-1.5 text-xs text-white">
+          {busy ? "处理中…" : "上传录音（mp3/m4a/wav）"}
+          <input type="file" multiple accept=".mp3,.m4a,.wav,.flac,.ogg,.aac" className="hidden" onChange={(e) => uploadAudio(e.target.files)} />
+        </label>
+        <span>或直接粘贴讲课转写文字：</span>
+      </div>
+      {asrMsg && <div className="mt-1 text-xs text-emerald-600">{asrMsg}</div>}
       <textarea
         value={transcript}
         onChange={(e) => setTranscript(e.target.value)}
@@ -338,71 +381,6 @@ function ExamPointDetect({ subjectId, onDone }: { subjectId: string; onDone: () 
         {busy ? "检测中…" : "检测考点"}
       </button>
       {result && <div className="mt-2 text-sm text-amber-600">{result}</div>}
-    </div>
-  );
-}
-
-function ReportForm({ subjectId }: { subjectId: string }) {
-  const [title, setTitle] = useState("");
-  const [requirements, setRequirements] = useState("");
-  const [odeRhs, setOdeRhs] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState("");
-
-  async function run() {
-    if (!title.trim()) return;
-    setBusy(true);
-    const body = new FormData();
-    body.append("title", title);
-    body.append("requirements", requirements);
-    if (odeRhs) body.append("ode_rhs", odeRhs);
-    const res = await apiFetch(`/api/v1/subjects/${subjectId}/report`, { method: "POST", body });
-    if (res.ok) {
-      const data = await res.json();
-      setMsg(`报告已生成（${data.chart_count} 张图表），下载：${decodeURIComponent(data.url)}`);
-      window.open(data.url, "_blank");
-    } else {
-      setMsg(await res.text());
-    }
-    setBusy(false);
-  }
-
-  return (
-    <div className="mt-4 max-w-2xl space-y-3 rounded-xl border p-4">
-      <div>
-        <div className="text-sm font-medium">报告题目</div>
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          className="mt-1 w-full rounded-md border bg-transparent px-3 py-1.5 text-sm"
-          placeholder="如：一阶微分方程的方向场与解曲线分析"
-        />
-      </div>
-      <div>
-        <div className="text-sm font-medium">题目要求</div>
-        <textarea
-          value={requirements}
-          onChange={(e) => setRequirements(e.target.value)}
-          rows={4}
-          className="mt-1 w-full rounded-md border bg-transparent px-3 py-1.5 text-sm"
-          placeholder="分条列出报告要求（章节、图表、分析内容…）"
-        />
-      </div>
-      <div>
-        <div className="text-sm font-medium">
-          微分方程 f(x,y)（可选但强烈推荐，作为图表数值校验基准，如：x**2 - y）
-        </div>
-        <input
-          value={odeRhs}
-          onChange={(e) => setOdeRhs(e.target.value)}
-          className="mt-1 w-full rounded-md border bg-transparent px-3 py-1.5 font-mono text-sm"
-          placeholder="x**2 - y"
-        />
-      </div>
-      <button onClick={run} disabled={busy} className="rounded-md bg-blue-600 px-4 py-1.5 text-sm text-white disabled:opacity-50">
-        {busy ? "生成中（约 1-2 分钟）…" : "生成报告"}
-      </button>
-      {msg && <div className="text-sm text-amber-600">{msg}</div>}
     </div>
   );
 }

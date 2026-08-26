@@ -229,3 +229,20 @@ async def generate_report(
         "pdf_ok": ok,
         "pdf_path": str(pdf_path),
     }
+
+
+async def _render_reviewed(markdown: str, out_dir: Path, old_md: Path) -> Path | None:
+    """Render a revised report PDF next to its markdown source."""
+    import re as _re
+
+    # Keep chart image references working: the .md lives next to the charts.
+    from pathlib import Path as _P
+    charts_dir = old_md.parent
+    ts = int(time.time())
+    pdf_path = out_dir / f"report-{ts}.pdf"
+    typst_bin = _P(__file__).resolve().parents[3] / "tools" / "bin" / "typst"
+    ok = _render_report_pdf(markdown, [], pdf_path, typst_bin)
+    if not ok:
+        return None
+    old_md.write_text(markdown, encoding="utf-8")
+    return pdf_path

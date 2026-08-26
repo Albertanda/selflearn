@@ -180,6 +180,26 @@ def _flatten_ask_user_summary(ask_user_payload: dict[str, Any]) -> str:
     return str(ask_user_payload.get("question") or "")
 
 
+
+
+def _wrong_book_count(subject_id: str) -> int:
+    try:
+        from deeptutor.subjects import wrong_book
+
+        return len([e for e in wrong_book.load(subject_id) if not e.get("archived")])
+    except Exception:
+        return 0
+
+
+def _exam_point_count(subject_id: str) -> int:
+    try:
+        from deeptutor.subjects import exam_points
+
+        return len([p for p in exam_points.load(subject_id) if p.get("confirmed")])
+    except Exception:
+        return 0
+
+
 class AgenticChatPipeline:
     """Run chat as one exploring agent loop followed by a respond stage."""
 
@@ -975,6 +995,16 @@ class AgenticChatPipeline:
             kwargs["language"] = context.language or "en"
         elif tool_name == "load_tools":
             kwargs["_tool_loader"] = self._deferred_loader
+        elif tool_name == "generate_report":
+            subject_id = str(context.metadata.get("subject_id", "") or "").strip()
+            if subject_id:
+                kwargs["_subject_id"] = subject_id
+            from deeptutor.services.pdf.review_guide import estimate_tokens as _et
+
+            kwargs["_report_ctx_hint"] = (
+                f"当前科目：{subject_id}（错题 {_wrong_book_count(subject_id)} 道、"
+                f"考点 {_exam_point_count(subject_id)} 条）"
+            )
         elif tool_name == "exec":
             from deeptutor.services.sandbox import Mount
 
