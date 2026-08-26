@@ -51,6 +51,12 @@ const PRIMARY_NAV: NavEntry[] = [
     requires: "llm",
   },
   {
+    href: "/subjects",
+    label: "Subjects",
+    icon: BookOpen,
+    tooltipKey: "Subjects tooltip",
+  },
+  {
     href: "/co-writer",
     label: "Co-Writer",
     icon: PenLine,

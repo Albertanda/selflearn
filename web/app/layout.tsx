@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
-import { Geist, Lora } from "next/font/google";
+// Google font fetch is blocked in this environment; use system font stack.
+const fontSans = { variable: "--font-sans" } as const;
+const fontSerif = { variable: "--font-serif" } as const;
 import "./globals.css";
 import ThemeScript from "@/components/ThemeScript";
 import ToastViewport from "@/components/common/ToastViewport";
@@ -8,18 +10,6 @@ import { I18nClientBridge } from "@/i18n/I18nClientBridge";
 
 // Geist matches the public site (deeptutor.info) and stays crisp at the
 // small UI sizes the composer/toolbars use, unlike the rounder Jakarta.
-const fontSans = Geist({
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-sans",
-});
-
-const fontSerif = Lora({
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-serif",
-});
-
 export const metadata: Metadata = {
   title: "DeepTutor",
   description: "Agent-native intelligent learning companion",

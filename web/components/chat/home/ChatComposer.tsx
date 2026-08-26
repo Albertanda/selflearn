@@ -50,6 +50,7 @@ import ContextBudgetChip, { type ContextBudget } from "./ContextBudgetChip";
 import KnowledgeSelector from "./KnowledgeSelector";
 import ModelSelector from "./ModelSelector";
 import PersonaSelector from "./PersonaSelector";
+import SubjectSelector, { type SubjectOption } from "./SubjectSelector";
 
 type SpaceSelectionCounts = {
   attachments: number;
@@ -229,6 +230,9 @@ export default memo(function ChatComposer({
   onPersonaSelectionChange,
   personaSelectorOpen,
   onPersonaSelectorOpenChange,
+  subjects,
+  subjectId,
+  onSubjectChange,
   agentsAvailable = true,
   onToggleMemoryFile,
   onSend,
@@ -335,6 +339,9 @@ export default memo(function ChatComposer({
   onPersonaSelectionChange?: (persona: string) => void;
   personaSelectorOpen?: boolean;
   onPersonaSelectorOpenChange?: (open: boolean) => void;
+  subjects?: SubjectOption[];
+  subjectId?: string;
+  onSubjectChange?: (id: string) => void;
   /** Hide the My Agents reference entry (e.g. the quiz follow-up surface). */
   agentsAvailable?: boolean;
   onToggleMemoryFile: (file: SpaceMemoryFile) => void;
@@ -1055,6 +1062,13 @@ export default memo(function ChatComposer({
                     knowledgeBases={knowledgeBases}
                     selected={selectedKnowledgeBases}
                     onToggle={onToggleKB}
+                  />
+                ) : null}
+                {onSubjectChange ? (
+                  <SubjectSelector
+                    subjects={subjects ?? []}
+                    value={subjectId ?? ""}
+                    onChange={onSubjectChange}
                   />
                 ) : null}
                 {onPersonaSelectionChange ? (

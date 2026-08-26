@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { apiFetch } from "@/lib/api";
 import {
   type KeyboardEvent,
   useCallback,
@@ -1531,6 +1532,25 @@ export default function ChatPage() {
   // M0 trim: connected subagents were removed; keep the selector API surface
   // inert (selectedAgent always null) so the composer stays type-safe.
   const selectedAgent = useMemo(() => null as string | null, []);
+  const [subjectId, setSubjectId] = useState("");
+  const [subjectOptions, setSubjectOptions] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await apiFetch("/api/v1/subjects");
+        if (res.ok) {
+          const data = await res.json();
+          if (!cancelled) setSubjectOptions(data.subjects ?? []);
+        }
+      } catch {
+        /* subjects unavailable */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const subagentBudget = null;
 
   const handleSend = useCallback(
@@ -1554,6 +1574,9 @@ export default function ChatPage() {
         mime_type: a.mimeType,
       }));
       let config: Record<string, unknown> | undefined;
+      if (subjectId) {
+        config = { ...(config ?? {}), subject_id: subjectId };
+      }
 
       if (isQuizMode) {
         config = buildQuizWSConfig(quizConfig);
@@ -2060,6 +2083,9 @@ export default function ChatPage() {
               llmSelection={state.llmSelection}
               llmOptionsLoading={llmOptionsLoading}
               llmOptionsError={llmOptionsError}
+              subjects={subjectOptions}
+              subjectId={subjectId}
+              onSubjectChange={setSubjectId}
               onRefreshLLMOptions={() =>
                 void refreshLLMOptions({ force: true })
               }

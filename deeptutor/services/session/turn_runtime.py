@@ -1427,6 +1427,7 @@ class TurnRuntimeManager:
                     branch_parent_explicit = False
             else:
                 branch_parent_id = None
+            subject_id = str(payload.get("subject_id", "") or "").strip()
             notebook_references = payload.get("notebook_references", []) or []
             history_references = payload.get("history_references", []) or []
             question_notebook_references = payload.get("question_notebook_references", []) or []
@@ -1532,7 +1533,21 @@ class TurnRuntimeManager:
                     )
 
             llm_config, llm_scope_token = activate_llm_selection(payload.get("llm_selection"))
-            builder = ContextBuilder(self.store)
+            _history_ratio = 0.35
+            try:
+                from deeptutor.services.settings.token_budget import (
+                    get_token_budget_settings,
+                )
+
+                _budget = get_token_budget_settings()
+                _history_ratio = (
+                    float(_budget.get("context_ratio", 0.7))
+                    if not _budget.get("enabled", True)
+                    else 0.35
+                )
+            except Exception:
+                pass
+            builder = ContextBuilder(self.store, history_budget_ratio=_history_ratio)
 
             async def _emit_context_event(event: StreamEvent) -> None:
                 if event.source in {"context", "context_builder"}:
@@ -1765,6 +1780,39 @@ class TurnRuntimeManager:
             conversation_history = list(history_result.conversation_history)
             conversation_context_text = history_result.context_text
 
+            # M5: subject-scoped turns inject the lightweight context layer
+            # (knowledge index + exam points + wrong book + profile).
+            subject_context_tokens = 0
+            if subject_id:
+                try:
+                    from deeptutor.subjects import (
+                        exam_points,
+                        knowledge_points,
+                        profile as subject_profile,
+                        wrong_book,
+                    )
+                    from deeptutor.services.pdf.review_guide import estimate_tokens
+
+                    _blocks = [
+                        knowledge_points.context_summary(subject_id),
+                        exam_points.term_summary(subject_id),
+                        wrong_book.context_summary(subject_id),
+                        subject_profile.context_summary(subject_id),
+                    ]
+                    _block = "\n\n".join(b for b in _blocks if b)
+                    if _block:
+                        subject_context_tokens = estimate_tokens(_block)
+                        logger.warning(
+                            "subject context injected: %d chars, ~%d tokens",
+                            len(_block),
+                            subject_context_tokens,
+                        )
+                        conversation_history.insert(
+                            0, {"role": "system", "content": _block}
+                        )
+                except Exception:
+                    logger.warning("subject context injection failed", exc_info=True)
+
             # SQLite returns integer rowids; PocketBase returns its string
             # record ids. Both are opaque to this layer — they only flow into
             # ``parent_message_id`` chaining and the DONE reconcile metadata.
@@ -1828,6 +1876,8 @@ class TurnRuntimeManager:
                     "mastery_path_lease_managed": capability_name == "mastery_path",
                     "book_context": book_context,
                     "book_context_warnings": [],
+                    "subject_id": subject_id,
+                    "subject_context_tokens": subject_context_tokens,
                     "memory_references": memory_references,
                     "question_bank_context": question_bank_context,
                     "memory_context": memory_context,

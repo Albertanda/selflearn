@@ -1715,6 +1715,9 @@ export function UnifiedChatProvider({
         ...(effectiveLLMSelection
           ? { llm_selection: effectiveLLMSelection }
           : {}),
+        ...(effectiveConfig?.subject_id
+          ? { subject_id: effectiveConfig.subject_id }
+          : {}),
         ...(effectiveTurnConfig && Object.keys(effectiveTurnConfig).length > 0
           ? { config: effectiveTurnConfig }
           : {}),
