@@ -17,7 +17,6 @@ type SelectableSpaceKey =
   | "attach"
   | "knowledge"
   | "chat_history"
-  | "my_agents"
   | "books"
   | "notebooks"
   | "question_bank"
@@ -57,7 +56,6 @@ const ITEM_ORDER: SelectableSpaceKey[] = [
   "attach",
   "knowledge",
   "chat_history",
-  "my_agents",
   "books",
   "notebooks",
   "question_bank",
@@ -76,8 +74,6 @@ function countFor(
       return counts.knowledge;
     case "chat_history":
       return counts.chatHistory;
-    case "my_agents":
-      return counts.myAgents;
     case "books":
       return counts.books;
     case "notebooks":
@@ -110,7 +106,6 @@ export default memo(function ChatSpaceMenu({
   const items = ITEM_ORDER.filter((key) => {
     if (key === "knowledge") return knowledgeAvailable;
     if (key === "persona") return personaAvailable;
-    if (key === "my_agents") return agentsAvailable;
     return true;
   })
     .map((key) => {
@@ -130,14 +125,6 @@ export default memo(function ChatSpaceMenu({
           label: "Knowledge",
           description: "Search the selected knowledge bases.",
           icon: Database,
-        };
-      }
-      if (key === "my_agents") {
-        return {
-          key,
-          label: "My Agents",
-          description: "Reference imported Claude Code / Codex conversations.",
-          icon: Bot,
         };
       }
       if (key === "books") {

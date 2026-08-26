@@ -50,7 +50,6 @@ import {
   type SessionActivity,
 } from "@/components/chat/home/SessionActivityPanel";
 import QuizFollowupTabBody from "@/components/quiz/QuizFollowupTabBody";
-import SubagentTabBody from "@/components/chat/home/SubagentTabBody";
 import type { QuizFollowupTabContext } from "@/context/QuizFollowupContext";
 import type { GeogebraTabPayload } from "@/context/GeogebraTabContext";
 import { apiUrl } from "@/lib/api";
@@ -573,13 +572,8 @@ function SessionViewerPanelInner(
           />
         ) : activeTab?.kind === "geogebra" ? (
           <GeogebraTabBody key={activeTab.id} script={activeTab.script} />
-        ) : activeTab?.kind === "subagent" ? (
-          <SubagentTabBody
-            key={activeTab.id}
-            tabEvents={activeTab.events}
-            sessionId={sessionId}
-          />
         ) : (
+          
           <ActivityHome
             activity={activity}
             open={visible}

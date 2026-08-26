@@ -336,7 +336,6 @@ export const ComposerInput = memo(
           | "attach"
           | "knowledge"
           | "chat_history"
-          | "my_agents"
           | "books"
           | "notebooks"
           | "question_bank"
@@ -348,7 +347,6 @@ export const ComposerInput = memo(
         if (key === "attach") onSelectAttach();
         else if (key === "knowledge") onSelectKnowledge?.();
         else if (key === "chat_history") onSelectHistoryPicker();
-        else if (key === "my_agents") onSelectAgentsPicker?.();
         else if (key === "books") onSelectBookPicker();
         else if (key === "notebooks") onSelectNotebookPicker();
         else if (key === "question_bank") onSelectQuestionBankPicker();

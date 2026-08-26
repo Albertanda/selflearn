@@ -66,7 +66,6 @@ import ContextReferenceTree, {
 } from "./ContextReferenceTree";
 import { AssistantActivity } from "./TracePanels";
 import { agentGlyph } from "@/components/agents/agent-icons";
-import { useConnectedAgentKinds } from "@/hooks/useConnectedAgentKinds";
 
 const MathAnimatorViewer = dynamic(
   () => import("@/components/math-animator/MathAnimatorViewer"),
@@ -893,10 +892,6 @@ const UserMessage = memo(function UserMessage({
   const [draft, setDraft] = useState(msg.content);
   const { isComposingRef, onCompositionStart, onCompositionEnd } =
     useImeComposing();
-  // Connected subagents ride in knowledge_bases (same selection path) but are
-  // agents, not KBs — this maps a selected name to its backend kind so the
-  // reference chip can badge it with the agent's brand icon.
-  const agentKinds = useConnectedAgentKinds();
   if (msg.content.startsWith("[Quiz Performance]")) return null;
   // ``msg.id`` can be a negative client-side sentinel for optimistic
   // (just-sent, not yet reconciled with the server) rows. We still allow
@@ -944,8 +939,8 @@ const UserMessage = memo(function UserMessage({
       };
     }),
     ...(snap?.knowledgeBases ?? []).map((name): ContextTreeItem => {
-      const agentKind = agentKinds[name];
-      if (agentKind) {
+      const agentKind = undefined;
+      if (false) {
         return {
           key: `agent-${name}`,
           // Brand SVG marks share the lucide call signature (size/strokeWidth/

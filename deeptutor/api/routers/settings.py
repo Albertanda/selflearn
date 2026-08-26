@@ -542,17 +542,27 @@ def _provider_choices() -> dict[str, list[dict[str, Any]]]:
         ],
         key=lambda p: p["label"].lower(),
     )
-    # Vision (image understanding) has a single wire shape — OpenAI-compatible
-    # ``image_url`` messages — so the provider dropdown offers one generic
-    # option; users fill in the base URL / model (e.g. a Qwen-VL endpoint).
-    vision = [
-        {
-            "value": "openai",
-            "label": "OpenAI 兼容 / OpenAI-compatible",
-            "base_url": "",
-            "default_model": "",
-        },
-    ]
+    # Vision (image understanding): same wire shape as chat (OpenAI-compatible
+    # ``image_url`` messages) — reuse the LLM provider registry so the dropdown
+    # ships the same vendor presets (OpenAI, Anthropic, Qwen, DeepSeek, ...).
+    vision = sorted(
+        [
+            {
+                "value": s.name,
+                "label": (
+                    "Custom (OpenAI API)"
+                    if s.name == "custom"
+                    else "Custom (Anthropic API)"
+                    if s.name == "custom_anthropic"
+                    else s.label
+                ),
+                "base_url": s.default_api_base,
+                "auth_mode": s.auth_mode,
+            }
+            for s in PROVIDERS
+        ],
+        key=lambda p: p["label"].lower(),
+    )
     return {
         "llm": llm,
         "embedding": embedding,

@@ -232,81 +232,6 @@ const CHAT_CHILDREN: SettingsLeaf[] = [
   },
 ];
 
-const AGENT_CHILDREN: SettingsLeaf[] = [
-  {
-    key: "agent-claude-code",
-    href: "/settings/agents/claude-code",
-    label: { zh: "Claude Code", en: "Claude Code" },
-    blurb: {
-      zh: "DeepTutor 调用本机 Claude Code 时的模型、推理强度与运行参数。",
-      en: "Model, reasoning effort, and run params for the local Claude Code.",
-    },
-    // Brand glyph shares the lucide call signature (size/className).
-    icon: ClaudeGlyph as unknown as LucideIcon,
-    tile: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
-    adminOnly: true,
-  },
-  {
-    key: "agent-codex",
-    href: "/settings/agents/codex",
-    label: { zh: "Codex", en: "Codex" },
-    blurb: {
-      zh: "DeepTutor 调用本机 Codex 时的模型、推理强度与运行参数。",
-      en: "Model, reasoning effort, and run params for the local Codex.",
-    },
-    icon: CodexGlyph as unknown as LucideIcon,
-    tile: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
-    adminOnly: true,
-  },
-  {
-    key: "agent-gemini",
-    href: "/settings/agents/gemini",
-    label: { zh: "Gemini CLI", en: "Gemini CLI" },
-    blurb: {
-      zh: "DeepTutor 调用本机 Gemini CLI 时的模型与运行参数。",
-      en: "Model and run params for the local Gemini CLI.",
-    },
-    icon: GeminiGlyph as unknown as LucideIcon,
-    tile: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
-    adminOnly: true,
-  },
-  {
-    key: "agent-kimi",
-    href: "/settings/agents/kimi",
-    label: { zh: "Kimi CLI", en: "Kimi CLI" },
-    blurb: {
-      zh: "DeepTutor 调用本机 Kimi CLI 时的模型与运行参数。",
-      en: "Model and run params for the local Kimi CLI.",
-    },
-    icon: KimiGlyph as unknown as LucideIcon,
-    tile: "bg-zinc-500/10 text-zinc-700 dark:text-zinc-300",
-    adminOnly: true,
-  },
-  {
-    key: "agent-opencode",
-    href: "/settings/agents/opencode",
-    label: { zh: "opencode", en: "opencode" },
-    blurb: {
-      zh: "DeepTutor 调用本机 opencode 时的模型、推理强度与运行参数。",
-      en: "Model, reasoning effort, and run params for the local opencode.",
-    },
-    icon: OpencodeGlyph as unknown as LucideIcon,
-    tile: "bg-neutral-500/10 text-neutral-700 dark:text-neutral-300",
-    adminOnly: true,
-  },
-  {
-    key: "agent-mimo",
-    href: "/settings/agents/mimo",
-    label: { zh: "MiMo Code", en: "MiMo Code" },
-    blurb: {
-      zh: "DeepTutor 调用本机 MiMo Code 时的模型、推理强度与运行参数。",
-      en: "Model, reasoning effort, and run params for the local MiMo Code.",
-    },
-    icon: MimoGlyph as unknown as LucideIcon,
-    tile: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
-    adminOnly: true,
-  },
-];
 
 export const SETTINGS_CATEGORIES: SettingsCategory[] = [
   {
@@ -354,17 +279,6 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
     icon: MessagesSquare,
     href: "/settings/chat",
     children: CHAT_CHILDREN,
-  },
-  {
-    key: "agents",
-    label: { zh: "伙伴和智能体", en: "Partners & Agents" },
-    blurb: {
-      zh: "配置可在对话中调用的子智能体",
-      en: "Configure the subagents you can call on in chat",
-    },
-    icon: Bot,
-    href: "/settings/agents",
-    children: AGENT_CHILDREN,
   },
   {
     key: "memory",

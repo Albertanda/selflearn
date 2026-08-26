@@ -1025,7 +1025,7 @@ export default memo(function ChatComposer({
                           if (key === "attach") handlePickFiles();
                           else if (key === "chat_history")
                             onSelectHistoryPicker();
-                          else if (key === "my_agents") onSelectAgentsPicker();
+
                           else if (key === "books") onSelectBookPicker();
                           else if (key === "notebooks")
                             onSelectNotebookPicker();

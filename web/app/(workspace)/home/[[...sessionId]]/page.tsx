@@ -98,7 +98,6 @@ import {
   type OutlineItem,
 } from "@/lib/research-types";
 import { listKnowledgeBases } from "@/lib/knowledge-api";
-import { getSubagentSettings } from "@/lib/subagents-api";
 import { useLLMOptions } from "@/hooks/useLLMOptions";
 import {
   getEnabledOptionalTools,
@@ -125,12 +124,10 @@ const HistorySessionPicker = dynamic(
     ssr: false,
   },
 );
-const MyAgentsPicker = dynamic(
-  () => import("@/components/chat/MyAgentsPicker"),
-  {
-    ssr: false,
-  },
-);
+// M0 trim: My Agents (connected subagents + imports) removed; picker is inert.
+const MyAgentsPicker = function MyAgentsPickerStub() {
+  return null;
+};
 const QuestionBankPicker = dynamic(
   () => import("@/components/chat/QuestionBankPicker"),
   {
@@ -1531,30 +1528,10 @@ export default function ChatPage() {
     [fileToAttachment, filterAndReportFiles],
   );
 
-  // Connected subagents are stored as ``type: subagent`` KBs. Derive the
-  // selected one before the send callback so the callback can depend on the
-  // current selection instead of capturing an undeclared-later value.
-  const agentNameSet = useMemo(
-    () =>
-      new Set(
-        knowledgeBases
-          .filter((kb) => kb.metadata?.type === "subagent")
-          .map((kb) => kb.name),
-      ),
-    [knowledgeBases],
-  );
-  const selectedAgent = useMemo(
-    () => state.knowledgeBases.find((name) => agentNameSet.has(name)) ?? null,
-    [state.knowledgeBases, agentNameSet],
-  );
-  // How many times DeepTutor may consult the selected agent this turn. Seeded
-  // from the configured default; the composer's stepper overrides it per turn.
-  const [subagentBudget, setSubagentBudget] = useState<number | null>(null);
-  useEffect(() => {
-    void getSubagentSettings()
-      .then((settings) => setSubagentBudget(settings.consult_budget))
-      .catch(() => undefined);
-  }, []);
+  // M0 trim: connected subagents were removed; keep the selector API surface
+  // inert (selectedAgent always null) so the composer stays type-safe.
+  const selectedAgent = useMemo(() => null as string | null, []);
+  const subagentBudget = null;
 
   const handleSend = useCallback(
     async (content: string) => {
@@ -1739,36 +1716,16 @@ export default function ChatPage() {
     () => knowledgeBases.filter((kb) => kb.metadata?.type !== "subagent"),
     [knowledgeBases],
   );
-  const agentOptions = useMemo(
-    () =>
-      knowledgeBases
-        .filter((kb) => kb.metadata?.type === "subagent")
-        .map((kb) => ({ name: kb.name, kind: kb.metadata?.agent_kind })),
-    [knowledgeBases],
-  );
+  // M0 trim: connected subagents removed — no agent options.
+  const agentOptions = useMemo(() => [] as { name: string; kind?: string }[], []);
+  const agentNameSet = useMemo(() => new Set<string>(), []);
   const selectedKbOnly = useMemo(
     () => state.knowledgeBases.filter((n) => !agentNameSet.has(n)),
     [state.knowledgeBases, agentNameSet],
   );
-  const handleSelectAgent = useCallback(
-    (name: string | null) => {
-      // Single-select: clear any selected agent, then set the new one (if any).
-      const withoutAgents = state.knowledgeBases.filter(
-        (n) => !agentNameSet.has(n),
-      );
-      setKBs(name ? [...withoutAgents, name] : withoutAgents);
-    },
-    [setKBs, state.knowledgeBases, agentNameSet],
-  );
-  // Honor `?agent=<name>` once its connection KB has loaded: preselect it so a
-  // partner opened from the partner list starts the chat already targeting it.
-  useEffect(() => {
-    if (agentPreselectDoneRef.current) return;
-    const name = pendingAgentRef.current;
-    if (!name || !agentNameSet.has(name)) return;
-    agentPreselectDoneRef.current = true;
-    handleSelectAgent(name);
-  }, [agentNameSet, handleSelectAgent]);
+  const handleSelectAgent = useCallback((_name: string | null) => {
+    // M0 trim: subagent selection removed.
+  }, []);
   const handleSelectNotebookPicker = useCallback(() => {
     setShowNotebookPicker(true);
   }, []);
@@ -2098,11 +2055,6 @@ export default function ChatPage() {
               attachmentError={attachmentError}
               activeCap={activeCap}
               knowledgeBases={kbOptions}
-              connectedAgents={agentOptions}
-              selectedAgent={selectedAgent}
-              onSelectAgent={handleSelectAgent}
-              subagentBudget={subagentBudget}
-              onSubagentBudgetChange={setSubagentBudget}
               llmOptions={llmOptions}
               activeLLMDefault={activeLLMDefault}
               llmSelection={state.llmSelection}
@@ -2198,11 +2150,6 @@ export default function ChatPage() {
             open={showHistoryPicker}
             onClose={handleCloseHistoryPicker}
             onApply={handleApplyHistorySessions}
-          />
-          <MyAgentsPicker
-            open={showAgentsPicker}
-            onClose={handleCloseAgentsPicker}
-            onApply={handleApplyAgentSessions}
           />
           <QuestionBankPicker
             open={showQuestionBankPicker}
