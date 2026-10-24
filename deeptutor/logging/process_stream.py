@@ -67,9 +67,15 @@ class ProcessLogHandler(logging.Handler):
         self._task_id = task_id
         self._turn_id = turn_id
         self.addFilter(ContextFilter())
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = None
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
+            if self._closed:
+                return
             if getattr(record, PROCESS_LOG_PRIVATE_ATTR, False):
                 return
             event = ProcessLogEvent.from_record(record)
@@ -77,14 +83,47 @@ class ProcessLogHandler(logging.Handler):
                 return
             if self._turn_id and event.context.get("turn_id") != self._turn_id:
                 return
-            result = self._emit(event)
-            if inspect.isawaitable(result):
-                try:
-                    loop = asyncio.get_running_loop()
-                except RuntimeError:
-                    return
-                asyncio.ensure_future(result, loop=loop)
+            try:
+                current_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                current_loop = None
+            if self._loop is not None and current_loop is not self._loop:
+                if self._loop.is_running() and not self._loop.is_closed():
+                    # Create the awaitable on its owner loop. A queued callback
+                    # discarded during shutdown then owns no leaked coroutine.
+                    self._loop.call_soon_threadsafe(self._deliver, event, record)
+                return
+            self._deliver(event, record)
         except Exception:
+            self.handleError(record)
+
+    def _deliver(self, event: ProcessLogEvent, record: logging.LogRecord) -> None:
+        if self._closed:
+            return
+        try:
+            result = self._emit(event)
+            if not inspect.isawaitable(result):
+                return
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                if inspect.iscoroutine(result):
+                    result.close()
+                return
+            task = asyncio.ensure_future(result, loop=loop)
+
+            def finished(future: asyncio.Future) -> None:
+                if future.cancelled():
+                    return
+                try:
+                    future.result()
+                except Exception:
+                    self.handleError(record)
+
+            task.add_done_callback(finished)
+        except Exception:
+            if "result" in locals() and inspect.iscoroutine(result):
+                result.close()
             self.handleError(record)
 
 

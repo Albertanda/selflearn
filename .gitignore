@@ -324,3 +324,7 @@ celerybeat.pid
 # M8: binary toolchain and font assets are not versioned
 tools/bin/
 tools/fonts/
+
+# P1-00: per-card phase-1 evidence (snapshots, manifests, logs, completion.json)
+# is local-only and must never be committed.
+.phase1-evidence/

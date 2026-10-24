@@ -1,0 +1,386 @@
+{
+  "stage": "MD-R2",
+  "schema_version": 1,
+  "working_directory": "/home/albert/selflearn/selflearn",
+  "execution": "One authorized stage; units are low-dependency implementation cards, not per-card approval gates. Execute dependency order, validate once per meaningful change.",
+  "contracts": "CONTRACTS.md",
+  "acceptance": "ACCEPTANCE.md",
+  "exploration": "EXPLORATION.md",
+  "provider_matrix": "PROVIDER_MATRIX.json",
+  "dispatch_order": [
+    "R2-00",
+    "R2-01",
+    "R2-02",
+    "R2-03",
+    "R2-04",
+    "R2-05",
+    "R2-06",
+    "R2-07",
+    "R2-08",
+    "R2-09",
+    "R2-10",
+    "R2-11"
+  ],
+  "tasks": [
+    {
+      "id": "R2-00",
+      "title": "固定到达状态和阶段证据入口",
+      "depends_on": [],
+      "goal": "核对预探索 hash，记录真实六树 opaque 基线与工作区到达源码，使用新的证据根；不实施业务改动。",
+      "allowed_changes": [
+        ".phase1-evidence/model-discovery/MD-R2-<new-run>/**",
+        "plans/model-discovery-r2/EXECUTION.md（新文件）"
+      ],
+      "evidence": [
+        "记录 HEAD、dirty/untracked 清单和本阶段源码 hash；保留前人修改。",
+        "复用 scripts/phase1_snapshot.py protect-data/capture；仅 hash 真实六树，不复制真实配置。",
+        "记录 Python/Node/浏览器版本及可执行路径，不安装/下载替代隔离入口。"
+      ],
+      "done_when": [
+        "有 data_before/source_arrival 与新 run_id。",
+        "不覆盖任何封存 evidence，不启动/停止用户真实服务，不读凭据作为 fixture。"
+      ]
+    },
+    {
+      "id": "R2-01",
+      "title": "参数类型、来源和默认值纯函数",
+      "depends_on": [
+        "R2-00"
+      ],
+      "goal": "实现 C4/C6 的 Python/TS 可选参数结构、白名单归一化、来源校验、自动/人工覆盖合并函数；保留旧 API envelope。",
+      "allowed_changes": [
+        "deeptutor/services/model_discovery/types.py",
+        "deeptutor/services/model_discovery/metadata.py（可新增）",
+        "web/lib/model-discovery.ts",
+        "web/lib/model-metadata.ts（可新增）",
+        "web/components/settings/SettingsContext.tsx（仅类型）",
+        "tests/services/model_discovery/test_types.py",
+        "tests/services/model_discovery/test_metadata.py（可新增）",
+        "web/tests/model-metadata.test.ts（可新增）",
+        "web/tests/model-discovery-state.test.ts"
+      ],
+      "evidence": [
+        "正整数拒绝 bool/null/负数/小数/超 JSON 安全值；来源无 query/secrets。",
+        "input/output/combined/embedding default 与 choices 分别断言，不递归误抓其他型号值。",
+        "新模型初始化、旧值无标记视为人工、主动清空、恢复自动、重复添加、切换 ID 清失效 metadata 均纯函数覆盖。"
+      ],
+      "done_when": [
+        "Python/TS 数据结构一致；旧响应和旧 CatalogModel 仍可读取。",
+        "源对象不被 mutate；查询参数不能变成任意推理 kwargs。"
+      ]
+    },
+    {
+      "id": "R2-02",
+      "title": "完整目录策略、供应商身份和阿里 LLM 入口",
+      "depends_on": [
+        "R2-01"
+      ],
+      "goal": "按矩阵为全部 38 个供应商定义策略；分离身份与目录协议；阿里使用明确 label 和 LLM 兼容别名。",
+      "allowed_changes": [
+        "deeptutor/services/model_discovery/provider_policy.py（可新增）",
+        "deeptutor/services/model_discovery/types.py",
+        "deeptutor/services/provider_registry.py（label/真实别名/必要声明）",
+        "deeptutor/api/routers/settings.py（provider choices 接缝）",
+        "deeptutor/services/config/provider_runtime.py（只需别名兼容接缝）",
+        "web/components/common/ProviderIcon.tsx（仅阿里标识别名，若需要）",
+        "web/locales/zh/app.json",
+        "web/locales/en/app.json",
+        "tests/services/model_discovery/test_provider_policy.py（可新增）",
+        "tests/services/config/test_provider_runtime.py",
+        "tests/api/test_model_discovery.py"
+      ],
+      "evidence": [
+        "registry name 集合等于显式策略集合；逐项表驱动断言 38 项，3 managed 不派发。",
+        "deepseek/custom/openai/vllm 之间不能因共享协议共用凭据身份；有依据的阿里别名可以匹配。",
+        "设置 choices 出现阿里中文可识别 label，只有一个阿里 LLM 项；dashscope/aliyun LLM fixture 解析到原兼容后端，ASR/embedding 仍正确。"
+      ],
+      "done_when": [
+        "28 个普通 API 名称不再在本地 adapter 白名单直接失败。",
+        "托管专用流程保持原行为，未为真实 catalog 作迁移或默认切换。"
+      ]
+    },
+    {
+      "id": "R2-03",
+      "title": "通用网关目录、覆盖 URL 和有界回退",
+      "depends_on": [
+        "R2-01",
+        "R2-02"
+      ],
+      "goal": "按 C2 接通标准 compatible 供应商和学校网关；新增可选完整 model_directory_url 及端到端凭据/缓存身份支持。",
+      "allowed_changes": [
+        "deeptutor/services/model_discovery/adapters.py",
+        "deeptutor/services/model_discovery/service.py",
+        "deeptutor/services/model_discovery/types.py",
+        "deeptutor/api/routers/settings.py（discovery 请求接缝）",
+        "web/lib/model-discovery.ts",
+        "web/components/settings/useModelDiscovery.ts",
+        "web/components/settings/SettingsContext.tsx（profile/connection 字段）",
+        "web/components/settings/ServiceConfigEditor.tsx（目录地址高级字段）",
+        "tests/services/model_discovery/test_adapters.py",
+        "tests/services/model_discovery/test_service.py",
+        "tests/services/model_discovery/test_review_regressions.py",
+        "tests/api/test_model_discovery.py",
+        "web/tests/model-discovery-review.test.ts"
+      ],
+      "evidence": [
+        "本地学校 fixture：/school/ai/v1/models、代理前缀、Bearer、API version、额外头、私网 URL，保留调用 ID 别名。",
+        "404/405 至多一次末端 v1 回退；401/403/429/timeout/TLS/坏 JSON 不追加回退，明确覆盖 URL 不回退。",
+        "目录 origin 更改 + mask/敏感 headers 为 409；显式重填允许。新字段进入连接 revision、fingerprint、late response 防护。",
+        "重定向/报错 body/含 query URL 的密钥不会外泄；回退预算仍 30s/4 并发。"
+      ],
+      "done_when": [
+        "OpenAI-compatible 查询不依赖厂商名字；非标准路径有显式配置退路。",
+        "不写推理 base_url，不借用其他 profile key，不跟跨域 redirect，不用失败空数组冒充成功。"
+      ]
+    },
+    {
+      "id": "R2-04",
+      "title": "Anthropic 类目录",
+      "depends_on": [
+        "R2-02",
+        "R2-03"
+      ],
+      "goal": "为 anthropic、custom_anthropic、minimax_anthropic 增加原生目录、认证、版本与分页解析。",
+      "allowed_changes": [
+        "deeptutor/services/model_discovery/adapters.py",
+        "deeptutor/services/model_discovery/compatibility.py",
+        "deeptutor/services/model_discovery/metadata.py",
+        "tests/services/model_discovery/test_anthropic.py（可新增）",
+        "tests/services/model_discovery/fixtures/**"
+      ],
+      "evidence": [
+        "旧版本无参数、新版本参数、display_name、has_more/last_id、游标停滞、认证和额外 headers 各有 fixture。",
+        "Minimax/custom 端点无目录时真实失败语义，不硬写官方 Anthropic host。"
+      ],
+      "done_when": [
+        "3 个策略与分页测试通过；原推理 Messages client/version 未改。"
+      ]
+    },
+    {
+      "id": "R2-05",
+      "title": "Gemini 原生目录与输入输出语义",
+      "depends_on": [
+        "R2-02",
+        "R2-03"
+      ],
+      "goal": "增加 Gemini 同 origin 原生目录、分页、方法分类与 token metadata；保留兼容推理 model ID。",
+      "allowed_changes": [
+        "deeptutor/services/model_discovery/adapters.py",
+        "deeptutor/services/model_discovery/compatibility.py",
+        "deeptutor/services/model_discovery/metadata.py",
+        "tests/services/model_discovery/test_gemini.py（可新增）",
+        "tests/services/model_discovery/fixtures/**"
+      ],
+      "evidence": [
+        "官方 compatible base → 原生 models 路径，nextPageToken，displayName，input/output limits 分别断言。",
+        "embed-only/TTS/image 等不误当普通文本 LLM；未知能力留 unknown。",
+        "自定义 Google 代理不会把 key 发送原厂，models/ 前缀转换不损坏 version。"
+      ],
+      "done_when": [
+        "目录可用且参数语义清晰；没有新增 Gemini 推理协议或浏览器跨域请求。"
+      ]
+    },
+    {
+      "id": "R2-06",
+      "title": "Azure 新旧地址与部署名边界",
+      "depends_on": [
+        "R2-02",
+        "R2-03"
+      ],
+      "goal": "增加 Azure v1 models 读取和旧 deployment 地址明确处理，避免把 offering 直接当可用 deployment。",
+      "allowed_changes": [
+        "deeptutor/services/model_discovery/adapters.py",
+        "deeptutor/services/model_discovery/compatibility.py",
+        "deeptutor/services/model_discovery/provider_policy.py",
+        "web/lib/model-discovery.ts（部署映射候选）",
+        "web/components/settings/ModelDiscoveryDialog.tsx（部署名显式输入接缝）",
+        "tests/services/model_discovery/test_azure.py（可新增）",
+        "web/tests/model-metadata.test.ts",
+        "tests/services/model_discovery/fixtures/**"
+      ],
+      "evidence": [
+        "api-key、资源根/v1/旧 deployment path、api-version 不丢失。",
+        "Offering 无部署证据：提示并要求部署名；已有显式部署 fixture 保持内部 ID 和调用 ID。",
+        "拒绝无凭据回退到 ARM 或把正常 model 名覆盖已保存 deployment。"
+      ],
+      "done_when": [
+        "v1 可列目录；旧模式有明确兼容路径/手填退路，不声称管理平面全量部署发现。"
+      ]
+    },
+    {
+      "id": "R2-07",
+      "title": "官方参数增强、文档资料和缓存 round-trip",
+      "depends_on": [
+        "R2-01",
+        "R2-03",
+        "R2-04",
+        "R2-05",
+        "R2-06"
+      ],
+      "goal": "同次目录解析并保留 C4 白名单参数；补最小官方资料条目；原生/兼容目录缓存全字段且升级后可刷新。",
+      "allowed_changes": [
+        "deeptutor/services/model_discovery/metadata.py",
+        "deeptutor/services/model_discovery/official_parameters.json（可新增）",
+        "deeptutor/services/model_discovery/compatibility.py",
+        "deeptutor/services/model_discovery/adapters.py",
+        "deeptutor/services/model_discovery/cache.py",
+        "deeptutor/services/model_discovery/service.py",
+        "tests/services/model_discovery/test_metadata.py",
+        "tests/services/model_discovery/test_cache.py",
+        "tests/services/model_discovery/test_adapters.py",
+        "tests/services/model_discovery/test_review_regressions.py",
+        "tests/services/model_discovery/fixtures/**"
+      ],
+      "evidence": [
+        "DeepSeek 两型号、Ali model_info、OpenRouter nested limits、Mistral/Groq 字段映射均用真实结构脱敏 fixture。",
+        "Ali 文档默认 embedding=1024 与 choices 最大=2048 可区分；不同型号/地域/模式资料不串。",
+        "Endpoint 声明的较小上限不被原厂较大值覆盖；同名自定义别名不会继承原厂 metadata。",
+        "完整 parameters/provenance cache round-trip，旧 cache 安全失效、失败保留 stale、checked_at 不造新。",
+        "官方条目来源 URL/日期齐全；模型/参数缺失不能失败整目录或变成成功完整参数。"
+      ],
+      "done_when": [
+        "新增模型有参数即可携带到 UI，source_kind 区分 provider_api/endpoint_api/official_docs。",
+        "不引入第三方全量模型库、逐模型 N 请求、真实推理或任意 HTML 抓取。"
+      ]
+    },
+    {
+      "id": "R2-08",
+      "title": "官方参数默认填入与显式更新界面",
+      "depends_on": [
+        "R2-01",
+        "R2-07"
+      ],
+      "goal": "实现新导入模型参数默认值、人工覆盖、差异预览和更新官方参数；嵌入维度保留既有索引安全。",
+      "allowed_changes": [
+        "web/components/settings/ModelDiscoveryDialog.tsx",
+        "web/components/settings/ServiceConfigEditor.tsx",
+        "web/components/settings/SettingsContext.tsx",
+        "web/components/settings/useModelDiscovery.ts",
+        "web/lib/model-discovery.ts",
+        "web/lib/model-metadata.ts",
+        "web/lib/model-discovery-state.ts（必要参数状态）",
+        "deeptutor/api/routers/settings.py（catalog 参数校验接缝）",
+        "deeptutor/services/config/model_catalog.py（保存校验，禁止读取迁移）",
+        "web/locales/zh/app.json",
+        "web/locales/en/app.json",
+        "web/tests/model-metadata.test.ts",
+        "web/tests/model-discovery-state.test.ts",
+        "tests/api/test_model_discovery.py",
+        "tests/services/config/test_model_catalog.py（存在则扩展，否则新增对应测试）"
+      ],
+      "evidence": [
+        "候选显示来源/容量/未知；新模型填 context、max_tokens、dimension、choices；编辑后标 manual。",
+        "旧模型无标记值保留，重复添加不改 active/name/id/显示；更新参数预览可取消，保存失败留 draft。",
+        "查询/刷新不会修改已有 embedding 模型/维度或触发索引；send_dimensions 不由“有维度”直接推成 true。",
+        "切换 model/connection 清旧事实，迟到 response 不覆盖；UI 中文英文新文案齐全。"
+      ],
+      "done_when": [
+        "用户无需再手填已知官方参数；用户人工选择有优先权。",
+        "数据只在显式 Save/Apply 保存，不更新真实配置做演示。"
+      ]
+    },
+    {
+      "id": "R2-09",
+      "title": "LLM 输出预算与能力参数贯通实际请求",
+      "depends_on": [
+        "R2-01",
+        "R2-07"
+      ],
+      "goal": "落实 C7：选中模型参数经过 resolver、scoped config、factory、主 agent client 生效，同时保留已有较小业务预算。",
+      "allowed_changes": [
+        "deeptutor/services/config/provider_runtime.py",
+        "deeptutor/services/llm/config.py",
+        "deeptutor/services/llm/factory.py",
+        "deeptutor/services/llm/types.py（若确有消费）",
+        "deeptutor/services/llm/context_window.py（只需有界参数接缝）",
+        "deeptutor/core/agentic/client.py",
+        "deeptutor/core/agentic/loop.py（只需配置/预算接缝）",
+        "deeptutor/agents/chat/agentic_pipeline.py（只需配置透传）",
+        "deeptutor/agents/chat/context_budget.py（仅输入/总量语义）",
+        "deeptutor/services/session/context_builder.py（仅选中预算/空间接缝）",
+        "tests/services/config/test_provider_runtime.py",
+        "tests/services/llm/**（相关配置/请求测试）",
+        "tests/core/test_agentic_client_provider_kwargs.py",
+        "tests/agents/chat/test_context_budget.py",
+        "tests/services/session/test_context_builder.py",
+        "tests/agents/chat/test_message_build.py"
+      ],
+      "evidence": [
+        "Mock provider 捕获 chat/stream 和 core agentic 两条真实调用构造，确认官方默认预算/手工值和 max_tokens/max_completion_tokens 映射。",
+        "调用显式 512、摘要较小预算等不被放大；超厂商上限防御；无字段旧配置维持 4096。",
+        "切换模型/profile 后不沿用旧模型上限，explicit model override 有反例。",
+        "长历史 + 大输出预算不会生成超上下文请求；input-only limit 不能伪装 combined，上下文安全上限不扩大。"
+      ],
+      "done_when": [
+        "表单填写的预算在实际网络请求构造中可观察，不是只保存在 JSON。",
+        "既有 agent/workflow 输出行为在无新字段时兼容，不改全部 prompt/推理协议，不做真实超长输出。"
+      ]
+    },
+    {
+      "id": "R2-10",
+      "title": "自定义名称展示与保存后的 picker 同步",
+      "depends_on": [
+        "R2-00"
+      ],
+      "goal": "修复下拉行/选中按钮的名称优先级，并处理设置保存后旧 options 缓存回写/仍挂载 picker 更新。",
+      "allowed_changes": [
+        "web/components/chat/home/ModelSelector.tsx",
+        "web/lib/llm-options.ts",
+        "web/hooks/useLLMOptions.ts",
+        "web/lib/llm-options-state.ts（必要透传）",
+        "web/components/settings/SettingsContext.tsx（保存失效接缝）",
+        "web/components/quiz/FollowupChatComposer.tsx（仅必要传参）",
+        "web/tests/model-visibility.test.ts",
+        "web/tests/model-labels.test.ts（可新增）",
+        "web/locales/zh/app.json",
+        "web/locales/en/app.json"
+      ],
+      "evidence": [
+        "DeepSeek V4.1 Flash 显示别名，hover 可见真实 ID；空白名回退 model，同名供应商辅助区分。",
+        "选中/下拉/隐藏当前项/题目跟进聊天一致；保存成功后返回和刷新正确，失败不假成功。",
+        "迟到旧 options 请求不能在新保存后覆盖缓存；授权过滤和稳定 ID 不变。"
+      ],
+      "done_when": [
+        "用户改名直接反映到聊天 picker，调用仍使用 deepseek-flash。",
+        "不重写全局 client-cache，不改会话 active/history 或普通用户授权别名。"
+      ]
+    },
+    {
+      "id": "R2-11",
+      "title": "全阶段验收与可复核交付",
+      "depends_on": [
+        "R2-02",
+        "R2-03",
+        "R2-04",
+        "R2-05",
+        "R2-06",
+        "R2-07",
+        "R2-08",
+        "R2-09",
+        "R2-10"
+      ],
+      "goal": "完成 ACCEPTANCE 的全覆盖矩阵、隔离 Python/Node/浏览器测试及数据不变校验，交付源码与证据。",
+      "allowed_changes": [
+        "tests/services/model_discovery/**",
+        "tests/api/test_model_discovery.py",
+        "tests/api/test_model_visibility.py",
+        "web/tests/model-*.test.ts",
+        "web/e2e/model-discovery-r2.spec.ts（可新增）",
+        "web/playwright.model-discovery-r2.config.ts（可新增 wrapper）",
+        "web/playwright.phase1.config.ts（仅 isolated MODEL_SERVER fixture 路由）",
+        ".phase1-evidence/model-discovery/MD-R2-<new-run>/**",
+        "plans/model-discovery-r2/EXECUTION.md"
+      ],
+      "evidence": [
+        "38 provider 表驱动策略测试和功能/负例按 ACCEPTANCE 记录，不能只查 HTTP 200。",
+        "Python 必须 isolated runner；Node、tsc、Ruff、i18n、改动 ESLint、浏览器真实交互。",
+        "浏览器覆盖 DeepSeek/阿里/学校网关 fixture 导入、默认参数、重命名、人工保留、失败与缓存；不得只 APIRequestContext。",
+        "完整 Python/Node 回归及最终 data_after/source_final/rebuild receipts；保留旧证据。"
+      ],
+      "done_when": [
+        "全部硬性 gates 通过；未提供真实账号的厂商标明未实测，不能伪造。",
+        "最终回复只交付本阶段结果，不逐卡提问、不自动进入其它 UI/知识库/ASR 功能。"
+      ]
+    }
+  ]
+}

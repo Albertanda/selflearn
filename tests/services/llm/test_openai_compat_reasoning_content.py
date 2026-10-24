@@ -80,39 +80,37 @@ def _build_services_kwargs(
     )
 
 
-def test_services_provider_minimal_reasoning_uses_extra_body_only() -> None:
+def test_services_deepseek_minimal_maps_to_low_and_keeps_thinking_on() -> None:
     kwargs = _build_services_kwargs("deepseek", "minimal")
 
-    assert "reasoning_effort" not in kwargs
-    assert kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
-
-
-def test_services_deepseek_v4_flash_disables_thinking_by_default() -> None:
-    kwargs = _build_services_kwargs(
-        "deepseek",
-        None,
-        model="deepseek-v4-flash",
-    )
-
-    assert "reasoning_effort" not in kwargs
-    assert kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
-
-
-def test_services_deepseek_v4_pro_enables_thinking_by_default() -> None:
-    kwargs = _build_services_kwargs("deepseek", None)
-
-    assert kwargs["reasoning_effort"] == "high"
+    assert kwargs["reasoning_effort"] == "low"
     assert kwargs["extra_body"] == {"thinking": {"type": "enabled"}}
 
 
-def test_services_dashscope_minimal_reasoning_uses_enable_thinking_only() -> None:
-    kwargs = _build_services_kwargs("dashscope", "minimal")
+def test_services_deepseek_none_sends_the_protocol_off_toggle() -> None:
+    kwargs = _build_services_kwargs("deepseek", "none")
 
     assert "reasoning_effort" not in kwargs
-    assert kwargs["extra_body"] == {"enable_thinking": False}
+    assert kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
 
 
-def test_services_custom_qwen_enables_thinking_without_top_level_effort() -> None:
+def test_services_deepseek_default_leaves_reasoning_to_the_provider() -> None:
+    kwargs = _build_services_kwargs("deepseek", None, model="deepseek-flash")
+
+    assert "reasoning_effort" not in kwargs
+    assert "extra_body" not in kwargs
+
+
+def test_services_dashscope_qwen38_minimal_maps_to_low_effort() -> None:
+    kwargs = _build_services_kwargs(
+        "dashscope", "minimal", model="qwen3.8-max"
+    )
+
+    assert kwargs["reasoning_effort"] == "low"
+    assert kwargs["extra_body"] == {"enable_thinking": True}
+
+
+def test_services_custom_proxy_does_not_infer_qwen_thinking() -> None:
     kwargs = _build_services_kwargs(
         "custom",
         None,
@@ -120,7 +118,7 @@ def test_services_custom_qwen_enables_thinking_without_top_level_effort() -> Non
     )
 
     assert "reasoning_effort" not in kwargs
-    assert kwargs["extra_body"] == {"enable_thinking": True}
+    assert "extra_body" not in kwargs
 
 
 @pytest.mark.parametrize(

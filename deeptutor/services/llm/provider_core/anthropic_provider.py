@@ -16,6 +16,7 @@ from typing import Any
 import json_repair
 
 from deeptutor.services.llm.provider_core.base import LLMProvider, LLMResponse, ToolCallRequest
+from deeptutor.services.llm.reasoning_controls import anthropic_reasoning_fields
 
 _ALNUM = string.ascii_letters + string.digits
 
@@ -30,6 +31,7 @@ _EFFORT_BASED_FAMILIES: tuple[str, ...] = (
     "opus-4-8",
     "opus-5",
     "sonnet-5",
+    "haiku-5-5",
     "fable-5",
     "mythos-5",
 )
@@ -381,14 +383,6 @@ class AnthropicProvider(LLMProvider):
             )
 
         max_tokens = max(1, max_tokens)
-        effort = (reasoning_effort or "").strip().lower()
-        # An off-sentinel means "thinking off" on every family, not "an effort
-        # level I don't recognise": the budget branch below treats an unknown
-        # value as the default budget, so a plain `bool(reasoning_effort)`
-        # turned `none` into thinking ON with 4096 tokens.
-        thinking_enabled = bool(effort) and effort not in _THINKING_OFF_EFFORTS
-        effort_based = any(family in model_name for family in _EFFORT_BASED_FAMILIES)
-
         kwargs: dict[str, Any] = {
             "model": model_name,
             "messages": anthropic_msgs,
@@ -398,23 +392,19 @@ class AnthropicProvider(LLMProvider):
         if system:
             kwargs["system"] = system
 
-        if thinking_enabled and effort_based:
-            # These families reject enabled+budget_tokens with a 400 —
-            # adaptive is their only on-mode, so any real effort level maps
-            # to adaptive (no budget headroom needed). Off-sentinels omit
-            # the param entirely.
-            kwargs["thinking"] = {"type": "adaptive"}
-        elif thinking_enabled:
-            # The older families are the mirror image: they take
-            # enabled+budget_tokens and reject `adaptive`, so a stored
-            # `adaptive` lands on the default budget rather than a 400.
-            budget_map = {"low": 1024, "medium": 4096, "high": max(8192, max_tokens)}
-            budget = budget_map.get(effort, 4096)
-            kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget}
-            kwargs["max_tokens"] = max(max_tokens, budget + 4096)
-            kwargs["temperature"] = 1.0
-        elif not effort_based:
-            kwargs["temperature"] = temperature
+        reasoning_fields = anthropic_reasoning_fields(
+            model=model_name,
+            effort=reasoning_effort,
+            max_tokens=max_tokens,
+            protocol=getattr(getattr(self, "generation", None), "reasoning_protocol", None),
+        )
+        if reasoning_fields:
+            kwargs.update(reasoning_fields)
+            # Extended-thinking budget is always below the request's output
+            # budget; never inflate a caller's max_tokens behind their back.
+        # anthropic SDK 1.5 no longer accepts temperature on Messages; keep
+        # the caller's value out of the native request instead of failing.
+        thinking_enabled = bool(reasoning_fields.get("thinking"))
 
         if anthropic_tools:
             kwargs["tools"] = anthropic_tools

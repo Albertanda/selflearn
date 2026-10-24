@@ -18,6 +18,7 @@ from deeptutor.services.llm.provider_core.openai_responses import (
     convert_tools,
     parse_response_output,
 )
+from deeptutor.services.llm.reasoning_controls import responses_reasoning_fields
 
 
 class AzureOpenAIProvider(LLMProvider):
@@ -89,8 +90,14 @@ class AzureOpenAIProvider(LLMProvider):
         }
         if self._supports_temperature(deployment, reasoning_effort):
             body["temperature"] = temperature
-        if reasoning_effort and reasoning_effort.lower() != "none":
-            body["reasoning"] = {"effort": reasoning_effort}
+        reasoning_fields = responses_reasoning_fields(
+            provider="azure_openai",
+            model=deployment,
+            effort=reasoning_effort,
+            protocol=getattr(getattr(self, "generation", None), "reasoning_protocol", None),
+        )
+        if reasoning_fields:
+            body.update(reasoning_fields)
             body["include"] = ["reasoning.encrypted_content"]
         if tools:
             body["tools"] = convert_tools(tools)

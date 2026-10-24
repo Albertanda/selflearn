@@ -106,12 +106,14 @@ async def test_stream_merges_config_and_caller_extra_headers(monkeypatch) -> Non
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("protocol", ["none", "openai"])
 async def test_explicit_call_inherits_matching_profile_headers_and_reasoning(
-    monkeypatch,
+    monkeypatch, protocol,
 ) -> None:
     cfg = _make_cfg(
         extra_headers={"User-Agent": "DeepTutor-Test"},
         reasoning_effort="minimal",
+        reasoning_protocol=protocol,
     )
     provider = _FakeProvider()
     captured_config: dict[str, LLMConfig] = {}
@@ -137,6 +139,7 @@ async def test_explicit_call_inherits_matching_profile_headers_and_reasoning(
     assert result == "ok"
     assert captured_config["config"].extra_headers == {"User-Agent": "DeepTutor-Test"}
     assert captured_config["config"].reasoning_effort == "minimal"
+    assert captured_config["config"].reasoning_protocol == protocol
     assert provider.complete_kwargs["reasoning_effort"] == "minimal"
 
 

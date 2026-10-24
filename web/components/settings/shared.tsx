@@ -52,6 +52,7 @@ export function formatContextWindowSource(
   t: (key: string) => string,
 ): string {
   if (source === "manual") return t("Manual");
+  if (source === "official") return t("Official");
   if (source === "metadata") return t("Auto");
   if (source === "known_model") return t("Known");
   if (source === "default") return t("Default");

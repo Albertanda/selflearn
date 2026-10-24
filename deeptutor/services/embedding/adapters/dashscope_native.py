@@ -43,7 +43,7 @@ class DashScopeMultiModalEmbeddingAdapter(BaseEmbeddingAdapter):
             "multimodal": True,
         },
         "multimodal-embedding-v1": {
-            "default": 1536,
+            "default": 1024,
             "dimensions": [],
             "multimodal": True,
         },
@@ -67,7 +67,7 @@ class DashScopeMultiModalEmbeddingAdapter(BaseEmbeddingAdapter):
     def _build_parameters(self, request: EmbeddingRequest) -> Dict[str, Any]:
         params: Dict[str, Any] = {}
         dim_value = request.dimensions or self.dimensions
-        if dim_value:
+        if dim_value and self.send_dimensions is not False:
             params["dimension"] = dim_value
         if request.enable_fusion is not None:
             params["enable_fusion"] = bool(request.enable_fusion)
@@ -88,7 +88,7 @@ class DashScopeMultiModalEmbeddingAdapter(BaseEmbeddingAdapter):
         # `enable_fusion` — that is a multimodal-only knob.
         params: Dict[str, Any] = {}
         dim_value = request.dimensions or self.dimensions
-        if dim_value:
+        if dim_value and self.send_dimensions is not False:
             params["dimension"] = dim_value
         return params
 
@@ -231,12 +231,17 @@ class DashScopeMultiModalEmbeddingAdapter(BaseEmbeddingAdapter):
         )
 
     def get_model_info(self) -> Dict[str, Any]:
+        from deeptutor.services.model_discovery.metadata import official_parameters_for
+
         info = self.MODELS_INFO.get(self.model or "", {})
+        documented = official_parameters_for(provider="dashscope", model_id=self.model or "")
+        values = documented.values if documented is not None else {}
+        dimensions = values.get("supported_dimensions", info.get("dimensions", []))
         return {
             "model": self.model,
-            "dimensions": info.get("default", self.dimensions),
-            "supported_dimensions": info.get("dimensions", []),
-            "supports_variable_dimensions": bool(info.get("dimensions")),
-            "multimodal": bool(info.get("multimodal", False)),
+            "dimensions": values.get("default_dimensions", info.get("default", self.dimensions)),
+            "supported_dimensions": dimensions,
+            "supports_variable_dimensions": len(dimensions) > 1,
+            "multimodal": is_dashscope_multimodal_embedding_model(self.model),
             "provider": "aliyun",
         }

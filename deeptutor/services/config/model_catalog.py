@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from copy import deepcopy
+import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
+import secrets
 import tempfile
 import threading
 from typing import Any
@@ -24,6 +27,31 @@ CATALOG_PATH = get_path_service().get_settings_file("model_catalog")
 # load/edit/save round trip never sends a real secret to the browser.
 CATALOG_SECRET_MASK = "***"
 _SECRET_FIELD_HINTS = ("api_key", "apikey", "token", "secret", "password")
+# Per-process HMAC key: the opaque revision must not be a plain hash that lets
+# a browser test a guessed credential offline.  Restarting the process issues a
+# fresh revision; clients re-read it before their next write.
+_REVISION_KEY = secrets.token_bytes(32)
+
+
+class CatalogRevisionConflict(RuntimeError):
+    """The caller's saved-catalog revision is no longer current."""
+
+    def __init__(self, current_revision: str):
+        super().__init__("The saved model catalog changed. Reload and try again.")
+        self.current_revision = current_revision
+
+
+def catalog_revision(catalog: dict[str, Any]) -> str:
+    """Return an opaque revision for the complete normalized catalog."""
+
+    payload = json.dumps(
+        catalog,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        default=str,
+    ).encode("utf-8")
+    return hmac.new(_REVISION_KEY, payload, hashlib.sha256).hexdigest()[:32]
 
 
 def _is_secret_field(name: str) -> bool:
@@ -209,6 +237,35 @@ class ModelCatalogService:
             mutator(catalog)
             return self.save(catalog)
 
+    def update_checked(
+        self,
+        expected_revision: str | None,
+        builder: Callable[[dict[str, Any]], dict[str, Any] | None],
+        *,
+        validate: Callable[[dict[str, Any], dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
+        """Read, compare, build, validate and save under one lock.
+
+        ``builder`` receives the current catalog and returns the proposed one
+        (or mutates and returns ``None``).  ``validate`` runs while the same
+        lock is held, so a normal catalog save and a default-reference patch
+        can never validate one snapshot and overwrite another.
+        """
+
+        with self._lock:
+            current = self.load()
+            if expected_revision is not None:
+                current_revision = catalog_revision(current)
+                if not hmac.compare_digest(expected_revision, current_revision):
+                    raise CatalogRevisionConflict(current_revision)
+            working = deepcopy(current)
+            proposed = builder(working)
+            if proposed is None:
+                proposed = working
+            if validate is not None:
+                validate(current, proposed)
+            return self.save(proposed)
+
     def apply(self, catalog: dict[str, Any] | None = None) -> dict[str, Any]:
         current = self.save(catalog or self.load())
         return {"catalog_path": str(self.path), "services": list(current.get("services", {}))}
@@ -359,7 +416,9 @@ def get_model_catalog_service() -> ModelCatalogService:
 __all__ = [
     "CATALOG_PATH",
     "CATALOG_SECRET_MASK",
+    "CatalogRevisionConflict",
     "ModelCatalogService",
+    "catalog_revision",
     "get_model_catalog_service",
     "redact_catalog_secrets",
     "restore_catalog_secrets",

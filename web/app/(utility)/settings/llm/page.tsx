@@ -10,9 +10,9 @@ export default function LlmSettingsPage() {
   return (
     <div>
       <SettingsPageHeader
-        title={t("LLM")}
+        title={t("Large language model (LLM)")}
         description={t(
-          "Configure language model profiles. The active model is used for chat and most agent reasoning.",
+          "Configure language model connections and models. Browsing or editing here never changes the saved default model; use Default models for that.",
         )}
       />
       <ServiceConfigEditor service="llm" />

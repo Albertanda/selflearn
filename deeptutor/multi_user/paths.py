@@ -172,19 +172,20 @@ def _resolve_owner() -> tuple[str, PathService]:
     reversed back into an identity: symlinked roots resolve elsewhere, and a
     "give up and assume admin" fallback fails open onto the most privileged
     account there is).
-    """
-    from deeptutor.services.partners.scope import is_partner_user_id
 
+    NOTE: upstream branched here on ``is_partner_user_id`` (a partner is a
+    synthetic user that inherits its owner's assets). Partners were removed by
+    the M0 fork trim together with ``deeptutor.services.partners``, so the check
+    is gone — and because that import sat at the top of this function, leaving
+    it in raised ``ModuleNotFoundError`` for *every* caller, no matter who they
+    were, which silently disabled owner-scoped personal LLM profiles.
+    """
     from .context import get_current_user_or_none
 
     user = get_current_user_or_none()
     if user is None:
         # No request scope: CLI runs and background jobs act as the deployment.
         return LOCAL_ADMIN_ID, PathService.get_instance()
-    if is_partner_user_id(user.id):
-        # A partner is a synthetic user, not a person: it has a workspace but no
-        # account, so an asset keyed to an account belongs to its owner.
-        return LOCAL_ADMIN_ID, get_admin_path_service()
     if user.scope.kind == "user":
         ensure_scope_workspace(user.scope)
         return user.id, get_path_service_for_scope(user.scope)

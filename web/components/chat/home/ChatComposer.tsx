@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type RefObject,
@@ -41,6 +42,11 @@ import type { SelectedHistorySession } from "@/components/chat/HistorySessionPic
 import type { SelectedQuestionEntry } from "@/components/chat/QuestionBankPicker";
 import type { SelectedRecord } from "@/lib/notebook-selection-types";
 import type { LLMSelection } from "@/lib/unified-ws";
+import { sameLLMSelection } from "@/lib/llm-options";
+import {
+  INHERIT_REASONING,
+  type ReasoningOverride,
+} from "@/lib/reasoning-controls";
 import type { LLMOption } from "@/lib/llm-options";
 import ChatSpaceMenu from "@/components/chat/space/ChatSpaceMenu";
 import type { SpaceMemoryFile } from "@/lib/space-items";
@@ -49,6 +55,7 @@ import AgentSelector from "./AgentSelector";
 import ContextBudgetChip, { type ContextBudget } from "./ContextBudgetChip";
 import KnowledgeSelector from "./KnowledgeSelector";
 import ModelSelector from "./ModelSelector";
+import ReasoningSelector from "./ReasoningSelector";
 import PersonaSelector from "./PersonaSelector";
 import SubjectSelector, { type SubjectOption } from "./SubjectSelector";
 
@@ -109,6 +116,8 @@ function CapMenuItem({
   return (
     <button
       type="button"
+      data-testid="capability-option"
+      data-capability={cap.value}
       onClick={() => onSelect(cap.value)}
       className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left transition-colors active:bg-[var(--muted)]/70 ${
         selected ? "bg-[var(--primary)]/[0.06]" : "hover:bg-[var(--muted)]/45"
@@ -193,11 +202,14 @@ export default memo(function ChatComposer({
   subagentBudget = null,
   onSubagentBudgetChange,
   llmOptions,
+  hiddenLLMOptions,
   activeLLMDefault,
   llmSelection,
   llmOptionsLoading,
   llmOptionsError,
   onRefreshLLMOptions,
+  reasoningOverride = INHERIT_REASONING,
+  onSelectReasoning,
   contextBudget = null,
   selectedNotebookRecords,
   selectedBookReferences,
@@ -277,11 +289,14 @@ export default memo(function ChatComposer({
   subagentBudget?: number | null;
   onSubagentBudgetChange?: (budget: number) => void;
   llmOptions: LLMOption[];
+  hiddenLLMOptions?: LLMOption[];
   activeLLMDefault: LLMSelection | null;
   llmSelection: LLMSelection | null;
   llmOptionsLoading: boolean;
   llmOptionsError: boolean;
   onRefreshLLMOptions?: () => void;
+  reasoningOverride?: ReasoningOverride;
+  onSelectReasoning?: (value: ReasoningOverride) => void;
   /**
    * Context-window breakdown measured on the last turn that reported one.
    * Omitted by surfaces that don't track it (quiz follow-up) and null until
@@ -645,6 +660,21 @@ export default memo(function ChatComposer({
   }, [canSend, doSend, isConfigBlocked, onRequestConfigConfirm]);
 
   // One button, so one handler: mid-turn the same control cancels.
+  const selectedReasoningControls = useMemo(() => {
+    const selection = llmSelection ?? activeLLMDefault;
+    const option =
+      llmOptions.find((item) => sameLLMSelection(item, selection)) ??
+      (hiddenLLMOptions ?? []).find((item) =>
+        sameLLMSelection(item, selection),
+      );
+    return option?.reasoning_controls;
+  }, [
+    activeLLMDefault,
+    hiddenLLMOptions,
+    llmOptions,
+    llmSelection,
+  ]);
+
   const handleSendButtonClick = useCallback(() => {
     if (isStreaming) {
       onCancelStreaming();
@@ -663,6 +693,7 @@ export default memo(function ChatComposer({
   return (
     <div
       ref={composerRef}
+      data-testid="chat-composer"
       className={`relative z-20 mx-auto w-full shrink-0 px-6 pb-5 ${hasMessages ? "pt-1 max-w-[960px]" : "max-w-[768px]"}`}
       style={{
         transition: "max-width 650ms cubic-bezier(0.16, 1, 0.3, 1)",
@@ -869,6 +900,7 @@ export default memo(function ChatComposer({
               <div className="relative">
                 <button
                   ref={capBtnRef}
+                  data-testid="capability-trigger"
                   onClick={() => onSetCapMenuOpen((v) => !v)}
                   className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[14px] font-medium transition-[background-color,color,transform] duration-150 active:scale-[0.97] ${
                     capMenuOpen
@@ -1079,8 +1111,16 @@ export default memo(function ChatComposer({
                     onOpenChange={onPersonaSelectorOpenChange}
                   />
                 ) : null}
+                {onSelectReasoning ? (
+                  <ReasoningSelector
+                    controls={selectedReasoningControls}
+                    value={reasoningOverride}
+                    onChange={onSelectReasoning}
+                  />
+                ) : null}
                 <ModelSelector
                   options={llmOptions}
+                  hiddenOptions={hiddenLLMOptions}
                   activeDefault={activeLLMDefault}
                   value={llmSelection}
                   loading={llmOptionsLoading}

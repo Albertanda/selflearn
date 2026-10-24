@@ -41,7 +41,12 @@ from deeptutor.core.trace import (
     merge_trace_metadata,
     new_call_id,
 )
-from deeptutor.knowledge.manifest import KbManifest, render_manifest_note
+from deeptutor.knowledge.manifest import (
+    MANIFEST_NOTE_LIMIT,
+    KbManifest,
+    build_manifest,
+    render_manifest_note,
+)
 from deeptutor.runtime.providers import ToolScope
 from deeptutor.runtime.providers.view import ProviderToolView, build_tool_view
 from deeptutor.runtime.registry.deferred_tools import DeferredToolLoader
@@ -53,10 +58,86 @@ from deeptutor.services.llm import (
     prepare_multimodal_messages,
     supports_tools,  # noqa: F401  (re-exported for tests)
 )
-from deeptutor.services.llm.context_window import resolve_effective_context_window
+from deeptutor.services.llm.config import resolve_output_token_budget
+from deeptutor.services.llm.context_window import (
+    resolve_effective_context_window,
+    resolve_input_budget,
+)
+from deeptutor.services.llm.exceptions import LLMConfigError
 from deeptutor.services.prompt import get_prompt_manager
+from deeptutor.subjects import kb_scope
 
 logger = logging.getLogger(__name__)
+
+
+def _label_kb_parameter(schema: dict[str, Any], choices: list[str], labels: dict[str, str]) -> None:
+    """Name every allowed KB in the parameter description, wire id first.
+
+    A model that only sees opaque wire ids picks worse (and a model that only
+    sees friendly names cannot call the tool at all). Both are shown, and the
+    enum stays the authoritative wire ids.
+    """
+    if not choices:
+        return
+    rendered = "; ".join(f"{ref} = {labels.get(ref, ref)}" for ref in choices)
+    base = str(schema.get("description") or "").rstrip(" .")
+    schema["description"] = f"{base}. Available: {rendered}."
+
+
+def _is_wire_kb_ref(ref: str) -> bool:
+    text = str(ref or "")
+    return ":kb:" in text or text.startswith(("subject:", "admin:", "user:"))
+
+
+def _scoped_kb_manifest(
+    kb_ref: str,
+    *,
+    subject_id: str | None,
+    mounted_refs: list[str] | None,
+    limit: int = MANIFEST_NOTE_LIMIT,
+    pattern: str = "",
+) -> KbManifest | None:
+    """One inventory, read through the resolver that owns the reference form.
+
+    A canonical wire reference is resolved by the shared subject resolver and
+    described from that *resource*; a bare name keeps the historical
+    access-checked manifest seam (the runtime canonicalises everything it mounts,
+    so this is the direct-caller path only).
+    """
+    from deeptutor.subjects import kb_scope
+
+    if not _is_wire_kb_ref(kb_ref):
+        from deeptutor.multi_user.knowledge_access import resolve_kb_manifest
+
+        return resolve_kb_manifest(kb_ref, limit=limit, pattern=pattern)
+    resource = kb_scope.resolve_kb_ref(
+        kb_ref,
+        expected_subject_id=subject_id,
+        mounted_refs=mounted_refs,
+        require_ready=True,
+    )
+    return build_manifest(
+        name=resource.name,
+        kb_dir=resource.kb_dir,
+        entry=kb_scope.kb_entry(resource.base_dir, resource.name),
+        limit=limit,
+        pattern=pattern,
+    )
+
+
+def _context_subject_id(context: UnifiedContext) -> str | None:
+    """The turn's validated subject, read verbatim from the runtime metadata.
+
+    ``None`` (no subject) and ``""`` are both "no subject"; a value is the slug
+    ``turn_runtime`` already validated. This is the only source the tool scope is
+    built from — the model cannot contribute to it.
+    """
+    raw = (context.metadata or {}).get("subject_id")
+    if isinstance(raw, str):
+        value = raw.strip()
+        return value or None
+    return None
+
 
 # Chat memory tools a partner turn replaces with the partner_* variants.
 _PARTNER_SUPPRESSED_TOOLS: tuple[str, ...] = ("read_memory", "write_memory")
@@ -93,6 +174,10 @@ def _drop_unconfigured_generation_tools(tools: list[str]) -> list[str]:
     return [name for name in tools if name not in _GENERATION_TOOL_SERVICES or name in configured]
 
 
+#: Upper bound on the warning lines the prompt carries (the runtime list itself
+#: is already capped; this keeps one pathological subject from flooding the
+#: context window).
+_MAX_SUBJECT_KB_WARNING_LINES = 10
 KB_SEED_MAX_KBS = 3
 KB_SEED_CHARS_PER_KB = 4000
 # Exploring-loop budget: max LLM rounds in one turn's loop. A round without
@@ -220,6 +305,10 @@ class AgenticChatPipeline:
         self.api_version = getattr(self.llm_config, "api_version", None)
         self.extra_headers = getattr(self.llm_config, "extra_headers", None) or {}
         self.reasoning_effort = getattr(self.llm_config, "reasoning_effort", None)
+        self.reasoning_protocol = getattr(
+            self.llm_config, "reasoning_protocol", None
+        )
+        self._max_output_tokens = getattr(self.llm_config, "max_output_tokens", None)
         # Process-wide registry. Stays the base for the whole turn; the
         # per-turn scoped view lives on ``_tool_view`` (see ``tool_lookup``).
         self.registry: ToolLookup = get_tool_registry()
@@ -283,6 +372,7 @@ class AgenticChatPipeline:
             api_version=self.api_version,
             extra_headers=self.extra_headers or None,
             reasoning_effort=self.reasoning_effort,
+            reasoning_protocol=getattr(self, "reasoning_protocol", None),
         )
 
     @property
@@ -324,11 +414,25 @@ class AgenticChatPipeline:
 
     @property
     def exploring_max_tokens(self) -> int:
-        return max(128, self._exploring_max_tokens)
+        return max(
+            128,
+            resolve_output_token_budget(
+                explicit=self._exploring_max_tokens,
+                configured=None,
+                provider_max=self._max_output_tokens,
+            ),
+        )
 
     @property
     def respond_max_tokens(self) -> int:
-        return max(256, self._respond_max_tokens)
+        return max(
+            256,
+            resolve_output_token_budget(
+                explicit=self._respond_max_tokens,
+                configured=None,
+                provider_max=self._max_output_tokens,
+            ),
+        )
 
     @property
     def loop_max_tokens(self) -> int:
@@ -528,6 +632,15 @@ class AgenticChatPipeline:
     def _tool_scope(self, context: UnifiedContext) -> ToolScope:
         """Per-turn policy inputs for the provider layer."""
         raw_filter = context.metadata.get("mcp_tools_filter")
+        # NOTE: upstream also passed
+        # ``implicit_provider_ids={PAGEINDEX_SERVER_NAME} if self._pageindex_docs ...``
+        # to auto-authorise the PageIndex MCP server when a PageIndex KB was
+        # attached. Two things removed that: the M0 trim dropped MCP (and the
+        # ``PAGEINDEX_SERVER_NAME`` constant it referred to never existed in this
+        # tree, so the expression raised ``NameError`` on every turn that had a
+        # PageIndex KB attached), and the provider pool is now empty — nothing
+        # carries a provider identity to authorise. The PageIndex *RAG* pipeline
+        # itself is unaffected; only the MCP tool surface is gone.
         return ToolScope(
             owner_id=self._current_owner_id(),
             is_partner=self._is_partner_turn(context),
@@ -537,32 +650,47 @@ class AgenticChatPipeline:
                 if isinstance(raw_filter, list)
                 else None
             ),
-            # Attaching a PageIndex knowledge base authorises that server:
-            # access to the KB *is* the permission, and its tools are preloaded
-            # so retrieval works without a load_tools round-trip.
-            implicit_provider_ids=(
-                frozenset({PAGEINDEX_SERVER_NAME}) if self._pageindex_docs else frozenset()
-            ),
             exclusive_capability=self._exclusive_capability_active(context),
         )
 
-    def _pageindex_doc_maps(self, context: UnifiedContext) -> dict[str, dict[str, str]]:
-        """kb_name -> {file: doc_id} for bound KBs on the pageindex provider."""
-        out: dict[str, dict[str, str]] = {}
-        for kb in self._selected_kbs(context):
+    def _pageindex_doc_maps(self, context: UnifiedContext) -> dict[str, dict[str, Any]]:
+        """wire ref -> ``{name, documents: {file: doc_id}}`` for PageIndex KBs.
+
+        The KB is resolved through the **same** subject-scoped resolver the rag
+        tool uses (never the old global one), so a subject library and a global
+        library with the same name cannot be confused here either.
+        """
+        from deeptutor.subjects import kb_scope
+
+        out: dict[str, dict[str, Any]] = {}
+        subject_id = _context_subject_id(context)
+        mounted = [str(ref) for ref in (context.knowledge_bases or []) if str(ref).strip()]
+        for ref in mounted:
             try:
-                from deeptutor.multi_user.knowledge_access import resolve_kb
                 from deeptutor.services.rag.factory import PAGEINDEX_PROVIDER
                 from deeptutor.services.rag.pipelines.pageindex.pipeline import PageIndexPipeline
                 from deeptutor.services.rag.provider_binding import resolve_bound_provider
 
-                resource = resolve_kb(kb, require_write=False)
-                base_dir = str(resource.base_dir)
-                if resolve_bound_provider(base_dir, resource.name) != PAGEINDEX_PROVIDER:
+                resource = kb_scope.resolve_kb_ref(
+                    ref,
+                    expected_subject_id=subject_id,
+                    mounted_refs=mounted or None,
+                    require_ready=False,
+                )
+                if (
+                    resolve_bound_provider(str(resource.base_dir), resource.name)
+                    != PAGEINDEX_PROVIDER
+                ):
                     continue
-                out[kb] = PageIndexPipeline(kb_base_dir=base_dir).document_map(resource.name)
+                out[resource.kb_ref] = {
+                    "name": resource.name,
+                    "subject_id": resource.subject_id,
+                    "documents": PageIndexPipeline(
+                        kb_base_dir=str(resource.base_dir)
+                    ).document_map(resource.name),
+                }
             except Exception:
-                logger.debug("pageindex doc-map resolution failed for %r", kb, exc_info=True)
+                logger.debug("pageindex doc-map resolution failed for %r", ref, exc_info=True)
         return out
 
     def _deferred_tools_manifest(self) -> str:
@@ -609,8 +737,9 @@ class AgenticChatPipeline:
             requested_tools=context.enabled_tools,
             optional_whitelist=CHAT_OPTIONAL_TOOLS,
             mount_flags=ToolMountFlags(
-                # PageIndex KBs are read via the preloaded MCP tools, not rag —
-                # a conversation with only PageIndex KBs doesn't mount rag at all.
+                # Every attached KB, including a PageIndex library, is reachable
+                # through the existing rag tool; PageIndex contributes its REST
+                # outline there (there is no separate MCP tool surface).
                 # Excludes KBs owned by an exclusive capability (an Obsidian vault
                 # is read via its own tools, never rag) so a pure-vault turn still
                 # doesn't mount rag, while co-selected LlamaIndex KBs do (#650).
@@ -722,6 +851,8 @@ class AgenticChatPipeline:
     ) -> list[dict[str, Any]]:
         schemas = self.tool_lookup.build_openai_schemas(enabled_tools)
         kb_choices = self._coexisting_rag_kbs(context)
+        file_choices = self._manifest_kbs(context)
+        kb_labels = self._kb_choice_labels(kb_choices + file_choices)
         notebook_choices = self._notebook_choices()
         for schema in schemas:
             function = schema.get("function") if isinstance(schema, dict) else None
@@ -736,6 +867,13 @@ class AgenticChatPipeline:
                     properties["query"].setdefault("minLength", 1)
                 if isinstance(properties.get("kb_name"), dict):
                     properties["kb_name"]["enum"] = kb_choices
+                    _label_kb_parameter(properties["kb_name"], kb_choices, kb_labels)
+            if function.get("name") == "kb_files" and isinstance(properties, dict):
+                # The file manifest is addressed by the very same wire ids the
+                # turn mounted; the enum is what the tool can actually resolve.
+                if isinstance(properties.get("kb_name"), dict):
+                    properties["kb_name"]["enum"] = file_choices
+                    _label_kb_parameter(properties["kb_name"], file_choices, kb_labels)
             if function.get("name") == "geogebra_analysis" and isinstance(properties, dict):
                 properties.pop("image_base64", None)
                 required = parameters.get("required")
@@ -812,10 +950,17 @@ class AgenticChatPipeline:
         *,
         stream: StreamBus | None = None,
         retrieve_meta: dict[str, Any] | None = None,
+        context: UnifiedContext | None = None,
     ) -> dict[str, Any]:
         from deeptutor.core.agentic import execute_tool_call
 
         stream = stream or StreamBus()
+        if context is not None:
+            # A single-tool call outside the parallel dispatcher (the KB seed
+            # pre-pass) must obey exactly the same server-owned scope: the model's
+            # arguments are never trusted for ``rag``/``kb_files``, so a forged
+            # directory cannot be smuggled through this second path either.
+            tool_args = self._augment_tool_kwargs(tool_name, tool_args, context)
         return await execute_tool_call(
             registry=self.tool_lookup,
             tool_name=tool_name,
@@ -980,12 +1125,31 @@ class AgenticChatPipeline:
         from deeptutor.services.path_service import get_path_service
 
         kwargs = dict(args)
-        turn_id = str(context.metadata.get("turn_id", "") or "").strip()
         workspace_key = self._workspace_key(context)
         task_dir = (
             get_path_service().get_task_workspace("chat", workspace_key) if workspace_key else None
         )
         exec_dir = task_dir / "exec" if task_dir is not None else None
+        if tool_name in {"rag", "kb_files"}:
+            # The scope of a knowledge-base call is decided here, not by the
+            # model (C08). Every carrier the model could use to redirect the
+            # lookup is dropped first — a forged ``kb_base_dir``, a foreign
+            # ``_subject_id``/``expected_subject_id``, a hand-written mounted
+            # list, a provider override — and then the server-owned values are
+            # written unconditionally (never ``setdefault``: with no subject the
+            # empty scope must still be the authoritative one, not "whatever the
+            # model left behind").
+            for key in kb_scope.SCOPE_KWARGS:
+                kwargs.pop(key, None)
+            subject_scope = _context_subject_id(context)
+            mounted = [str(ref) for ref in (context.knowledge_bases or []) if str(ref).strip()]
+            kwargs["_subject_id"] = subject_scope
+            # A model call always carries the *actual* mounted set, `[]`
+            # included: an empty mount means "this turn may read nothing", not
+            # "fall back to any global library". The ``None`` compatibility of
+            # the resolver exists for trusted in-process callers only, and this
+            # boundary is where the two are kept apart.
+            kwargs["_mounted_refs"] = mounted
         if tool_name == "rag":
             kwargs.setdefault("mode", "hybrid")
         elif tool_name == "kb_files":
@@ -997,14 +1161,37 @@ class AgenticChatPipeline:
             kwargs["_tool_loader"] = self._deferred_loader
         elif tool_name == "generate_report":
             subject_id = str(context.metadata.get("subject_id", "") or "").strip()
-            if subject_id:
-                kwargs["_subject_id"] = subject_id
-            from deeptutor.services.pdf.review_guide import estimate_tokens as _et
-
-            kwargs["_report_ctx_hint"] = (
-                f"当前科目：{subject_id}（错题 {_wrong_book_count(subject_id)} 道、"
-                f"考点 {_exam_point_count(subject_id)} 条）"
+            # Every report carrier is server-owned (C11/P1-36).  Model-supplied
+            # internal kwargs are dropped first — a forged scope, attachment
+            # index, learner hint or output directory must not survive — and
+            # then the authoritative values are written unconditionally, never
+            # via ``setdefault``: with no subject the empty scope is the answer,
+            # not whatever the model left behind.
+            for key in (
+                "_subject_id",
+                "_source_index",
+                "source_index",
+                "_source_id",
+                "_report_ctx_hint",
+                "_scope",
+                "out_dir",
+            ):
+                kwargs.pop(key, None)
+            kwargs["_subject_id"] = subject_id
+            source_index = (context.metadata or {}).get("source_index")
+            kwargs["_source_index"] = (
+                {key: value for key, value in source_index.items()
+                 if isinstance(key, str) and isinstance(value, str)}
+                if isinstance(source_index, dict)
+                else {}
             )
+            if subject_id:
+                kwargs["_report_ctx_hint"] = (
+                    f"当前科目：{subject_id}（错题 {_wrong_book_count(subject_id)} 道、"
+                    f"考点 {_exam_point_count(subject_id)} 条）"
+                )
+            else:
+                kwargs["_report_ctx_hint"] = ""
         elif tool_name == "exec":
             from deeptutor.services.sandbox import Mount
 
@@ -1157,7 +1344,9 @@ class AgenticChatPipeline:
             return ""
         if len(kbs) > KB_SEED_MAX_KBS:
             kbs = kbs[:KB_SEED_MAX_KBS]
-        results = await asyncio.gather(*(self._seed_search_one_kb(kb, query, stream) for kb in kbs))
+        results = await asyncio.gather(
+            *(self._seed_search_one_kb(kb, query, stream, context=context) for kb in kbs)
+        )
         sections: list[str] = []
         sources: list[dict[str, Any]] = []
         for kb, result in zip(kbs, results, strict=False):
@@ -1186,6 +1375,8 @@ class AgenticChatPipeline:
         kb_name: str,
         query: str,
         stream: StreamBus,
+        *,
+        context: UnifiedContext,
     ) -> tuple[str, list[dict[str, Any]]] | None:
         call_id = new_call_id("chat-kb-seed")
         retrieve_meta = build_trace_metadata(
@@ -1203,6 +1394,7 @@ class AgenticChatPipeline:
             {"query": query, "kb_name": kb_name, "mode": "hybrid"},
             stream=stream,
             retrieve_meta=retrieve_meta,
+            context=context,
         )
         if not result.get("success"):
             return None
@@ -1296,7 +1488,11 @@ class AgenticChatPipeline:
             return
         if not window or window <= 0:
             return
-        budget = int(window * CONTEXT_WINDOW_GUARD_RATIO)
+        budget = resolve_input_budget(
+            context_window=window,
+            output_budget=self.loop_max_tokens,
+            model=str(self.model or ""),
+        )
         if self._estimate_messages_tokens(messages) <= budget:
             return
         snipped = False
@@ -1316,6 +1512,12 @@ class AgenticChatPipeline:
                 source="chat",
                 stage="responding",
                 metadata={"trace_kind": "warning"},
+            )
+        if self._estimate_messages_tokens(messages) > budget:
+            raise LLMConfigError(
+                "The conversation is too long for this model's remaining input "
+                "budget after reserving the output limit. Start a new session or "
+                "reduce attachments."
             )
 
     def measure_context_budget(self, request: LLMRequestSnapshot) -> dict[str, Any] | None:
@@ -1369,12 +1571,18 @@ class AgenticChatPipeline:
         return build_openai_client(self._client_config)
 
     def _completion_kwargs(self, max_tokens: int) -> dict[str, Any]:
+        budget = resolve_output_token_budget(
+            explicit=max_tokens,
+            configured=getattr(self.llm_config, "max_tokens", None),
+            provider_max=self._max_output_tokens,
+        )
         return build_completion_kwargs(
             temperature=self._chat_temperature,
             model=self.model,
-            max_tokens=max_tokens,
+            max_tokens=budget,
             binding=self.binding,
             reasoning_effort=self.reasoning_effort,
+            reasoning_protocol=getattr(self, "reasoning_protocol", None),
         )
 
     def _can_use_native_tool_calling(self) -> bool:
@@ -1414,9 +1622,24 @@ class AgenticChatPipeline:
         return [str(kb).strip() for kb in context.knowledge_bases if str(kb).strip()]
 
     def _rag_kbs(self, context: UnifiedContext) -> list[str]:
-        """Attached KBs served by the rag tool (PageIndex KBs are read via MCP)."""
-        pageindex = getattr(self, "_pageindex_docs", None) or {}
-        return [kb for kb in self._selected_kbs(context) if kb not in pageindex]
+        """Attached KBs reachable through the rag tool.
+
+        PageIndex libraries are included: their *outline* (``retrieval_kind=
+        outline``) is served by the existing PageIndex RAG pipeline, which is the
+        only PageIndex retrieval this build has (no MCP transport exists). The
+        KB-specific doc-id note in the prompt explains what that outline offers.
+        """
+        return self._selected_kbs(context)
+
+    def _manifest_kbs(self, context: UnifiedContext) -> list[str]:
+        """Attached KBs the generic file manifest may enumerate (C08/C13).
+
+        Wider than the rag set on purpose: ``kb_files`` answers "what is in this
+        library" and works for every attached library, while ``rag`` is the
+        retrieval surface. Both are the *same mounted identities*.
+        """
+        owned = self._capability_owned_kbs(context)
+        return [kb for kb in self._selected_kbs(context) if kb not in owned]
 
     def _capability_owned_kbs(self, context: UnifiedContext) -> set[str]:
         """Selected KBs consumed by an active capability's own tools (not rag).
@@ -1454,9 +1677,56 @@ class AgenticChatPipeline:
         cleaned = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in raw)
         return cleaned.strip("_") or "direct"
 
-    def _kb_system_note(self, context: UnifiedContext) -> str:
-        if not self._selected_kbs(context):
+    def _subject_kb_warning_note(self, context: UnifiedContext) -> str:
+        """The fixed warning for attached libraries that are not queryable.
+
+        ``turn_runtime`` resolves the mount set and records why a registered
+        library stayed out (``subject_kb_warnings``: ``kb_ref``/``status`` plus
+        the fixed C02 message). Until now that list only lived in metadata, so
+        the model could answer as if the whole subject were searchable and the
+        learner was never told. The block is bounded and uses the canonical
+        message only — no exception text, no host path.
+        """
+        warnings = (context.metadata or {}).get("subject_kb_warnings")
+        if not isinstance(warnings, list) or not warnings:
             return ""
+        lines: list[str] = []
+        for item in warnings[: _MAX_SUBJECT_KB_WARNING_LINES]:
+            if not isinstance(item, dict):
+                continue
+            kb_ref = str(item.get("kb_ref") or "").strip()
+            status = str(item.get("status") or "").strip()
+            message = str(item.get("message") or "").strip()
+            if not kb_ref:
+                continue
+            detail = f"{kb_ref} ({status})" if status else kb_ref
+            lines.append(f"- {detail}: {message}" if message else f"- {detail}")
+        if not lines:
+            return ""
+        header = (
+            "【不可检索的知识库】以下库本轮未挂载（未就绪或不可用），不要声称它们的内容可被检索："
+            if self.language == "zh"
+            else (
+                "[Unavailable knowledge bases] These libraries are NOT mounted this "
+                "turn (not ready or unusable). Do not claim their content was searched:"
+            )
+        )
+        more = ""
+        if len(warnings) > len(lines):
+            more = (
+                f"\n… (+{len(warnings) - len(lines)} more)"
+                if self.language != "zh"
+                else f"\n…（另有 {len(warnings) - len(lines)} 个）"
+            )
+        return "\n" + header + "\n" + "\n".join(lines) + more
+
+    def _kb_system_note(self, context: UnifiedContext) -> str:
+        # The unavailability warning does not depend on anything being mounted:
+        # a subject whose *only* library failed to mount is exactly the case the
+        # model (and the learner) must not read as "nothing was attached".
+        warning_note = self._subject_kb_warning_note(context)
+        if not self._selected_kbs(context):
+            return warning_note
         rag_note = ""
         # Coexisting rag KBs only: when an Obsidian vault owns the turn, its own
         # system block covers the vault, and this note tells the model the
@@ -1464,16 +1734,22 @@ class AgenticChatPipeline:
         # pure-vault turn yields no coexisting KBs, so the note stays empty.
         rag_kbs = self._coexisting_rag_kbs(context)
         if rag_kbs:
-            joined = ", ".join(rag_kbs)
+            labels = self._kb_choice_labels(rag_kbs)
+            joined = ", ".join(f"{ref}（{labels[ref]}）" if self.language == "zh" else f"{ref} ({labels[ref]})" for ref in rag_kbs)
             rag_note = (
                 f"用户已挂载知识库：{joined}。调用 rag 时，kb_name 必须从其中选一个。"
                 if self.language == "zh"
                 else (
                     f"Attached knowledge bases: {joined}. When calling rag, kb_name "
-                    "must be one of these names."
+                    "must be one of these values."
                 )
             )
-        return rag_note + self._kb_manifest_system_note() + self._pageindex_system_note()
+        return (
+            rag_note
+            + warning_note
+            + self._kb_manifest_system_note()
+            + self._pageindex_system_note()
+        )
 
     async def _prepare_kb_manifests(self, context: UnifiedContext) -> None:
         """Read the attached KBs' document inventories once per turn.
@@ -1486,32 +1762,72 @@ class AgenticChatPipeline:
         answerable without a tool round-trip.
 
         PageIndex KBs are excluded: ``_pageindex_system_note`` already lists
-        their documents, with the doc_ids its MCP tools need. Fails soft — a KB
-        whose files cannot be read costs the manifest, not the turn.
+        their documents with the doc_ids the rag outline references. Fails soft —
+        a KB whose files cannot be read costs the manifest, not the turn.
         """
         self._kb_manifests = []
-        kbs = self._rag_kbs(context)
+        pageindex = set((getattr(self, "_pageindex_docs", None) or {}).keys())
+        kbs = [kb for kb in self._rag_kbs(context) if kb not in pageindex]
         if not kbs:
             return
         try:
-            self._kb_manifests = await asyncio.to_thread(self._collect_kb_manifests, kbs)
+            self._kb_manifests = await asyncio.to_thread(
+                self._collect_kb_manifests,
+                kbs,
+                subject_id=_context_subject_id(context),
+                mounted_refs=[str(ref) for ref in (context.knowledge_bases or [])] or None,
+            )
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning("Failed to build knowledge base manifests: %s", exc)
 
     @staticmethod
-    def _collect_kb_manifests(kbs: list[str]) -> list[KbManifest]:
-        from deeptutor.multi_user.knowledge_access import resolve_kb_manifest
+    def _collect_kb_manifests(
+        kbs: list[str],
+        *,
+        subject_id: str | None = None,
+        mounted_refs: list[str] | None = None,
+    ) -> list[KbManifest]:
+        """Read one inventory per attached library, through the scoped resolver.
 
+        A canonical wire reference (``subject:kb:…``/``admin:kb:…``/
+        ``user:kb:…`` — what the runtime mounts) is resolved by the shared
+        subject resolver, so a same-named library elsewhere is never described.
+        A bare name is handed to the historical access-checked manifest seam: no
+        runtime turn produces one any more (mounting canonicalises every
+        reference), so this only serves direct callers.
+        """
         manifests: list[KbManifest] = []
         for kb in kbs:
             try:
-                manifest = resolve_kb_manifest(kb)
+                manifest = _scoped_kb_manifest(
+                    kb,
+                    subject_id=subject_id,
+                    mounted_refs=mounted_refs,
+                    limit=MANIFEST_NOTE_LIMIT,
+                )
             except Exception as exc:
                 logger.warning("Failed to read documents of knowledge base '%s': %s", kb, exc)
                 continue
             if manifest is not None:
                 manifests.append(manifest)
         return manifests
+
+    def _kb_choice_labels(self, refs: list[str]) -> dict[str, str]:
+        """Display label per wire id, so the prompt keeps identity and name.
+
+        The label is the library's own disk name (the last segment of the wire
+        id): it is what a learner sees, while calls must use the wire id. Purely
+        lexical — no filesystem read, so building a schema cannot fail or block a
+        turn.
+        """
+        labels: dict[str, str] = {}
+        for ref in refs:
+            text = str(ref or "").strip()
+            if not text or text in labels:
+                continue
+            body = text.split(":kb:", 1)[-1] if ":kb:" in text else text
+            labels[text] = body.split(":", 1)[-1] or body
+        return labels
 
     def _kb_manifest_system_note(self) -> str:
         """What the attached KBs contain, from :meth:`_prepare_kb_manifests`."""
@@ -1530,24 +1846,32 @@ class AgenticChatPipeline:
         if not doc_maps:
             return ""
         lines = []
-        for kb, doc_map in sorted(doc_maps.items()):
+        for kb, entry in sorted(doc_maps.items()):
+            # ``{"name", "documents"}`` is what this stage writes; a plain
+            # ``{file: doc_id}`` mapping is still rendered for older callers.
+            if isinstance(entry, dict) and "documents" in entry:
+                name = str(entry.get("name") or kb)
+                doc_map = entry.get("documents") or {}
+            else:
+                name, doc_map = kb, entry
             listed = "; ".join(
-                f"{name} (doc_id: {doc_id})" for name, doc_id in sorted(doc_map.items())
+                f"{file} (doc_id: {doc_id})" for file, doc_id in sorted(dict(doc_map).items())
             )
-            lines.append(f"- {kb}: {listed or '(no indexed documents)'}")
+            lines.append(f"- {name} (kb_name: {kb}): {listed or '(no indexed documents)'}")
         docs_block = "\n".join(lines)
         if self.language == "zh":
             return (
-                "\n以下知识库使用托管的 PageIndex 引擎，其文档通过已加载的 "
-                "PageIndex MCP 工具阅读：先用 mcp_pageindex_get_document_structure "
-                "查看结构，再用 mcp_pageindex_get_page_content 读取相关页面。文档清单：\n"
+                "\n以下知识库使用 PageIndex 引擎：本构建只提供它们的结构概览"
+                "（retrieval_kind=outline），没有额外的深度检索工具。请用既有 rag 工具"
+                "读取概览，再按 doc_id 定位文档；需要文件清单时用 kb_files。文档清单：\n"
                 f"{docs_block}"
             )
         return (
-            "\nThe following knowledge bases are on the hosted PageIndex engine; read "
-            "their documents with the preloaded PageIndex MCP tools: "
-            "mcp_pageindex_get_document_structure for the outline, then "
-            "mcp_pageindex_get_page_content for the relevant pages. Documents:\n"
+            "\nThe following knowledge bases use the PageIndex engine: this build "
+            "offers only their structure overview (retrieval_kind=outline) — there is "
+            "no additional deep-retrieval tool. Read the outline with the existing rag "
+            "tool, use the doc_ids below to locate a document, and use kb_files for the "
+            "file inventory. Documents:\n"
             f"{docs_block}"
         )
 

@@ -39,6 +39,7 @@ def _provider_cache_key(config: LLMConfig, loop: asyncio.AbstractEventLoop) -> t
         config.temperature,
         config.max_tokens,
         config.reasoning_effort,
+        config.reasoning_protocol,
     )
 
 
@@ -104,6 +105,7 @@ def _build_runtime_provider(llm_config: LLMConfig) -> LLMProvider:
         temperature=llm_config.temperature,
         max_tokens=llm_config.max_tokens,
         reasoning_effort=llm_config.reasoning_effort,
+        reasoning_protocol=llm_config.reasoning_protocol,
     )
     return provider
 

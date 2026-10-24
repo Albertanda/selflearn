@@ -20,6 +20,7 @@ import {
 } from "@/context/app-shell-storage";
 import type { StreamEvent, ChatMessage, LLMSelection } from "@/lib/unified-ws";
 import { UnifiedWSClient } from "@/lib/unified-ws";
+import { llmSelectionKey } from "@/lib/llm-options";
 import {
   getSession,
   deleteMessage,
@@ -38,6 +39,13 @@ import {
   shouldAppendEventContent,
 } from "@/lib/stream";
 import { hasPendingAskUserInMessages } from "@/lib/ask-user-state";
+import {
+  INHERIT_REASONING,
+  parseReasoningOverride,
+  reasoningOverrideKey,
+  type ReasoningOverride,
+  type ReasoningSnapshot,
+} from "@/lib/reasoning-controls";
 import { notify } from "@/lib/notifications";
 import i18n from "i18next";
 import {
@@ -72,6 +80,21 @@ type QuestionNotebookReferencePayload = number[];
 
 type MemoryReferencePayload = Array<"summary" | "profile">;
 
+import {
+  applySessionScope,
+  applySubjectWarnings,
+  normalizeSubjectKbWarnings,
+  visibleSubjectWarnings,
+  type SubjectKbWarning,
+  mergeSubjectIntoConfig,
+  newSessionScope,
+  normalizeSubject,
+  resolveSendSubject,
+  revalidatedScope,
+  subjectSendable,
+  type SubjectScope,
+} from "@/lib/subject-scope";
+
 export interface SendMessageOptions {
   displayUserMessage?: boolean;
   persistUserMessage?: boolean;
@@ -90,11 +113,24 @@ export interface ChatState {
   activeCapability: string | null;
   knowledgeBases: string[];
   llmSelection: LLMSelection | null;
+  /** Per-turn reasoning choice; inherit follows the model's saved setting. */
+  reasoningOverride: ReasoningOverride;
+  /** Per-model choices restored when switching connections/models. */
+  reasoningPreferences: Record<string, ReasoningOverride>;
   /** Persistent mastery state associated with this conversation. */
   masteryPathId: string | null;
   /** Session-level persona preference; "" = Default (no persona). Applies
    *  to every following message until changed (persisted on the session). */
   personaSelection: string;
+  /** Subject scope of this session (`null` = 无科目). Restored from the
+   *  session's stored preferences when it loads; a new session starts empty. */
+  subjectId: SubjectScope;
+  /** False until this session's stored preferences have been applied — no turn
+   *  may be sent before that, or a stored subject would be silently dropped. */
+  subjectHydrated: boolean;
+  /** Attached libraries this session's last turn could not use. Per session, so
+   *  a notice can never follow the learner into another conversation. */
+  subjectKbWarnings: SubjectKbWarning[];
   messages: MessageItem[];
   isStreaming: boolean;
   currentStage: string;
@@ -146,6 +182,8 @@ export interface MessageRequestSnapshot {
   persona?: string;
   memoryReferences?: MemoryReferencePayload;
   llmSelection?: LLMSelection | null;
+  reasoningOverride?: ReasoningOverride;
+  reasoning?: ReasoningSnapshot;
 }
 
 export interface MessageItem {
@@ -191,10 +229,13 @@ interface SessionSnapshot {
   capability?: string | null;
   knowledgeBases?: string[];
   llmSelection?: LLMSelection | null;
+  reasoningPreferences?: Record<string, ReasoningOverride>;
   masteryPathId?: string | null;
   personaSelection?: string;
   language?: string;
   selectedBranches?: Record<string, number>;
+  /** The session's stored preferences, decoded by the reducer (C08 scope). */
+  preferences?: unknown;
 }
 
 type Action =
@@ -202,11 +243,16 @@ type Action =
   | { type: "SET_CAPABILITY"; cap: string | null }
   | { type: "SET_KB"; kbs: string[] }
   | { type: "SET_LLM_SELECTION"; selection: LLMSelection | null }
+  | { type: "SET_REASONING_OVERRIDE"; value: ReasoningOverride }
   // ``key`` targets a specific conversation — a backend push belongs to the
   // session that produced it, which may no longer be the selected one. The
   // composer omits it and means "the one on screen".
   | { type: "SET_MASTERY_PATH_ID"; masteryPathId: string | null; key?: string }
   | { type: "SET_PERSONA_SELECTION"; persona: string }
+  | { type: "SET_SUBJECT_ID"; value: SubjectScope; key?: string }
+  | { type: "MARK_SESSION_LOADING"; key: string }
+  | { type: "SESSION_LOAD_FAILED"; key: string }
+  | { type: "SET_SUBJECT_WARNINGS"; key: string; warnings: unknown }
   | { type: "SET_LANGUAGE"; lang: string }
   | {
       type: "ADD_USER_MSG";
@@ -272,8 +318,13 @@ function createSessionEntry(
     activeCapability: null,
     knowledgeBases: [],
     llmSelection: null,
+    reasoningOverride: INHERIT_REASONING,
+    reasoningPreferences: {},
     masteryPathId: null,
     personaSelection: "",
+    // A fresh session has no subject and nothing to restore.
+    ...newSessionScope(),
+    subjectKbWarnings: [],
     messages: [],
     isStreaming: false,
     currentStage: "",
@@ -355,11 +406,109 @@ function reducer(state: ProviderState, action: Action): ProviderState {
         ...session,
         knowledgeBases: action.kbs,
       }));
-    case "SET_LLM_SELECTION":
-      return updateSelectedSession(state, (session) => ({
+    case "SET_SUBJECT_ID": {
+      // Targeted when the composer names a session, otherwise the visible one.
+      // A clear is a real value (``null``), so it is stored as such — never as
+      // "delete the field" (which would mean "inherit").
+      const update = (session: SessionEntry): SessionEntry => ({
         ...session,
-        llmSelection: action.selection,
-      }));
+        ...applySessionScope(session, { type: "select", value: action.value }),
+        updatedAt: Date.now(),
+      });
+      if (!action.key) return updateSelectedSession(state, update);
+      const session = state.sessions[action.key];
+      if (!session) return state;
+      return {
+        ...state,
+        sessions: { ...state.sessions, [action.key]: update(session) },
+      };
+    }
+    case "SESSION_LOAD_FAILED": {
+      // The session could not be read: do not leave the composer behind a gate
+      // that can never open. The scope falls back to "no subject" (never a
+      // guessed one) and the UI shows the failure so the learner can retry.
+      const existing =
+        state.sessions[action.key] ?? createSessionEntry(action.key);
+      return {
+        ...state,
+        sessions: {
+          ...state.sessions,
+          [action.key]: {
+            ...existing,
+            subjectId: null,
+            subjectHydrated: true,
+            updatedAt: Date.now(),
+          },
+        },
+      };
+    }
+    case "SET_SUBJECT_WARNINGS": {
+      const session = state.sessions[action.key];
+      if (!session) return state;
+      return {
+        ...state,
+        sessions: {
+          ...state.sessions,
+          [action.key]: applySubjectWarnings(session, action.warnings),
+        },
+      };
+    }
+    case "STREAM_START": {
+      // A new turn invalidates the previous turn's degradation notices: they
+      // described *that* turn's mount set, not this one's.
+      const session = state.sessions[action.key];
+      if (!session) return state;
+      return {
+        ...state,
+        sessions: {
+          ...state.sessions,
+          [action.key]: { ...session, subjectKbWarnings: [] },
+        },
+      };
+    }
+    case "MARK_SESSION_LOADING": {
+      // Entering a session: drop the previous scope immediately and close the
+      // send gate until its stored preferences have been applied.
+      const existing =
+        state.sessions[action.key] ?? createSessionEntry(action.key);
+      return {
+        ...state,
+        sessions: {
+          ...state.sessions,
+          [action.key]: {
+            ...existing,
+            ...applySessionScope(existing, { type: "loading" }),
+          },
+        },
+      };
+    }
+    case "SET_LLM_SELECTION":
+      return updateSelectedSession(state, (session) => {
+        const key = llmSelectionKey(action.selection);
+        return {
+          ...session,
+          llmSelection: action.selection,
+          reasoningOverride:
+            (key ? session.reasoningPreferences[key] : undefined) ??
+            INHERIT_REASONING,
+        };
+      });
+    case "SET_REASONING_OVERRIDE":
+      return updateSelectedSession(state, (session) => {
+        const key = llmSelectionKey(session.llmSelection);
+        return {
+          ...session,
+          reasoningOverride: action.value,
+          ...(key
+            ? {
+                reasoningPreferences: {
+                  ...session.reasoningPreferences,
+                  [key]: action.value,
+                },
+              }
+            : {}),
+        };
+      });
     case "SET_MASTERY_PATH_ID": {
       if (!action.key) {
         return updateSelectedSession(state, (session) => ({
@@ -653,6 +802,22 @@ function reducer(state: ProviderState, action: Action): ProviderState {
               action.llmSelection !== undefined
                 ? action.llmSelection
                 : existing.llmSelection,
+            ...(() => {
+              const preferences =
+                action.reasoningPreferences ?? existing.reasoningPreferences;
+              const selection =
+                action.llmSelection !== undefined
+                  ? action.llmSelection
+                  : existing.llmSelection;
+              const selectedKey = llmSelectionKey(selection);
+              return {
+                reasoningPreferences: preferences,
+                reasoningOverride:
+                  (selectedKey ? preferences[selectedKey] : undefined) ??
+                  existing.reasoningOverride ??
+                  INHERIT_REASONING,
+              };
+            })(),
             masteryPathId:
               action.masteryPathId !== undefined
                 ? action.masteryPathId
@@ -661,6 +826,18 @@ function reducer(state: ProviderState, action: Action): ProviderState {
               action.personaSelection !== undefined
                 ? action.personaSelection
                 : existing.personaSelection,
+            // The session's own stored scope wins over whatever this tab had:
+            // switching sessions must never carry the previous subject along. A
+            // background refresh only fills in a scope that is not known yet —
+            // it must not wipe a choice the learner made in the composer.
+            ...(action.preferences !== undefined
+              ? action.type === "LOAD_SESSION"
+                ? applySessionScope(existing, {
+                    type: "load",
+                    preferences: action.preferences,
+                  })
+                : revalidatedScope(existing, action.preferences)
+              : {}),
             messages: action.messages,
             isStreaming: (action.status || "idle") === "running",
             currentStage: "",
@@ -827,8 +1004,11 @@ interface ChatContextValue {
   setCapability: (cap: string | null) => void;
   setKBs: (kbs: string[]) => void;
   setLLMSelection: (selection: LLMSelection | null) => void;
+  setReasoningOverride: (value: ReasoningOverride) => void;
   setMasteryPathId: (masteryPathId: string | null) => void;
   setPersonaSelection: (persona: string) => void;
+  /** Set (or clear with `null`/`""`) the visible session's subject. */
+  setSubjectId: (value: SubjectScope) => void;
   setLanguage: (lang: string) => void;
   sendMessage: (
     content: string,
@@ -931,6 +1111,19 @@ function asLLMSelection(value: unknown): LLMSelection | null {
     : null;
 }
 
+function asReasoningPreferences(
+  value: unknown,
+): Record<string, ReasoningOverride> {
+  const record = asRecord(value);
+  if (!record) return {};
+  const result: Record<string, ReasoningOverride> = {};
+  for (const [key, item] of Object.entries(record)) {
+    const parsed = parseReasoningOverride(item);
+    if (parsed) result[key] = parsed;
+  }
+  return result;
+}
+
 function normalizeSelectedBranches(value: unknown): Record<string, number> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const result: Record<string, number> = {};
@@ -982,6 +1175,19 @@ function hydrateRequestSnapshot(
   );
   if (!stored) return undefined;
 
+  // The scope the turn was actually validated with. It is read here, explicitly,
+  // because a replay that loses it would silently re-scope the turn to whatever
+  // the composer holds now (C08). ``subject_id`` is the server's canonical key;
+  // ``subjectId`` and ``config.subject_id`` cover older/optimistic writers.
+  const rawScope =
+    "subject_id" in stored
+      ? stored.subject_id
+      : "subjectId" in stored
+        ? stored.subjectId
+        : undefined;
+  const normalizedScope =
+    typeof rawScope === "string" && rawScope.trim() ? rawScope.trim() : null;
+
   const snapshot: MessageRequestSnapshot = {
     content: typeof stored.content === "string" ? stored.content : content,
     capability:
@@ -991,6 +1197,9 @@ function hydrateRequestSnapshot(
     enabledTools: asStringArray(stored.enabledTools),
     knowledgeBases: asStringArray(stored.knowledgeBases),
     language: typeof stored.language === "string" ? stored.language : "en",
+    // Present whenever the stored snapshot recorded a scope — including an
+    // explicit ``null``; absent only for a snapshot that never had one.
+    ...(rawScope !== undefined ? { subject_id: normalizedScope } : {}),
     ...(attachments.length ? { attachments } : {}),
   };
 
@@ -1023,6 +1232,12 @@ function hydrateRequestSnapshot(
   if (persona) snapshot.persona = persona;
   if (memoryReferences.length) snapshot.memoryReferences = memoryReferences;
   if (llmSelection) snapshot.llmSelection = llmSelection;
+  const reasoningOverride = parseReasoningOverride(stored.reasoningOverride);
+  if (reasoningOverride) snapshot.reasoningOverride = reasoningOverride;
+  const reasoning = stored.reasoning;
+  if (reasoning && typeof reasoning === "object" && !Array.isArray(reasoning)) {
+    snapshot.reasoning = reasoning as ReasoningSnapshot;
+  }
   if (masteryPathId) snapshot.masteryPathId = masteryPathId;
   return snapshot;
 }
@@ -1171,10 +1386,18 @@ export function UnifiedChatProvider({
         return;
       }
       if (event.type === "done") {
-        const status = String(
-          (event.metadata as { status?: string } | undefined)?.status ||
-            "completed",
-        );
+        const doneMeta = event.metadata as
+          | { status?: string; subject_kb_warnings?: unknown }
+          | undefined;
+        const status = String(doneMeta?.status || "completed");
+        // The terminal envelope carries this turn's unusable libraries (a
+        // replayed turn carries its own, persisted copy): they replace whatever
+        // the previous turn reported, and an empty envelope clears it.
+        dispatch({
+          type: "SET_SUBJECT_WARNINGS",
+          key: effectiveKey,
+          warnings: doneMeta?.subject_kb_warnings,
+        });
         dispatch({
           type: "STREAM_END",
           key: effectiveKey,
@@ -1374,13 +1597,71 @@ export function UnifiedChatProvider({
     return true;
   }, []);
 
+  // Latest *requested* load: the session key plus a generation, so a second load
+  // of the same session (or a navigation away) can invalidate the first one.
+  // ``null`` means "nothing is loading" (e.g. after ``newSession``).
+  const latestLoadKeyRef = useRef<{ key: string; generation: number } | null>(
+    null,
+  );
+
   const loadSession = useCallback(
     async (
       sessionId: string,
       options?: { signal?: AbortSignal; revalidate?: boolean },
     ) => {
-      const session = await getSession(sessionId, options?.signal);
+      // Entering a session: its stored subject is not known yet, so close the
+      // send gate (and drop any scope this tab carried) before the fetch.
+      // Every load gets a generation. Comparing session ids alone cannot tell
+      // "the same session, loaded twice" apart, and the older response would
+      // then win by arriving last.
+      const previous = latestLoadKeyRef.current as unknown;
+      const previousKey =
+        typeof previous === "string"
+          ? previous
+          : previous && typeof previous === "object"
+            ? ((previous as { key?: string }).key ?? null)
+            : null;
+      const previousGeneration =
+        previous && typeof previous === "object"
+          ? Number((previous as { generation?: number }).generation || 0)
+          : 0;
+      const generation =
+        (previousKey === sessionId ? previousGeneration : 0) + 1;
+      if (!options?.revalidate) {
+        latestLoadKeyRef.current = { key: sessionId, generation };
+        dispatch({ type: "MARK_SESSION_LOADING", key: sessionId });
+      }
+      let session;
+      try {
+        session = await getSession(sessionId, options?.signal);
+      } catch (error) {
+        // A failed load must not leave the send gate closed forever: the scope
+        // falls back to 无科目 for this session and the caller still sees the
+        // error (it can retry the navigation).
+        if (!options?.revalidate) {
+          dispatch({ type: "SESSION_LOAD_FAILED", key: sessionId });
+        }
+        throw error;
+      }
       const key = session.session_id || session.id;
+      // If the user navigated somewhere else while this fetch was in flight — or
+      // started a second load of the same session — the response is stale: it
+      // may fill *its own* session's cache, but it must not select that session
+      // (which would also put its subject scope back on screen over the new one).
+      const active = latestLoadKeyRef.current as unknown;
+      const activeKey =
+        typeof active === "string"
+          ? active
+          : active && typeof active === "object"
+            ? ((active as { key?: string }).key ?? null)
+            : null;
+      const activeGeneration =
+        active && typeof active === "object"
+          ? Number((active as { generation?: number }).generation || 0)
+          : 0;
+      const superseded =
+        !options?.revalidate &&
+        !(activeKey === sessionId && activeGeneration === generation);
       const activeTurn = Array.isArray(session.active_turns)
         ? session.active_turns[0]
         : undefined;
@@ -1395,7 +1676,10 @@ export function UnifiedChatProvider({
       }
       const messages = hydrateMessages(session.messages ?? []);
       dispatch({
-        type: options?.revalidate ? "REVALIDATE_SESSION" : "LOAD_SESSION",
+        type:
+          options?.revalidate || superseded
+            ? "REVALIDATE_SESSION"
+            : "LOAD_SESSION",
         key,
         sessionId: key,
         title: session.title || "",
@@ -1412,6 +1696,9 @@ export function UnifiedChatProvider({
           ? session.preferences.knowledge_bases
           : [],
         llmSelection: asLLMSelection(session.preferences?.llm_selection),
+        reasoningPreferences: asReasoningPreferences(
+          session.preferences?.reasoning_preferences,
+        ),
         masteryPathId:
           typeof session.preferences?.mastery_path_id === "string"
             ? session.preferences.mastery_path_id
@@ -1424,6 +1711,10 @@ export function UnifiedChatProvider({
         // may have stale persisted preferences, so new turns follow the
         // current response-language setting rather than their original value.
         language: readStoredResponseLanguage(),
+        // Raw preferences: the reducer derives the subject scope through the
+        // shared three-state helper, so entering a session can never carry the
+        // previous session's subject along.
+        preferences: session.preferences ?? {},
         selectedBranches: normalizeSelectedBranches(
           session.preferences?.selected_branches,
         ),
@@ -1562,6 +1853,10 @@ export function UnifiedChatProvider({
         dispatch({ type: "NEW_SESSION", key });
       }
       const session = currentState.sessions[key] ?? createSessionEntry(key);
+      // A turn may not be sent before this session's stored scope is known: the
+      // difference between "keep the stored subject" and "clear it" cannot be
+      // decided yet, and guessing either way is a silent scope change.
+      if (!subjectSendable(session)) return;
       const replaySnapshot = options?.requestSnapshotOverride;
       const effectiveCapability =
         replaySnapshot?.capability ?? session.activeCapability;
@@ -1573,6 +1868,8 @@ export function UnifiedChatProvider({
         replaySnapshot && "llmSelection" in replaySnapshot
           ? (replaySnapshot.llmSelection ?? null)
           : session.llmSelection;
+      const effectiveReasoningOverride =
+        replaySnapshot?.reasoningOverride ?? session.reasoningOverride;
       const effectiveMasteryPathId =
         replaySnapshot?.masteryPathId ?? session.masteryPathId;
       const effectiveLanguage =
@@ -1594,7 +1891,14 @@ export function UnifiedChatProvider({
           url: a.url,
           mime_type: a.mime_type,
         })) ?? msgAttachments;
-      const effectiveConfig = config ?? replaySnapshot?.config;
+      const effectiveSubject = resolveSendSubject(session, replaySnapshot);
+      // Capability config first, subject merged last: the capability's own
+      // fields survive and a clear is an explicit ``null`` (the key is always
+      // present), never a dropped key that the backend would read as "inherit".
+      const effectiveConfig = mergeSubjectIntoConfig(
+        config ?? replaySnapshot?.config,
+        effectiveSubject,
+      );
       const effectiveNotebookReferences =
         replaySnapshot?.notebookReferences ?? notebookReferences;
       const effectiveHistoryReferences =
@@ -1640,6 +1944,7 @@ export function UnifiedChatProvider({
         ...(effectiveLLMSelection
           ? { llmSelection: effectiveLLMSelection }
           : {}),
+        reasoningOverride: effectiveReasoningOverride,
       };
       // Default the new message's parent to the tip of the currently-
       // visible path so the local chat tree stays connected during
@@ -1674,10 +1979,15 @@ export function UnifiedChatProvider({
         });
       }
       dispatch({ type: "STREAM_START", key });
-      const effectiveTurnConfig =
+      const subjectScopeField: { subject_id: string | null } = {
+        subject_id: effectiveSubject,
+      };
+      const effectiveTurnConfig = mergeSubjectIntoConfig(
         options?.persistUserMessage === false
           ? { ...(effectiveConfig || {}), _persist_user_message: false }
-          : effectiveConfig;
+          : effectiveConfig,
+        effectiveSubject,
+      );
       sendThroughRunner(key, {
         type: "start_turn",
         content,
@@ -1715,9 +2025,12 @@ export function UnifiedChatProvider({
         ...(effectiveLLMSelection
           ? { llm_selection: effectiveLLMSelection }
           : {}),
-        ...(effectiveConfig?.subject_id
-          ? { subject_id: effectiveConfig.subject_id }
-          : {}),
+        reasoning_override: effectiveReasoningOverride,
+        // Top-level and compat ``config`` carry the same value (C08): the
+        // backend rejects two different ones as invalid_input. Spread from a
+        // variable so the key is *always* present — including a ``null`` clear —
+        // while the wire type (owned outside this file) keeps its shape.
+        ...subjectScopeField,
         ...(effectiveTurnConfig && Object.keys(effectiveTurnConfig).length > 0
           ? { config: effectiveTurnConfig }
           : {}),
@@ -1820,6 +2133,10 @@ export function UnifiedChatProvider({
       session_id: session.sessionId,
       overrides: {
         language: readStoredResponseLanguage(),
+        // The backend snapshot is authoritative when this key is omitted; we
+        // send the live choice so an explicit user change before pressing
+        // Regenerate is honoured.
+        reasoning_override: session.reasoningOverride,
       },
     });
   }, [sendThroughRunner]);
@@ -1833,8 +2150,13 @@ export function UnifiedChatProvider({
       activeCapability: current.activeCapability,
       knowledgeBases: current.knowledgeBases,
       llmSelection: current.llmSelection,
+      reasoningOverride: current.reasoningOverride,
+      reasoningPreferences: current.reasoningPreferences,
       masteryPathId: current.masteryPathId,
       personaSelection: current.personaSelection,
+      subjectId: current.subjectId,
+      subjectHydrated: current.subjectHydrated,
+      subjectKbWarnings: visibleSubjectWarnings(current),
       messages: current.messages,
       isStreaming: current.isStreaming,
       currentStage: current.currentStage,
@@ -1873,6 +2195,10 @@ export function UnifiedChatProvider({
     dispatch({ type: "SET_LLM_SELECTION", selection });
   }, []);
 
+  const setReasoningOverride = useCallback((value: ReasoningOverride) => {
+    dispatch({ type: "SET_REASONING_OVERRIDE", value });
+  }, []);
+
   const setMasteryPathId = useCallback((masteryPathId: string | null) => {
     const normalized = masteryPathId?.trim() || null;
     dispatch({ type: "SET_MASTERY_PATH_ID", masteryPathId: normalized });
@@ -1880,6 +2206,10 @@ export function UnifiedChatProvider({
 
   const setPersonaSelection = useCallback((persona: string) => {
     dispatch({ type: "SET_PERSONA_SELECTION", persona });
+  }, []);
+
+  const setSubjectId = useCallback((value: SubjectScope) => {
+    dispatch({ type: "SET_SUBJECT_ID", value: normalizeSubject(value) });
   }, []);
 
   const setLanguage = useCallback((lang: string) => {
@@ -1904,6 +2234,9 @@ export function UnifiedChatProvider({
   }, []);
 
   const newSession = useCallback(() => {
+    // Leaving for a new conversation invalidates any load still in flight: its
+    // response must not select the old session (and with it the old subject).
+    latestLoadKeyRef.current = null;
     dispatch({ type: "NEW_SESSION", key: makeDraftKey() });
   }, [makeDraftKey]);
 
@@ -2027,8 +2360,10 @@ export function UnifiedChatProvider({
       setCapability,
       setKBs,
       setLLMSelection,
+      setReasoningOverride,
       setMasteryPathId,
       setPersonaSelection,
+      setSubjectId,
       setLanguage,
       sendMessage,
       cancelStreamingTurn,
@@ -2051,8 +2386,10 @@ export function UnifiedChatProvider({
       setCapability,
       setKBs,
       setLLMSelection,
+      setReasoningOverride,
       setMasteryPathId,
       setPersonaSelection,
+      setSubjectId,
       setLanguage,
       sendMessage,
       cancelStreamingTurn,

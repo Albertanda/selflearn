@@ -17,7 +17,8 @@ from __future__ import annotations
 from typing import Any
 
 from deeptutor.services.config.model_catalog import ModelCatalogService
-from deeptutor.services.model_selection import list_llm_options
+from deeptutor.services.model_discovery.types import model_visible
+from deeptutor.services.model_selection.llm import split_llm_options
 
 from .context import get_current_user
 from .grants import load_grant
@@ -103,6 +104,7 @@ def redacted_model_access(user_id: str | None = None) -> dict[str, list[dict[str
                     "model": (model or {}).get("model") or "",
                     "source": "admin",
                     "available": model is not None,
+                    "visible_in_picker": model_visible(model),
                 }
             )
     if user_id == user.id:
@@ -119,23 +121,102 @@ def redacted_model_access(user_id: str | None = None) -> dict[str, list[dict[str
 def allowed_llm_options() -> dict[str, Any]:
     user = get_current_user()
     if user.is_admin:
-        return list_llm_options(admin_catalog())
-    options = [
-        {
-            "profile_id": item.get("profile_id"),
-            "model_id": item.get("model_id"),
-            "profile_name": item.get("name") or item.get("profile_id") or "LLM",
-            "model_name": item.get("name") or item.get("model") or item.get("model_id"),
-            "label": item.get("name") or item.get("model") or item.get("model_id"),
-            "model": item.get("model") or "",
-            "provider": "",
-            "source": item.get("source") or "admin",
-            "is_active_default": False,
-        }
-        for item in redacted_model_access(user.id).get("llm", [])
-        if item.get("available")
-    ]
-    return {"active": None, "options": options}
+        from deeptutor.services.model_selection.llm import present_llm_options
+
+        return present_llm_options(admin_catalog())
+
+    from deeptutor.services.config.custom_providers import (
+        resolve_provider_presentation,
+    )
+    from deeptutor.services.llm.reasoning_controls import controls_for
+    from deeptutor.services.provider_registry import find_by_name
+
+    from .personal_models import merge_personal_llm_profiles
+
+    # Only the caller's authorised rows are returned.  The server-side lookup
+    # exists solely to attach a safe provider/profile label and the same
+    # reasoning summary the admin path uses; no catalog, URL or credential is
+    # serialized.
+    safe_catalog = merge_personal_llm_profiles(admin_catalog())
+    profiles: dict[str, dict[str, Any]] = {}
+    for profile in safe_catalog.get("services", {}).get("llm", {}).get("profiles", []) or []:
+        if isinstance(profile, dict) and profile.get("id"):
+            profiles[str(profile["id"])] = profile
+
+    options = []
+    for item in redacted_model_access(user.id).get("llm", []):
+        if not item.get("available"):
+            continue
+        profile_id = str(item.get("profile_id") or "")
+        model_id = str(item.get("model_id") or "")
+        profile = profiles.get(profile_id)
+        model = next(
+            (
+                entry
+                for entry in (profile or {}).get("models", []) or []
+                if isinstance(entry, dict) and str(entry.get("id") or "") == model_id
+            ),
+            None,
+        )
+        if profile is not None and model is not None:
+            provider = str(profile.get("binding") or "").strip()
+            spec = find_by_name(provider)
+            presentation = resolve_provider_presentation(
+                safe_catalog,
+                "llm",
+                profile,
+                fallback_label=spec.label if spec is not None else provider,
+            )
+            option = {
+                "profile_id": profile_id,
+                "model_id": model_id,
+                "profile_name": str(
+                    profile.get("name") or item.get("name") or profile_id
+                ),
+                "model_name": str(model.get("name") or model.get("model") or model_id),
+                "label": str(model.get("name") or model.get("model") or model_id),
+                "model": str(model.get("model") or ""),
+                "provider": provider,
+                "provider_label": presentation["provider_label"],
+                "provider_icon": presentation["provider_icon"],
+                "custom_provider_id": presentation["custom_provider_id"],
+                "source": item.get("source") or "admin",
+                "is_active_default": False,
+                "visible_in_picker": item.get("visible_in_picker") is not False,
+            }
+            controls = controls_for(
+                provider,
+                str(model.get("model") or ""),
+                metadata=model.get("provider_metadata"),
+                model_record=model,
+                base_url=str(profile.get("base_url") or "") or None,
+            )
+            if controls.supported is not None:
+                option["reasoning_controls"] = controls.to_dict()
+        else:
+            # Some deployments resolve grants from a catalog the caller cannot
+            # see (or a test double). Keep the authorised row; only omit the
+            # enrichment we cannot safely compute.
+            option = {
+                "profile_id": profile_id,
+                "model_id": model_id,
+                "profile_name": item.get("name") or profile_id or "LLM",
+                "model_name": item.get("name") or item.get("model") or model_id,
+                "label": item.get("name") or item.get("model") or model_id,
+                "model": item.get("model") or "",
+                "provider": "",
+                "source": item.get("source") or "admin",
+                "is_active_default": False,
+                "visible_in_picker": item.get("visible_in_picker") is not False,
+            }
+        options.append(option)
+    visible, hidden, has_usable = split_llm_options(options)
+    return {
+        "active": None,
+        "options": visible,
+        "hidden_options": hidden,
+        "has_usable_models": has_usable,
+    }
 
 
 def has_capability_access(capability: str, user_id: str | None = None) -> bool:

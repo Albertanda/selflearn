@@ -1,0 +1,46 @@
+执行 S14：HTTP 与 WebSocket 集成验收，P1-51 → P1-52 合并为一个阶段。
+
+一、开工门与已探索输入
+目录 /home/albert/selflearn/selflearn。核验 .phase1-evidence/stages/S13/review.json 指向 reviews/S13-final/review.json：accepted、goal_met=true、next_stage_authorized=true、next_stage=S14；完整receipt SHA须与协调者派发消息一致。核验其中147条当前source_artifacts及两份dispatch文档哈希；HEAD仍9723f953cb6ca56f13603f76c5d07e1e2f1f4473，8项tracked deletion仍缺失，旧dirty修复全部保留。
+先读本指令、S14_EXPLORATION.md、stages/S14.md和P51/P52；探索包附完整文件清单/哈希/原文片段/行号。哈希一致时复用定位，只补读实际调用接口，不重新遍历仓库做orientation。历史计划中的“当前/下一阶段”以本次receipt和stages.json为准。
+S13已签收：完整Python4757通过/20条件skip，实际collect4777；Node477/tsc/Ruff通过；真实bwrap七组及协调者门禁边界回归通过。原P49收集5499为计数错误；两脚本已补修独立运行、网络/凭证隔离、自检不冒充完整通过、六树检查及P50断言不足。原worker报告和日志保持原样。S13只证明离线/本机沙箱，不等于HTTP/WS或浏览器闭环已完成。
+
+二、范围和不可变项
+仅允许新增/修改：
+tests/phase1/test_http_acceptance.py
+tests/phase1/test_ws_acceptance.py
+两项开工时均不存在；147既有合并源码全部只读，source capture并集149。证据写 .phase1-evidence/stages/S14/，临时服务/模型/科目在独立tmp。不改生产、现有tests/fixtures、脚本、schema、契约、依赖或配置来凑绿；发现真bug时保留精确复现和最小blocked_scope，交协调者补修。不能继续S15或第二阶段功能。
+六真实树仅不透明流hash，不解析/打印settings、memory、真实令牌；保护ID P1-00-data-357fe1c8118e2772，保留auth.lock和9个memory文件，不添新锁。禁止commit/push、安装升级、真实服务重启/部署、真实provider/index/上传/导出/删除。测试中的同类操作只能针对临时科目。
+
+三、共用测试环境与可替换边界
+在应用导入/pytest收集前设置临时HOME/XDG、DEEPTUTOR_HOME和认证文件位置，清凭证及PYTEST_ADDOPTS等外部筛选；使用可信默认配置。复用P1 helpers的隔离/缓存恢复和网络guard，只显式允许自己创建的loopback endpoint；不全局关闭网络。需要本地HTTP模型stub时随机端口、明确allowlist、fixture退出join/关闭；不接触已运行的宿主服务。
+通过真实注册的router、SubjectRoute、请求依赖/解析、领域服务、临时磁盘和outputs下载验证。helpers.route_client是包含真实科目路由的轻量应用，不是正式app/lifespan证明；至少一个隔离子进程用正式deeptutor.api.main.app完成路由注册/真实请求/WS可用性冒烟，临时根须在import前固定，后台组件使用现有受控stub并完整关闭，不启动真实项目服务。若无法安全证明lifespan，明确限制并保留最小阻塞，不能把轻量app称为正式启动验收。
+允许stub的外部边界：确定性LLM/STT/embedding调用、PageIndex HTTP transport。必要的auth/current-user在测试fixture中依赖覆盖，但不能绕过科目作用域/校验/错误投影。禁止替换整个router、TurnRuntimeManager、ChatOrchestrator、AgenticChatPipeline、rag_search/RAGService.search、索引/报告/导出/删除为假结果来“证明闭环”。组件之间的工具解析、resolver/source_index、磁盘读写、PNG/PDF/ZIP验证须真实运行。局部故障注入应位于目标依赖边界，不能删除该保护逻辑。
+
+四、P1-51：HTTP验收（目标/证据/完成条件）
+目标：在临时A/B科目从真实HTTP完成CRUD→资料→批改/考点→复习/图表报告→ZIP下载→删除，核对成功与失败的磁盘结果。以下场景分为低依赖小测试/fixture；共享合法流程可复用，不堆成只有一个assert的巨型场景。
+H1 CRUD和三态：HTTP创建A/B，使用响应里的真实slug；列出/patch名称、描述、学期等已支持字段。验证PATCH省略保留、显式空值按现契约、非法值具名C02失败且不损坏旧metadata。不引入新PATCH语义。
+H2 multipart资料：真实Form/File上传文档index与音频transcribe各一合法正例。STT可stub，但落lecture/transcript与operation投影走实际代码；音频不冒充自动索引。文档同名替换后，实际检索源/结果为新内容，旧版本不再被用；穿越/绝对路径/软链接和服务端限额负例从合法文件只改目标字段，旧字节/manifest保持，不能在客户端先拒绝后声称服务端通过。
+H3 批改与学情：真实wrong-book/check路由覆盖correct/partial/wrong，输出合法、attempt/mastery关联符合C05/C10；错误模型、空/截断/传输失败为非2xx和固定C02，不把失败记wrong，attempt/wrong-book/profile/相关知识点学习字节保持。错误正文/路径/fake secret不进response。
+H4 考点：HTTP检测返回真实四键、source_file白名单和候选类型，只有明确确认才confirmed，强调不等于确认；畸形模型/非法候选原子失败且旧记录不变。用确定性provider文本，不直接替换detect业务入口。
+H5 复习与报告：HTTP生成实际PDF及DOCX（现有格式），经返回URL再从outputs下载并用实际解析器打开；至少一个图表报告经真实qualified bwrap、Matplotlib/CJK PNG、生产验证、Typst发布，LLM仅返回确定性代码/Markdown。检查report_id/status/verification_status/URL与manifest/file hashes一致，失败时非2xx、无新正式URL/PDF、旧completed字节不变、active租约释放。不能用fakePNG/PDF或空白占位文件冒充这一正例。
+H6 ZIP和删除：真实export route返回URL，再经outputs下载ZIP；逐成员解压读到内存/临时目录，核对manifest/hash/重复和排除规则（chat、private config、symlink、临时文件、report workdir等按C12）；不新增导入恢复。删除A后GET为404、公开产物清理，B和global逐字节保持。用Event控制真实report/export活动时发DELETE，须409且不部分删除；释放任务后删除成功。不要用随意sleep构造竞争。
+证据：每个场景测试名与contract映射、实际HTTP method/path（仅临时ID）、状态/body字段、下载解析/hash、前后学习/产物snapshot、清理与失败结果。至少一条完整成功业务链可追踪同一A；反例均有对应合法对照。
+允许更改：仅test_http_acceptance.py及本阶段共享证据。完成条件：上列场景实际运行且断言业务结果，provider stub调用确实发生；无必要场景skip，测试正常关闭client、后台任务、线程/进程。P51定向验证后继续P52，无须逐卡交接。
+
+五、P1-52：WebSocket验收（目标/证据/完成条件）
+目标：通过/api/v1/ws真实turn、真实工具循环/检索与sources验证C08/C09/C02，不能只直接调用runtime或检查kwargs。
+W1 端到端成功：临时A/B/global建同名KB，分别独有标记，真实解析/索引/fixture embedding和RAG检索。确定性模型stub先请求生产rag工具，再读取实际工具返回生成最终回答；不能按subject_id硬编码A答案。通过WS收集turn/session/seq、工具事件、正文、sources和terminal，A回答/source只含A标记与正确wire ref，B/global不泄漏；至少一次B切换和显式合法global挂载按C08分别证明作用域。
+W2 三态/重放：同session显式A→省略沿用→切B→null/空字符串清空→省略保持清空；新session不继承；顶层/config冲突拒绝且不创建turn/用户消息。retry/regenerate使用原request_snapshot而不是之后preferences，检查旧assistant消息在拒绝时保留；删科后的旧session报subject_not_found，显式清空后同socket可继续。
+W3 权限/工具错误：模型伪造base_dir、跨科ref、歧义bare name、read_source伪造ID分别拒绝，不能读取别科/宿主文件。科库失败/未ready不可静默退global，错误或warning按现有协议公开可见，terminal failed与request关联；随后同socket合法请求仍可完成。遵循已有ERROR/DONE envelope，不另造字段。
+W4 图片描述：tiny图像/文档fixture经实际image description文本节点构建与索引（视觉模型可stub固定独有描述），然后WS触发真实rag检索该唯一标记；核对content_kind、原文档source_file和真实可用页码/unknown，不将内部asset路径当原文档、不伪造页码。不能直接fake search返回预期标记或手塞sources来替代链路。
+W5 PageIndex与生命周期：通过现有PageIndexPipeline/Client及fixture HTTP响应证明outline/document map，sources如实retrieval_kind=outline、不含伪passage或虚构MCP工具。至少一个真实流中取消/断开重订阅场景验证终态不重复、seq重放和无悬挂任务；按现有协议，不发明恢复语义。
+证据：真实WS发送payload/接收事件摘要、tool调用→实际返回→回答标记因果链、scope/snapshot/preferences/来源身份、失败后复用socket、取消/收尾状态；fake文本/ID可记录，不包含真实token/设置。
+允许更改：仅test_ws_acceptance.py及本阶段证据。完成条件：上述场景从WS入口实际穿过生产编排/工具/resolver；必要组件未被整体替换，所有必须场景真实运行并清理。缺依赖/系统能力如实blocked_environment，生产接线bug如实blocked_scope，不改断言隐藏。
+
+六、阶段共享验证、负控与交付
+定向：两新文件可先分别运行；稳定后合并一次pytest，并将RuntimeWarning/PytestUnraisableExceptionWarning作为错误。用S13脚本的clean_env/BOOTSTRAP_CODE/NETWORK_GUARD接缝组织临时导入环境，不用会重写旧阶段证据的历史helper。共享回归选择tests/phase1 + tests/api + tests/services/session + tests/agents/chat + tests/tools + tests/services/rag；若新接线失败指向别的现有测试，再扩展具体目录。没有前端/脚本源码变化，不机械重复Node/tsc/完整全量门，可引用S13-final477/tsc/4757并明确本阶段实跑范围。
+运行Ruff检查两个新增文件、业务目录，git diff --check和计划/schema校验；开工/收尾source/data快照，scope只允许两新测试，147旧源码只读，149 capture，六树/既有锁和8删除项保持。源码归档包含本阶段两新测试及前置源码/规划，逐成员恢复验证，不能丢未跟踪修复。
+至少三组独立安全坏对照，均在tmp代码副本/受控注入中，同副本正例先通过：例如作用域过滤被绕过而检索到B/global，发布失败时错误返回成功URL，重放错误使用当前preferences。负例必须在对应行为断言失败，不能由fixture/导入/缺依赖失败代替；不在真实项目源码/数据里临时删保护逻辑。
+一份符合C14 StageReport的report.json＋串行追加execution.log，记录两单元结果、所有实际命令/argv/cwd/UTC/exit/精确日志范围、测试数/skip/坏对照、scope/data/readonly、source/恢复归档哈希和限制。所有artifact在交付时hash仍匹配；收尾单独closing_manifest解决自命令/日志前缀，不隐藏未列出命令或把嵌套区间当无交错。
+最终仅verified_local或确切阻塞；不自行写accepted或stages/S14/review.json。一次交付后停止，等待独立审查，不进入S15。

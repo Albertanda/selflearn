@@ -1,0 +1,19 @@
+执行 MM-R3 整个阶段：聊天模型两层供应商/连接选择、聊天与模型设置的真实思考强度、独立默认模型设置页及编辑/默认状态分离。
+
+工作目录：/home/albert/selflearn/selflearn
+任务包：/home/albert/selflearn/selflearn/plans/model-management-r3/
+
+先读 README.md、CONTRACTS.md、TASKS.json、ACCEPTANCE.md 与 EXPLORATION.md。RESEARCH.md 已给官方规则和本机参考。EXPLORATION 包含当前源码hash和关键片段；一致时直接按接缝实施，免去全仓orientation重读，变化时仅补读差异。前置MD-R2协调者验收在 .phase1-evidence/reviews/MD-R2-20261024/，勿覆盖原Harness报告或封存数据。
+
+这是一个阶段，10张卡是低依赖实施单元，按依赖顺序连续完成，不逐卡问“是否继续”。M3-04、M3-06可独立于强度映射推进。保留当前已有未提交修改，不reset/clean。常规设计选择自行决定，必要相邻接缝记录原因和验证，不因此停工重做计划。
+
+必须做到：
+1. 第一层按有效连接profile_id分组，显示供应商/配置名；第二层选该连接模型。按钮常显来源与自定义名。不要只给平铺列表加标题；同供应商不同key也不能合并，普通用户不拿admin catalog。
+2. 思考能力以后端单一策略为准，DeepSeek原厂Flash/Pro有low/high/max；解析目录effort字段。minimal不是关闭，medium/xhigh→high、ultra→max以官方为准。本机Hermes旧xhigh→max不可照搬。按阿里/Qwen/Claude/Gemini/OpenAI/托管实际型号和wire映射，不能只改前端或给所有模型造三档。
+3. 新增正式reasoning_override请求契约，先授权所选模型再校验强度，单turn scoped生效；继承、厂商默认、明确effort分开，不把auto发上游。会话/换模型/重连/regen与题目跟进一致，不能改共享catalog实现聊天强度。
+4. 设置→模型新增默认模型页，固定第一；中文LLM统一“大语言模型（LLM）”。默认页只更新现有active引用，一个默认LLM，不新增标题/OCR/重排等服务。search只选服务profile。
+5. 当前浏览profile/model直接写draft.active是根因。分离本地editing_selection，所有诊断/添加/改名/目录/参数操作定位要同步改；浏览不改默认。保留“应用”用于保存生效，默认页明确“保存默认设置”。默认PATCH只提交引用，保留其它页面dirty参数及真实key，使用现有锁内update与revision防并发覆盖。
+
+先建新的 .phase1-evidence/model-management/MM-R3-<唯一run>/，记录opaque数据基线和源码。所有测试隔离；Python必须通过 scripts/run_tests_isolated.py，浏览器复用既有临时源码、本地MODEL_SERVER、已安装Chromium和cleanup。禁止修改真实配置/密钥/默认项/学习数据/历史、复制真实catalog为fixture、调用真实厂商付费推理、学校API或重建索引，不停止用户真实服务。
+
+按ACCEPTANCE实际验证主聊天和题目跟进发送、wire档位、同名不同供应商、默认切换/编辑不变/409、权限和MD-R2嵌入回归。最终统一给report、测试及浏览器证据、官方规则来源、真实六树不变证明和可重建源码。缺环境或无真实厂商验证如实列出，不降低硬门或自签accepted。不要进入科目UI/知识库等其它任务。

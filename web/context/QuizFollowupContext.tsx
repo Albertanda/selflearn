@@ -29,6 +29,8 @@ import {
 import { updateNotebookEntry } from "@/lib/notebook-api";
 import { shouldAppendEventContent } from "@/lib/stream";
 import { hasPendingAskUser } from "@/lib/ask-user-state";
+import { parseReasoningOverride, type ReasoningOverride } from "@/lib/reasoning-controls";
+import type { SessionPreferences } from "@/lib/session-api";
 import {
   type ChatMessage,
   type LLMSelection,
@@ -58,6 +60,8 @@ export interface FollowupThreadState {
   activeTurnId: string | null;
   messages: FollowupMessage[];
   error: string | null;
+  llmSelection: LLMSelection | null;
+  reasoningPreferences: Record<string, ReasoningOverride>;
 }
 
 export function createEmptyThreadState(): FollowupThreadState {
@@ -70,6 +74,8 @@ export function createEmptyThreadState(): FollowupThreadState {
     activeTurnId: null,
     messages: [],
     error: null,
+    llmSelection: null,
+    reasoningPreferences: {},
   };
 }
 
@@ -134,6 +140,8 @@ export interface SendMessageInput {
   persona?: string;
   /** Pinned LLM selection — when null/undefined the server default applies. */
   llmSelection?: LLMSelection | null;
+  /** Per-turn reasoning choice; omitted/undefined means inherit. */
+  reasoningOverride?: ReasoningOverride;
 }
 
 export interface HydratedFollowupMessage {
@@ -159,6 +167,7 @@ export interface QuizFollowupController {
     questionKey: string,
     sessionId: string,
     messages: HydratedFollowupMessage[],
+    preferences?: SessionPreferences,
   ): void;
   /** Send a user turn through the chat capability for this question. */
   sendMessage(input: SendMessageInput): void;
@@ -437,6 +446,9 @@ export function QuizFollowupProvider({ children }: ProviderProps) {
         // picked for that turn.
         persona: input.persona ?? "",
         llm_selection: input.llmSelection ?? null,
+        ...(input.reasoningOverride
+          ? { reasoning_override: input.reasoningOverride }
+          : {}),
       });
     },
     [sendThroughRunner, updateThread],
@@ -494,7 +506,7 @@ export function QuizFollowupProvider({ children }: ProviderProps) {
   }, []);
 
   const hydrateThread = useCallback(
-    (key: string, sessionId: string, messages: HydratedFollowupMessage[]) => {
+    (key: string, sessionId: string, messages: HydratedFollowupMessage[], preferences?: SessionPreferences) => {
       // Skip when the thread already holds local state — we never
       // overwrite an active conversation with a stale snapshot. The
       // ``sessionId`` check covers the case where the in-memory thread
@@ -506,6 +518,17 @@ export function QuizFollowupProvider({ children }: ProviderProps) {
       updateThread(key, (prev) => ({
         ...prev,
         sessionId,
+        error: null,
+        llmSelection: preferences?.llm_selection ?? prev.llmSelection,
+        reasoningPreferences: {
+          ...Object.fromEntries(
+            Object.entries(preferences?.reasoning_preferences ?? {}).flatMap(([model, value]) => {
+              const parsed = parseReasoningOverride(value);
+              return parsed ? [[model, parsed]] : [];
+            }),
+          ),
+          ...prev.reasoningPreferences,
+        },
         messages: messages.map((m) => ({
           role: m.role,
           content: m.content,

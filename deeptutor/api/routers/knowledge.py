@@ -835,7 +835,12 @@ async def run_initialization_task(initializer: KnowledgeBaseInitializer, task_id
                 index_action="create",
             )
 
-            manager = get_kb_manager()
+            # Write the completion status to the manager for *this* KB's
+            # base_dir (the scope the initializer created the KB in), not the
+            # caller's global KB root — otherwise a subject-scoped KB never
+            # leaves "processing" and a phantom entry lands in the global
+            # registry. Mirrors the ProgressTracker scope used above.
+            manager = KnowledgeBaseManager(base_dir=str(initializer.base_dir))
             manager.update_kb_status(
                 name=initializer.kb_name,
                 status="ready",
@@ -872,7 +877,10 @@ async def run_initialization_task(initializer: KnowledgeBaseInitializer, task_id
 
             task_manager.update_task_status(task_id, "error", error=error_msg)
 
-            manager = get_kb_manager()
+            # Same scope rule as the success path above: the failure must be
+            # recorded where this KB actually lives, or a subject-scoped KB
+            # keeps reporting "processing" after a failed run.
+            manager = KnowledgeBaseManager(base_dir=str(initializer.base_dir))
             manager.update_kb_status(
                 name=initializer.kb_name,
                 status="error",
@@ -1648,29 +1656,26 @@ class ConnectObsidianRequest(BaseModel):
 
 @router.post("/connect-obsidian")
 async def connect_obsidian_vault(payload: ConnectObsidianRequest):
-    """Connect an existing Obsidian vault as a knowledge base.
+    """Refused: the Obsidian feature is not part of this fork.
 
-    Registers a pointer to the user's vault directory (``type: obsidian``) — no
-    upload, no index. The vault must be a directory the server can reach (i.e. a
-    local/self-hosted deployment); the Obsidian capability reads it live.
+    An ``obsidian`` KB carries no index — ``kb_types`` documents that it is read
+    live by the Obsidian capability, and the chat loop routes it to that
+    capability instead of ``rag``. Both that capability and the
+    ``obsidian_search`` / ``obsidian_read`` / ``obsidian_list`` tools were
+    removed by the M0 fork trim, so registering one produced a knowledge base
+    that nothing could read while every other retrieval path was excluded.
+    Refusing here keeps a user from creating that dead entry; the route is kept
+    (rather than deleted) so callers get a meaningful error instead of a bare
+    404, and the OpenAPI shape stays stable.
     """
-    name = (payload.name or "").strip()
-    vault_path = (payload.vault_path or "").strip()
-    if not name or not vault_path:
-        raise HTTPException(status_code=400, detail="Both name and vault_path are required.")
-    try:
-        folder = assert_path_allowed(vault_path)
-        manager = get_kb_manager()
-        entry = manager.register_obsidian_vault(name, str(folder))
-        return {"status": "connected", "name": name, "vault_path": entry["vault_path"]}
-    except ValueError as e:
-        # Missing/invalid path, disallowed location, or a name clash → 400.
-        raise HTTPException(status_code=400, detail=str(e))
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error connecting Obsidian vault: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    raise HTTPException(
+        status_code=501,
+        detail=(
+            "Connecting an Obsidian vault is not supported in this build: "
+            "the Obsidian capability and its tools were removed. "
+            "Upload the notes as documents to a regular knowledge base instead."
+        ),
+    )
 
 
 class ProbeFolderRequest(BaseModel):
@@ -2693,7 +2698,14 @@ async def run_reindex_task(kb_name: str, base_dir: str, task_id: str, signature_
                     meta_err,
                 )
 
-            manager = get_kb_manager()
+            # The completion status must be written to the manager whose config
+            # lives under *this* base_dir — the same scope the KB's files and
+            # the ProgressTracker above use. ``get_kb_manager()`` resolves the
+            # caller's *global* KB root, so using it here left subject-scoped
+            # KBs (whose status is read from their own subject base_dir) stuck
+            # at "processing" forever after a successful re-index, and created a
+            # phantom entry for them in the global registry as a side effect.
+            manager = KnowledgeBaseManager(base_dir=base_dir)
             manager.update_kb_status(
                 name=kb_name,
                 status="ready",

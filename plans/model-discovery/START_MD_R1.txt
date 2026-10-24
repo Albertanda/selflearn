@@ -1,0 +1,31 @@
+你现在执行 /home/albert/selflearn/selflearn 的 MD-R1：模型发现与选择管理。
+
+这是一个完整、已授权的功能阶段。直接完成实现、自测、自修、联调和一份阶段报告，不逐卡等待确认，不先输出全仓 orientation，不再讨论是否应该做该功能。
+
+先读取本目录 CONTRACTS.md、TASKS.json、EXPLORATION.md、ACCEPTANCE.md。EXPLORATION 已附文件路径、到达哈希、行号与关键片段；只核对本次要改的文件及必要上下文，哈希不同时定向补读。不要重新通读所有项目文件、所有 S00–S15 卡或 Chatbox/Hermes 全仓。
+
+需求：七类模型设置提供类似 Chatbox 的“查询→搜索/筛选→勾选添加→保存”流程，加当前已保存连接的首次自动查询和服务端持久缓存。候选目录不能直接覆盖配置。文本模型支持“在聊天选择器显示”开关，隐藏不能撤权或破坏既有会话。
+
+本次新功能由用户明确授权，不属于已关闭 Phase 1 的 S16，不得修改或重新打开历史阶段及其签收。本阶段不做全局后台自动发现、推理协议增加、自动启用所有模型、批量测试模型或自动变更默认项。
+
+特别保护：当前默认 ASR 是已真实验证的阿里云 qwen3-asr-flash，原硅基流动配置仍在。不要修改真实 model_catalog.json、asr_media.json、密钥文件、学习资料、历史证据。不要调用 scripts/aliyun_asr_acceptance.py，它会消耗真实模型额度。只用隔离 home、虚构凭据及 loopback/MockTransport 目录 fixture 做验收；不访问真实厂商、不启动真实数据服务、不安装/升级依赖、不改系统 PATH、不 git reset/clean、不提交推送。
+
+按 TASKS.json 在一个阶段内串行完成 MD-01～MD-07；共享文件允许在单元之间因联调而调整。目标/契约、单元允许范围和完成条件是执行边界，不是推荐清单。不得用白名单的大文件范围顺手重构无关业务。
+
+已知易错点：
+1. 现有 /fetch-models 只恢复 llm profile 的密钥，不能直接复制给七类服务。
+2. 当前 syncProviderModels 会替换整个模型数组和当前默认，不能作为通用目录管理实现。
+3. api_key/extra_headers 的 *** 是占位，必须同服务/profile 恢复；密钥可能含点号，不得正则截短。
+4. 阿里云目录不是兼容模式 /models 的同一响应，必须处理 output.models、分页和能力/路由判断。
+5. 厂商目录不等于已实现协议，尤其 Filetrans/Fun-ASR/Realtime 不能当 qwen3-asr-flash 直接启用。
+6. React StrictMode、重挂载、保存和切连接的迟到响应必须测试；不能只加一个 loading flag。
+7. 隐藏是展示行为；LLM options 同时服务普通用户能力门，必须按 D7 返回 hidden_options/has_usable_models，避免隐藏变撤权。
+8. 所有查询都不能改目录之外的配置；缓存失败不能吞掉用户 draft。
+
+执行开始创建 .phase1-evidence/model-discovery/MD-R1-<fresh>/，记录当前源码/六树 opaque 数据基线。沿用现有隔离 runner 和浏览器保护。测试前后真实数据必须逐字节不变；不能恢复旧配置来让历史哈希通过。
+
+阶段内定向测试随改随跑，末尾合并运行相关 Python/Node/tsc/lint/真实 Chromium 门。浏览器必须实际执行生产界面，不用代码字符串匹配、测试 --list 或截图替代交互。普通失败自行修好；真实数据保护失败立即停止并报告。非白名单生产文件确需改动时，先报告精确路径、原因和最小差异；可继续其他不依赖该修改的单元，不擅自扩大范围。
+
+只交付一份 report.json（目标/单元/变更/供应商×类别支持矩阵/实际测试/限制）、execution.log（真实命令输出、UTC、cwd、退出码，失败记录不删除）、source/data/scope 摘要及一个阶段源码归档。状态只能 verified_local 或具体 blocked_*，不能自己写 accepted，不改协调者 review。
+
+完成本阶段后停止，等待协调者独立验收。不自动执行其他阶段。

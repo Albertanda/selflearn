@@ -1,0 +1,1648 @@
+{
+  "schema_version": 2,
+  "status": "planned",
+  "project_root": "/home/albert/selflearn/selflearn",
+  "baseline": "9723f95 plus inherited dirty worktree; capture exact hashes in P1-00",
+  "execution_model_preference": "user tentative DeepSeek v4.1 flash; configure in Harness, do not guess API model id",
+  "default_dispatch": "one authorized stage per executor session; serial units; one independent stage review",
+  "contracts": "DATA_CONTRACTS.md",
+  "common_instructions": "EXECUTION_GUIDE.md",
+  "card_count": 57,
+  "dispatch_order": [
+    "P1-00",
+    "P1-01",
+    "P1-02",
+    "P1-03",
+    "P1-09",
+    "P1-55",
+    "P1-04",
+    "P1-10",
+    "P1-11",
+    "P1-12",
+    "P1-13",
+    "P1-14",
+    "P1-05",
+    "P1-06",
+    "P1-07",
+    "P1-08",
+    "P1-15",
+    "P1-56",
+    "P1-16",
+    "P1-17",
+    "P1-18",
+    "P1-29",
+    "P1-19",
+    "P1-30",
+    "P1-26",
+    "P1-27",
+    "P1-28",
+    "P1-20",
+    "P1-21",
+    "P1-22",
+    "P1-23",
+    "P1-24",
+    "P1-25",
+    "P1-31",
+    "P1-32",
+    "P1-33",
+    "P1-34",
+    "P1-35",
+    "P1-36",
+    "P1-37",
+    "P1-38",
+    "P1-39",
+    "P1-40",
+    "P1-41",
+    "P1-54",
+    "P1-42",
+    "P1-43",
+    "P1-44",
+    "P1-45",
+    "P1-46",
+    "P1-47",
+    "P1-48",
+    "P1-49",
+    "P1-50",
+    "P1-51",
+    "P1-52",
+    "P1-53"
+  ],
+  "dependency_layers": [
+    [
+      "P1-00"
+    ],
+    [
+      "P1-01"
+    ],
+    [
+      "P1-02",
+      "P1-03",
+      "P1-09",
+      "P1-28",
+      "P1-29",
+      "P1-30",
+      "P1-43",
+      "P1-44",
+      "P1-45"
+    ],
+    [
+      "P1-04",
+      "P1-10",
+      "P1-55"
+    ],
+    [
+      "P1-05",
+      "P1-07",
+      "P1-11",
+      "P1-12",
+      "P1-13",
+      "P1-14",
+      "P1-26",
+      "P1-31",
+      "P1-32"
+    ],
+    [
+      "P1-06",
+      "P1-08",
+      "P1-15",
+      "P1-16",
+      "P1-20",
+      "P1-27",
+      "P1-33",
+      "P1-39",
+      "P1-40",
+      "P1-56"
+    ],
+    [
+      "P1-17",
+      "P1-21",
+      "P1-23",
+      "P1-34",
+      "P1-41"
+    ],
+    [
+      "P1-18",
+      "P1-24",
+      "P1-35"
+    ],
+    [
+      "P1-19",
+      "P1-36",
+      "P1-46",
+      "P1-50"
+    ],
+    [
+      "P1-22",
+      "P1-37",
+      "P1-42",
+      "P1-54"
+    ],
+    [
+      "P1-25",
+      "P1-38"
+    ],
+    [
+      "P1-47"
+    ],
+    [
+      "P1-48"
+    ],
+    [
+      "P1-49"
+    ],
+    [
+      "P1-51",
+      "P1-52"
+    ],
+    [
+      "P1-53"
+    ]
+  ],
+  "cards": [
+    {
+      "id": "P1-00",
+      "title": "保护已有工作区并建立可重建基线",
+      "contracts": [
+        "C01",
+        "C14"
+      ],
+      "depends_on": [],
+      "allowed_files": [
+        ".gitignore",
+        "scripts/phase1_snapshot.py",
+        "tests/phase1/test_p1_00.py"
+      ],
+      "symbol_scope": "只增加证据目录忽略规则和独立快照脚本；不改业务模块。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_00.py"
+      ],
+      "risk": "storage",
+      "kind": "python",
+      "path": "cards/P1-00.md"
+    },
+    {
+      "id": "P1-01",
+      "title": "建立隔离的分科修复测试夹具",
+      "contracts": [
+        "C01",
+        "C14"
+      ],
+      "depends_on": [
+        "P1-00"
+      ],
+      "allowed_files": [
+        "tests/phase1/__init__.py",
+        "tests/phase1/conftest.py",
+        "tests/phase1/helpers.py",
+        "tests/phase1/test_p1_01.py",
+        "tests/services/rag/test_llamaindex_document_loader.py"
+      ],
+      "symbol_scope": "仅测试support；不修改根tests/conftest或运行时实现。图片测试文件只修复 test_loader_skips_images_when_embedding_provider_is_text_only 缺少 fake LLM 的环境依赖，保留 documents == [] 原语义。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_01.py"
+      ],
+      "risk": "normal",
+      "kind": "python",
+      "path": "cards/P1-01.md"
+    },
+    {
+      "id": "P1-02",
+      "title": "修正固定凭证时间测试",
+      "contracts": [
+        "C14"
+      ],
+      "depends_on": [
+        "P1-01"
+      ],
+      "allowed_files": [
+        "tests/services/test_codebuddy_credentials.py",
+        "tests/phase1/test_p1_02.py"
+      ],
+      "symbol_scope": "仅固定时间夹具及其断言；不改credentials生产过期逻辑。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_02.py",
+        "./.venv/bin/python -m pytest -q tests/services/test_codebuddy_credentials.py"
+      ],
+      "risk": "normal",
+      "kind": "python",
+      "path": "cards/P1-02.md"
+    },
+    {
+      "id": "P1-03",
+      "title": "定义科目业务错误与安全响应投影",
+      "contracts": [
+        "C02"
+      ],
+      "depends_on": [
+        "P1-01"
+      ],
+      "allowed_files": [
+        "deeptutor/subjects/errors.py",
+        "tests/phase1/test_p1_03.py"
+      ],
+      "symbol_scope": "新模块只定义错误值/异常和HTTP/WS/tool payload投影，不注册全局exception handler。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_03.py"
+      ],
+      "risk": "normal",
+      "kind": "python",
+      "path": "cards/P1-03.md"
+    },
+    {
+      "id": "P1-04",
+      "title": "拒绝空正文与所有预算截断正文",
+      "contracts": [
+        "C04",
+        "C02"
+      ],
+      "depends_on": [
+        "P1-03"
+      ],
+      "allowed_files": [
+        "deeptutor/subjects/generation.py",
+        "tests/phase1/test_p1_04.py"
+      ],
+      "symbol_scope": "complete_subject_text内部结果检查；不改LLM factory公共complete契约。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_04.py"
+      ],
+      "risk": "normal",
+      "kind": "python",
+      "path": "cards/P1-04.md"
+    },
+    {
+      "id": "P1-05",
+      "title": "拆出批改结果验证",
+      "contracts": [
+        "C05",
+        "C04"
+      ],
+      "depends_on": [
+        "P1-04",
+        "P1-55"
+      ],
+      "allowed_files": [
+        "deeptutor/subjects/grading.py",
+        "tests/phase1/test_p1_05.py"
+      ],
+      "symbol_scope": "新GradeResult验证和LLM批改调用模块；不改路由或错题存储。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_05.py"
+      ],
+      "risk": "normal",
+      "kind": "python",
+      "path": "cards/P1-05.md"
+    },
+    {
+      "id": "P1-06",
+      "title": "使批改成功提交且失败不污染学情",
+      "contracts": [
+        "C05",
+        "C02"
+      ],
+      "depends_on": [
+        "P1-05",
+        "P1-12"
+      ],
+      "allowed_files": [
+        "deeptutor/api/routers/subjects.py",
+        "deeptutor/subjects/wrong_book.py",
+        "tests/phase1/test_p1_06.py"
+      ],
+      "symbol_scope": "check_answer/_ai_grade接线及wrong_book的单次graded-attempt提交函数；不动其他route。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_06.py"
+      ],
+      "risk": "storage",
+      "kind": "python",
+      "path": "cards/P1-06.md"
+    },
+    {
+      "id": "P1-07",
+      "title": "验证考点JSON与直接引用证据",
+      "contracts": [
+        "C06",
+        "C04"
+      ],
+      "depends_on": [
+        "P1-04",
+        "P1-55"
+      ],
+      "allowed_files": [
+        "deeptutor/subjects/exam_detection.py",
+        "tests/phase1/test_p1_07.py"
+      ],
+      "symbol_scope": "detect_points/_parse_points与对应prompt例子；不改保存route。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_07.py"
+      ],
+      "risk": "normal",
+      "kind": "python",
+      "path": "cards/P1-07.md"
+    },
+    {
+      "id": "P1-08",
+      "title": "考点检测一次保存并显式返回失败",
+      "contracts": [
+        "C06",
+        "C02"
+      ],
+      "depends_on": [
+        "P1-07",
+        "P1-13"
+      ],
+      "allowed_files": [
+        "deeptutor/api/routers/subjects.py",
+        "deeptutor/subjects/exam_points.py",
+        "tests/phase1/test_p1_08.py"
+      ],
+      "symbol_scope": "detect_exam_points及exam_points批量upsert；不改其他subject route。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_08.py"
+      ],
+      "risk": "storage",
+      "kind": "python",
+      "path": "cards/P1-08.md"
+    },
+    {
+      "id": "P1-09",
+      "title": "使原子JSON写入明确支持数组",
+      "contracts": [
+        "C01"
+      ],
+      "depends_on": [
+        "P1-01"
+      ],
+      "allowed_files": [
+        "deeptutor/services/file_io.py",
+        "tests/services/test_file_io.py",
+        "tests/phase1/test_p1_09.py"
+      ],
+      "symbol_scope": "atomic_write_json类型和必要的fsync/cleanup；保留既有对象序列化结果。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_09.py",
+        "./.venv/bin/python -m pytest -q tests/services/test_file_io.py"
+      ],
+      "risk": "normal",
+      "kind": "python",
+      "path": "cards/P1-09.md"
+    },
+    {
+      "id": "P1-10",
+      "title": "实现科目集合加载与事务锁基础",
+      "contracts": [
+        "C01",
+        "C02"
+      ],
+      "depends_on": [
+        "P1-09",
+        "P1-03"
+      ],
+      "allowed_files": [
+        "deeptutor/subjects/json_store.py",
+        "tests/phase1/test_p1_10.py"
+      ],
+      "symbol_scope": "新small storage adapter；不在本卡改所有store消费者。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_10.py"
+      ],
+      "risk": "storage",
+      "kind": "python",
+      "path": "cards/P1-10.md"
+    },
+    {
+      "id": "P1-11",
+      "title": "接入科目注册表与KB记录持久化",
+      "contracts": [
+        "C01",
+        "C03"
+      ],
+      "depends_on": [
+        "P1-10"
+      ],
+      "allowed_files": [
+        "deeptutor/subjects/store.py",
+        "tests/phase1/test_p1_11.py"
+      ],
+      "symbol_scope": "load/save/create/update/knowledge record路径；delete的产物行为留P1-54。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_11.py"
+      ],
+      "risk": "storage",
+      "kind": "python",
+      "path": "cards/P1-11.md"
+    },
+    {
+      "id": "P1-12",
+      "title": "接入错题集合事务与掌握度一致性",
+      "contracts": [
+        "C01",
+        "C05"
+      ],
+      "depends_on": [
+        "P1-10"
+      ],
+      "allowed_files": [
+        "deeptutor/subjects/wrong_book.py",
+        "tests/phase1/test_p1_12.py"
+      ],
+      "symbol_scope": "load/_save/add_entry/record_attempt/archive/delete，不改API。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_12.py"
+      ],
+      "risk": "storage",
+      "kind": "python",
+      "path": "cards/P1-12.md"
+    },
+    {
+      "id": "P1-13",
+      "title": "接入考点集合事务",
+      "contracts": [
+        "C01",
+        "C06"
+      ],
+      "depends_on": [
+        "P1-10"
+      ],
+      "allowed_files": [
+        "deeptutor/subjects/exam_points.py",
+        "tests/phase1/test_p1_13.py"
+      ],
+      "symbol_scope": "load/save/add/add_many/confirm/delete；批量去重消费留P1-08。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_13.py"
+      ],
+      "risk": "storage",
+      "kind": "python",
+      "path": "cards/P1-13.md"
+    },
+    {
+      "id": "P1-14",
+      "title": "接入知识点与画像存储事务",
+      "contracts": [
+        "C01",
+        "C10"
+      ],
+      "depends_on": [
+        "P1-10"
+      ],
+      "allowed_files": [
+        "deeptutor/subjects/knowledge_points.py",
+        "deeptutor/subjects/profile.py",
+        "tests/phase1/test_p1_14.py"
+      ],
+      "symbol_scope": "load/save/add/link/profile update/facts写入；aggregate语义留P1-39。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_14.py"
+      ],
+      "risk": "storage",
+      "kind": "python",
+      "path": "cards/P1-14.md"
+    },
+    {
+      "id": "P1-15",
+      "title": "修复PATCH的缺省与清空语义",
+      "contracts": [
+        "C03"
+      ],
+      "depends_on": [
+        "P1-11"
+      ],
+      "allowed_files": [
+        "deeptutor/api/routers/subjects.py",
+        "tests/phase1/test_p1_15.py"
+      ],
+      "symbol_scope": "patch_subject函数；不新增name更新route。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_15.py"
+      ],
+      "risk": "normal",
+      "kind": "python",
+      "path": "cards/P1-15.md"
+    },
+    {
+      "id": "P1-16",
+      "title": "统一音频上传安全保存",
+      "contracts": [
+        "C07",
+        "C02"
+      ],
+      "depends_on": [
+        "P1-11",
+        "P1-03"
+      ],
+      "allowed_files": [
+        "deeptutor/subjects/uploads.py",
+        "deeptutor/api/routers/subjects.py",
+        "deeptutor/services/asr/transcribe.py",
+        "tests/phase1/test_p1_16.py"
+      ],
+      "symbol_scope": "新subject upload safety helper、upload_subject_knowledge的ASR分支；普通文档批次/替换留17/18。 transcribe只改multipart文件流/MIME/受控错误，STT配置与provider选择不变。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_16.py"
+      ],
+      "risk": "security",
+      "kind": "python",
+      "path": "cards/P1-16.md"
+    },
+    {
+      "id": "P1-17",
+      "title": "校验上传整批类型并分清操作类型",
+      "contracts": [
+        "C07"
+      ],
+      "depends_on": [
+        "P1-16"
+      ],
+      "allowed_files": [
+        "deeptutor/subjects/uploads.py",
+        "deeptutor/api/routers/subjects.py",
+        "tests/phase1/test_p1_17.py"
+      ],
+      "symbol_scope": "upload batch preflight/TYPE_BY_EXTENSION与operation字段；不实现多类别自动分库。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_17.py"
+      ],
+      "risk": "normal",
+      "kind": "python",
+      "path": "cards/P1-17.md"
+    },
+    {
+      "id": "P1-18",
+      "title": "修复同名资料替换与索引源一致性",
+      "contracts": [
+        "C07",
+        "C01"
+      ],
+      "depends_on": [
+        "P1-17",
+        "P1-10"
+      ],
+      "allowed_files": [
+        "deeptutor/subjects/uploads.py",
+        "deeptutor/api/routers/subjects.py",
+        "deeptutor/subjects/material_manifest.py",
+        "tests/phase1/test_p1_18.py"
+      ],
+      "symbol_scope": "文档上传stage/commit、materials/raw copy及内部source manifest；不改全局index version schema。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_18.py"
+      ],
+      "risk": "storage",
+      "kind": "python",
+      "path": "cards/P1-18.md"
+    },
+    {
+      "id": "P1-19",
+      "title": "修正科目KB计数和重建状态",
+      "contracts": [
+        "C07",
+        "C02"
+      ],
+      "depends_on": [
+        "P1-18",
+        "P1-11",
+        "P1-29"
+      ],
+      "allowed_files": [
+        "deeptutor/api/routers/subjects.py",
+        "deeptutor/subjects/material_manifest.py",
+        "tests/phase1/test_p1_19.py"
+      ],
+      "symbol_scope": "list_subject_knowledge/subject_kb_status、upload任务状态及计数投影；不改全局manager状态机。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_19.py"
+      ],
+      "risk": "normal",
+      "kind": "python",
+      "path": "cards/P1-19.md"
+    },
+    {
+      "id": "P1-20",
+      "title": "定义与解析科目KB作用域标识",
+      "contracts": [
+        "C08",
+        "C01",
+        "C02"
+      ],
+      "depends_on": [
+        "P1-03",
+        "P1-11"
+      ],
+      "allowed_files": [
+        "deeptutor/subjects/kb_scope.py",
+        "tests/phase1/test_p1_20.py"
+      ],
+      "symbol_scope": "新scope codec/resolver，复用multi_user的global resolver；本卡不动chat或工具。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_20.py"
+      ],
+      "risk": "security",
+      "kind": "python",
+      "path": "cards/P1-20.md"
+    },
+    {
+      "id": "P1-21",
+      "title": "持久化和解析会话科目三态",
+      "contracts": [
+        "C08",
+        "C02"
+      ],
+      "depends_on": [
+        "P1-20"
+      ],
+      "allowed_files": [
+        "deeptutor/services/session/turn_runtime.py",
+        "deeptutor/runtime/request_contracts.py",
+        "tests/phase1/test_p1_21.py",
+        "deeptutor/api/routers/unified_ws.py",
+        "tests/api/test_unified_ws_turn_runtime.py"
+      ],
+      "symbol_scope": "start_turn偏好解析、subject_id验证、_request_snapshot_metadata与运行payload；不改sqlite表/全能力协议。 追加窄授权 unified_ws.py 的 start_turn/regenerate 科目错误拒绝投影及对应现有 WS 测试；不重写协议。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_21.py",
+        "./.venv/bin/python -m pytest -q tests/services/session/test_regenerate.py",
+        "./.venv/bin/python -m pytest -q tests/api/test_unified_ws_turn_runtime.py"
+      ],
+      "risk": "security",
+      "kind": "python",
+      "path": "cards/P1-21.md"
+    },
+    {
+      "id": "P1-22",
+      "title": "挂载当前科目知识库与学期摘要",
+      "contracts": [
+        "C08",
+        "C06"
+      ],
+      "depends_on": [
+        "P1-20",
+        "P1-21",
+        "P1-19"
+      ],
+      "allowed_files": [
+        "deeptutor/services/session/turn_runtime.py",
+        "tests/phase1/test_p1_22.py"
+      ],
+      "symbol_scope": "UnifiedContext组装及subject上下文块；不动模型prompt大架构。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_22.py"
+      ],
+      "risk": "security",
+      "kind": "python",
+      "path": "cards/P1-22.md"
+    },
+    {
+      "id": "P1-23",
+      "title": "使rag检索执行服从科目资源解析",
+      "contracts": [
+        "C08",
+        "C02"
+      ],
+      "depends_on": [
+        "P1-20"
+      ],
+      "allowed_files": [
+        "deeptutor/agents/chat/agentic_pipeline.py",
+        "deeptutor/agents/question/pipeline.py",
+        "deeptutor/agents/research/pipeline.py",
+        "deeptutor/tools/rag_tool.py",
+        "tests/phase1/test_p1_23.py",
+        "tests/tools/test_rag_tool.py"
+      ],
+      "symbol_scope": "rag_search及_augment_tool_kwargs的rag分支；其他tool留后续卡。 S07返修窄授权：既有question/research RAG调用端无条件注入可信scope、PageIndex真实outline标记及旧测试临时配置；具体按REWORK_S07各自符号，不扩能力。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_23.py",
+        "./.venv/bin/python -m pytest -q tests/tools/test_rag_tool.py"
+      ],
+      "risk": "security",
+      "kind": "python",
+      "path": "cards/P1-23.md"
+    },
+    {
+      "id": "P1-24",
+      "title": "统一KB清单与来源呈现作用域",
+      "contracts": [
+        "C08"
+      ],
+      "depends_on": [
+        "P1-20",
+        "P1-23"
+      ],
+      "allowed_files": [
+        "deeptutor/agents/chat/agentic_pipeline.py",
+        "deeptutor/services/rag/pipelines/pageindex/pipeline.py",
+        "deeptutor/tools/builtin/__init__.py",
+        "tests/agents/chat/test_message_build.py",
+        "tests/phase1/test_p1_24.py"
+      ],
+      "symbol_scope": "RagTool来源包装、KbFilesTool、_prepare/_collect_kb_manifests及相关工具参数enum；不重写所有builtin。 S07返修窄授权：既有question/research RAG调用端无条件注入可信scope、PageIndex真实outline标记及旧测试临时配置；具体按REWORK_S07各自符号，不扩能力。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_24.py",
+        "./.venv/bin/python -m pytest -q tests/tools/test_kb_files_tool.py tests/agents/chat/test_kb_manifest_note.py",
+        "./.venv/bin/python -m pytest -q tests/agents/chat/test_message_build.py"
+      ],
+      "risk": "security",
+      "kind": "python",
+      "path": "cards/P1-24.md"
+    },
+    {
+      "id": "P1-25",
+      "title": "修复科目选择恢复、清空与能力配置合并",
+      "contracts": [
+        "C08",
+        "C13"
+      ],
+      "depends_on": [
+        "P1-21",
+        "P1-22"
+      ],
+      "allowed_files": [
+        "web/components/chat/home/SubjectSelector.tsx",
+        "web/app/(workspace)/home/[[...sessionId]]/page.tsx",
+        "web/context/UnifiedChatContext.tsx",
+        "web/lib/subject-scope.ts",
+        "web/tests/phase1-25.test.ts"
+      ],
+      "symbol_scope": "SubjectSelector、home subject state/handleSend、UnifiedChatContext subject字段；新helper仅纯输入归一化。",
+      "commands": [
+        "cd web && node ./scripts/run-node-tests.mjs",
+        "cd web && ./node_modules/.bin/tsc --noEmit -p ."
+      ],
+      "risk": "normal",
+      "kind": "ui",
+      "path": "cards/P1-25.md"
+    },
+    {
+      "id": "P1-26",
+      "title": "实现图片描述转文本的索引辅助单元",
+      "contracts": [
+        "C09",
+        "C04",
+        "C02"
+      ],
+      "depends_on": [
+        "P1-03",
+        "P1-04"
+      ],
+      "allowed_files": [
+        "deeptutor/services/rag/pipelines/llamaindex/image_description.py",
+        "tests/phase1/test_p1_26.py",
+        "deeptutor/services/llm/factory.py"
+      ],
+      "symbol_scope": "新helper只选择已有vision配置、受限描述并产生文本节点/结果，不修改loader。；S06返修明确补入factory.complete_response逐调用严格图像策略，保留其他调用默认行为。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_26.py"
+      ],
+      "risk": "normal",
+      "kind": "python",
+      "path": "cards/P1-26.md"
+    },
+    {
+      "id": "P1-27",
+      "title": "接通loader的图像文本索引与覆盖报告",
+      "contracts": [
+        "C09",
+        "C07"
+      ],
+      "depends_on": [
+        "P1-26"
+      ],
+      "allowed_files": [
+        "deeptutor/services/rag/pipelines/llamaindex/document_loader.py",
+        "deeptutor/services/rag/pipelines/llamaindex/pipeline.py",
+        "tests/phase1/test_p1_27.py",
+        "deeptutor/knowledge/initializer.py",
+        "deeptutor/knowledge/progress_tracker.py",
+        "tests/services/rag/test_llamaindex_document_loader.py",
+        "deeptutor/knowledge/manager.py",
+        "deeptutor/subjects/uploads.py",
+        "deeptutor/subjects/material_manifest.py"
+      ],
+      "symbol_scope": "load/_load_image_nodes及初始化对节点/coverage结果的投影；保持默认vector配置。 加法式coverage贯通initializer和ProgressTracker最终保存/事件；旧loader测试仅适配图像fixture/过时跳图断言，保留S01隔离。；S06返修明确补入manager稳定coverage字段及read_kb_status/project_status安全只读投影，不改状态机/上传事务。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_27.py",
+        "./.venv/bin/python -m pytest -q tests/services/rag/test_llamaindex_document_loader.py"
+      ],
+      "risk": "normal",
+      "kind": "python",
+      "path": "cards/P1-27.md"
+    },
+    {
+      "id": "P1-28",
+      "title": "建立文档内嵌抽图与预算回归",
+      "contracts": [
+        "C09"
+      ],
+      "depends_on": [
+        "P1-01"
+      ],
+      "allowed_files": [
+        "deeptutor/utils/document_images.py",
+        "deeptutor/utils/document_extractor.py",
+        "tests/phase1/test_p1_28.py"
+      ],
+      "symbol_scope": "只修新边界测试揭示的抽图问题；既有多模态下游不重写。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_28.py"
+      ],
+      "risk": "normal",
+      "kind": "python",
+      "path": "cards/P1-28.md"
+    },
+    {
+      "id": "P1-29",
+      "title": "验证索引停滞与同库worker生命周期",
+      "contracts": [
+        "C07"
+      ],
+      "depends_on": [
+        "P1-01"
+      ],
+      "allowed_files": [
+        "deeptutor/services/rag/pipelines/llamaindex/pipeline.py",
+        "tests/phase1/test_p1_29.py"
+      ],
+      "symbol_scope": "_run_with_stall_guard/_INDEX_WORKERS；只修测试证实的生命周期缺陷。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_29.py"
+      ],
+      "risk": "normal",
+      "kind": "python",
+      "path": "cards/P1-29.md"
+    },
+    {
+      "id": "P1-30",
+      "title": "固定embedding进程共享锁初始化",
+      "contracts": [
+        "C07"
+      ],
+      "depends_on": [
+        "P1-01"
+      ],
+      "allowed_files": [
+        "deeptutor/services/embedding/client.py",
+        "tests/phase1/test_p1_30.py"
+      ],
+      "symbol_scope": "_global_spacing_lock/_hold_spacing_lock初始化与退出；不做多key轮换或并发策略改造。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_30.py",
+        "./.venv/bin/python -m pytest -q tests/services/embedding/test_client_runtime.py"
+      ],
+      "risk": "normal",
+      "kind": "python",
+      "path": "cards/P1-30.md"
+    },
+    {
+      "id": "P1-31",
+      "title": "修复报告输入、JSON和ODE提示语义",
+      "contracts": [
+        "C11",
+        "C04"
+      ],
+      "depends_on": [
+        "P1-04",
+        "P1-55"
+      ],
+      "allowed_files": [
+        "deeptutor/services/pdf/report.py",
+        "deeptutor/services/pdf/report_inputs.py",
+        "tests/phase1/test_p1_31.py"
+      ],
+      "symbol_scope": "CHART_CODE_PROMPT/_extract_json与纯report input/AST验证；执行器留33/34。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_31.py"
+      ],
+      "risk": "security",
+      "kind": "python",
+      "path": "cards/P1-31.md"
+    },
+    {
+      "id": "P1-32",
+      "title": "实现独立报告任务目录与完成发布",
+      "contracts": [
+        "C11",
+        "C01"
+      ],
+      "depends_on": [
+        "P1-10"
+      ],
+      "allowed_files": [
+        "deeptutor/services/pdf/report_store.py",
+        "tests/phase1/test_p1_32.py"
+      ],
+      "symbol_scope": "新report_id/staging/manifest/publish读取辅助；本卡不执行模型或图表。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_32.py"
+      ],
+      "risk": "storage",
+      "kind": "python",
+      "path": "cards/P1-32.md"
+    },
+    {
+      "id": "P1-33",
+      "title": "建立合格的报告代码执行边界",
+      "contracts": [
+        "C11",
+        "C02"
+      ],
+      "depends_on": [
+        "P1-03",
+        "P1-32"
+      ],
+      "allowed_files": [
+        "deeptutor/services/pdf/chart_executor.py",
+        "deeptutor/services/pdf/chart_worker.py",
+        "tests/phase1/test_p1_33.py"
+      ],
+      "symbol_scope": "新report-only executor/trusted worker；复用已有BwrapBackend，不重构一般exec/runner。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_33.py"
+      ],
+      "risk": "security",
+      "kind": "python",
+      "path": "cards/P1-33.md"
+    },
+    {
+      "id": "P1-34",
+      "title": "验证当前任务图像与ODE检查产物",
+      "contracts": [
+        "C11"
+      ],
+      "depends_on": [
+        "P1-31",
+        "P1-33"
+      ],
+      "allowed_files": [
+        "deeptutor/services/pdf/chart_validation.py",
+        "tests/phase1/test_p1_34.py"
+      ],
+      "symbol_scope": "pure PNG/路径/hash验证及通过executor运行ODE数值检查；不编排全文report。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_34.py"
+      ],
+      "risk": "security",
+      "kind": "python",
+      "path": "cards/P1-34.md"
+    },
+    {
+      "id": "P1-35",
+      "title": "接通报告完整生成与图占位替换",
+      "contracts": [
+        "C11",
+        "C04"
+      ],
+      "depends_on": [
+        "P1-31",
+        "P1-32",
+        "P1-33",
+        "P1-34"
+      ],
+      "allowed_files": [
+        "deeptutor/services/pdf/report.py",
+        "tests/phase1/test_p1_35.py",
+        "tests/phase1/test_p1_31.py"
+      ],
+      "symbol_scope": "generate_report/_run_chart_code/_chart_ode_matches/_render_report_pdf接入helper；review留36。 协调者2026-10-17窄授权：P31的_Recorder/_run_report及7个generate_report接缝适配新pipeline，保留所有纯输入断言，旧“图失败仍成功”改为整体失败。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_31.py tests/phase1/test_p1_35.py"
+      ],
+      "risk": "security",
+      "kind": "python",
+      "path": "cards/P1-35.md"
+    },
+    {
+      "id": "P1-36",
+      "title": "限制报告核查路径并保护原报告",
+      "contracts": [
+        "C11",
+        "C02"
+      ],
+      "depends_on": [
+        "P1-32",
+        "P1-35"
+      ],
+      "allowed_files": [
+        "deeptutor/tools/report_tool.py",
+        "deeptutor/services/pdf/report.py",
+        "deeptutor/agents/chat/agentic_pipeline.py",
+        "tests/phase1/test_p1_36.py"
+      ],
+      "symbol_scope": "review输入解析/_render_reviewed及generate_report分支的服务端source_index注入；不新增通用文件读取或新review API。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_36.py"
+      ],
+      "risk": "security",
+      "kind": "python",
+      "path": "cards/P1-36.md"
+    },
+    {
+      "id": "P1-37",
+      "title": "统一报告和复习包的API与工具失败响应",
+      "contracts": [
+        "C02",
+        "C11",
+        "C04"
+      ],
+      "depends_on": [
+        "P1-03",
+        "P1-35",
+        "P1-36"
+      ],
+      "allowed_files": [
+        "deeptutor/api/routers/subjects.py",
+        "deeptutor/tools/report_tool.py",
+        "tests/phase1/test_p1_37.py"
+      ],
+      "symbol_scope": "generate_review_pack/generate_subject_report与ReportTool create结果投影；不改其他tools。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_37.py"
+      ],
+      "risk": "normal",
+      "kind": "python",
+      "path": "cards/P1-37.md"
+    },
+    {
+      "id": "P1-38",
+      "title": "移除现有生成路由的事件循环阻塞",
+      "contracts": [
+        "C11",
+        "C13"
+      ],
+      "depends_on": [
+        "P1-37"
+      ],
+      "allowed_files": [
+        "deeptutor/api/routers/subjects.py",
+        "deeptutor/services/pdf/report.py",
+        "deeptutor/services/pdf/report_store.py",
+        "tests/phase1/test_p1_38.py"
+      ],
+      "symbol_scope": "render_pdf/render_docx/Typst同步调用与review render offload；不得新增后台任务产品。 2026-10-19协调者验收补修：report_store内部prepare/commit/discard拆分；保留公开publish_report_run签名及安全验证。此授权仅记录已完成的S09修复。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_38.py"
+      ],
+      "risk": "normal",
+      "kind": "python",
+      "path": "cards/P1-38.md"
+    },
+    {
+      "id": "P1-39",
+      "title": "修复无证据掌握度及过时知识点关联",
+      "contracts": [
+        "C10"
+      ],
+      "depends_on": [
+        "P1-12",
+        "P1-13",
+        "P1-14"
+      ],
+      "allowed_files": [
+        "deeptutor/subjects/knowledge_points.py",
+        "deeptutor/services/pdf/review_guide.py",
+        "deeptutor/api/routers/subjects.py",
+        "tests/phase1/test_p1_39.py"
+      ],
+      "symbol_scope": "aggregate/context_summary/review input及build_knowledge_points；不自动抽取教材知识点。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_39.py"
+      ],
+      "risk": "normal",
+      "kind": "python",
+      "path": "cards/P1-39.md"
+    },
+    {
+      "id": "P1-40",
+      "title": "构造完整且受限的科目导出快照",
+      "contracts": [
+        "C12",
+        "C01"
+      ],
+      "depends_on": [
+        "P1-11",
+        "P1-12",
+        "P1-13",
+        "P1-14",
+        "P1-32"
+      ],
+      "allowed_files": [
+        "deeptutor/api/routers/subjects.py",
+        "deeptutor/services/pdf/report.py",
+        "deeptutor/services/pdf/report_store.py",
+        "deeptutor/subjects/export_bundle.py",
+        "deeptutor/subjects/subject_operations.py",
+        "deeptutor/subjects/uploads.py",
+        "tests/phase1/test_p1_40.py",
+        "tests/phase1/test_subject_operations.py"
+      ],
+      "symbol_scope": "新snapshot/archive helper；不在本卡改HTTP接口或新增恢复API。 2026-10-19协调者补充授权：subject_operations共享长任务租约与快照/删除互斥；uploads队列到worker结束、report_store运行及report.py取消后仍存活线程、subjects.py上传/复习包生命周期的最小接入；测试放test_subject_operations。不得重写索引器、沙箱或报告契约。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_40.py"
+      ],
+      "risk": "security",
+      "kind": "python",
+      "path": "cards/P1-40.md"
+    },
+    {
+      "id": "P1-41",
+      "title": "接通导出API与下载响应",
+      "contracts": [
+        "C12",
+        "C02",
+        "C13"
+      ],
+      "depends_on": [
+        "P1-40",
+        "P1-03"
+      ],
+      "allowed_files": [
+        "deeptutor/api/routers/subjects.py",
+        "tests/phase1/test_p1_41.py"
+      ],
+      "symbol_scope": "export_subject_data函数；复用outputs鉴权，禁止改全局public allowlist。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_41.py"
+      ],
+      "risk": "normal",
+      "kind": "python",
+      "path": "cards/P1-41.md"
+    },
+    {
+      "id": "P1-42",
+      "title": "修复科目页面错误、busy和上传状态",
+      "contracts": [
+        "C13",
+        "C02",
+        "C07",
+        "C12"
+      ],
+      "depends_on": [
+        "P1-08",
+        "P1-17",
+        "P1-19",
+        "P1-41"
+      ],
+      "allowed_files": [
+        "web/app/(workspace)/subjects/[id]/page.tsx",
+        "web/app/(workspace)/subjects/page.tsx",
+        "web/lib/subject-results.ts",
+        "web/tests/phase1-42.test.ts"
+      ],
+      "symbol_scope": "现有action处理与消息投影；不新增AI批改表单或重做工作台。 2026-10-19明确现有页面内增加最小科目导出按钮与范围文案，调用既有export/outputs链路；不新增C10知识点UI，不改变C05 WrongEntry.mastery的number/0-untracked语义。",
+      "commands": [
+        "cd web && node ./scripts/run-node-tests.mjs",
+        "cd web && ./node_modules/.bin/tsc --noEmit -p ."
+      ],
+      "risk": "normal",
+      "kind": "ui",
+      "path": "cards/P1-42.md"
+    },
+    {
+      "id": "P1-43",
+      "title": "移除Obsidian不可用创建入口",
+      "contracts": [
+        "C13"
+      ],
+      "depends_on": [
+        "P1-01"
+      ],
+      "allowed_files": [
+        "web/components/knowledge/CreateKbModal.tsx",
+        "web/components/knowledge/KnowledgeHome.tsx",
+        "web/components/knowledge/KnowledgePage.tsx",
+        "web/tests/phase1-43.test.ts"
+      ],
+      "symbol_scope": "Obsidian选项、连接callback/UI文案；不改其他knowledge provider与501接口。",
+      "commands": [
+        "cd web && node ./scripts/run-node-tests.mjs",
+        "cd web && ./node_modules/.bin/tsc --noEmit -p ."
+      ],
+      "risk": "normal",
+      "kind": "ui",
+      "path": "cards/P1-43.md"
+    },
+    {
+      "id": "P1-44",
+      "title": "清理已删伙伴系统依赖与打包镜像",
+      "contracts": [
+        "C13"
+      ],
+      "depends_on": [
+        "P1-01"
+      ],
+      "allowed_files": [
+        "packaging/deeptutor-cli/pyproject.toml",
+        "pyproject.toml",
+        "requirements.txt",
+        "requirements/cli.txt",
+        "requirements/matrix-e2e.txt",
+        "requirements/matrix.txt",
+        "requirements/partners.txt",
+        "requirements/server.txt",
+        "tests/phase1/test_p1_44.py",
+        "tests/test_matrix_requirements.py",
+        "tests/test_packaging_metadata.py"
+      ],
+      "symbol_scope": "partners/tutorbot/matrix extras及对应mirror/断言；不改其他核心依赖或版本。 2026-10-19明确补充：这两个文件仅修正MCP自动注入的过时注释为兼容待审查，保留MCP依赖及其它元数据/版本；不删MCP SDK或共享依赖。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_44.py",
+        "./.venv/bin/python -m pytest -q tests/test_packaging_metadata.py"
+      ],
+      "risk": "packaging",
+      "kind": "python",
+      "path": "cards/P1-44.md"
+    },
+    {
+      "id": "P1-45",
+      "title": "锁定CLI裁剪结果并清理死命令说明",
+      "contracts": [
+        "C13"
+      ],
+      "depends_on": [
+        "P1-01"
+      ],
+      "allowed_files": [
+        "AGENTS.md",
+        "SKILL.md",
+        "deeptutor_cli/README.md",
+        "deeptutor_cli/main.py",
+        "tests/cli/test_docs_contract.py",
+        "tests/cli/test_provider_cli.py",
+        "tests/phase1/test_p1_45.py"
+      ],
+      "symbol_scope": "book/partner命令注册残项及用户命令说明；不改其他CLI。 2026-10-19明确补充：AGENTS.md仅添加或同步当前fork的CLI/extra裁剪差异说明，不改其它协作指令。 2026-10-19 S11-final协调者附修：现有文档命令验证改为真实Typer注册(含skills别名)，删除手工白名单对book/partner的误许可，并不再因参数占位符跳过命令名；保留现有四项有效断言。该文件随后S12只读。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_45.py",
+        "./.venv/bin/python -m pytest -q tests/cli/test_provider_cli.py"
+      ],
+      "risk": "normal",
+      "kind": "python",
+      "path": "cards/P1-45.md"
+    },
+    {
+      "id": "P1-46",
+      "title": "让PageIndex能力说明与概览检索一致",
+      "contracts": [
+        "C13",
+        "C08"
+      ],
+      "depends_on": [
+        "P1-23",
+        "P1-24"
+      ],
+      "allowed_files": [
+        "deeptutor/agents/chat/agentic_pipeline.py",
+        "deeptutor/knowledge/kb_types.py",
+        "deeptutor/services/rag/factory.py",
+        "deeptutor/services/rag/pipelines/pageindex/pipeline.py",
+        "tests/phase1/test_p1_46.py"
+      ],
+      "symbol_scope": "PageIndex挂载/rag过滤、_pageindex_system_note/REST search metadata和stale capability注释；不建MCP client。 2026-10-19 S11-final依用户直接修复授权批准并完成scope request：仅修list_pipelines的PageIndex用户可见描述及相邻概览注释，不再宣称不存在的MCP tools；保持provider/config/依赖与工厂行为。测试在原P46测试文件。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_46.py"
+      ],
+      "risk": "normal",
+      "kind": "python",
+      "path": "cards/P1-46.md"
+    },
+    {
+      "id": "P1-47",
+      "title": "修正活跃文档与固定启动数据根",
+      "contracts": [
+        "C01",
+        "C13",
+        "C14"
+      ],
+      "depends_on": [
+        "P1-25",
+        "P1-27",
+        "P1-37",
+        "P1-41",
+        "P1-44",
+        "P1-45",
+        "P1-46"
+      ],
+      "allowed_files": [
+        "README.md",
+        "HANDOVER.md",
+        "AGENTS.md",
+        "CONTAINERIZATION.md",
+        "docker-compose.yml",
+        "docker-compose.ghcr.yml",
+        "scripts/start_selflearn.sh",
+        "plans/phase1/ENVIRONMENT.md",
+        "tests/phase1/test_p1_47.py"
+      ],
+      "symbol_scope": "仅文档、compose注释和新固定home启动wrapper；禁止改compose数据mount/网络策略或历史上游存档。 2026-10-19 S12明确执行：wrapper限定为start入口，从脚本实际位置确定仓库根，覆盖继承DEEPTUTOR_HOME并cd该根，用该根.venv/bin/deeptutor start --home该根；拒绝调用参数--home及--home=，缺本地CLI明确失败且不回退PATH、不自动安装。只在tmp复制wrapper配fake CLI测试，不启动真实服务。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_47.py"
+      ],
+      "risk": "normal",
+      "kind": "python",
+      "path": "cards/P1-47.md"
+    },
+    {
+      "id": "P1-48",
+      "title": "清零明确的业务目录lint基线",
+      "contracts": [
+        "C14"
+      ],
+      "depends_on": [
+        "P1-06",
+        "P1-08",
+        "P1-14",
+        "P1-37",
+        "P1-39",
+        "P1-47"
+      ],
+      "allowed_files": [
+        "deeptutor/api/routers/chat.py",
+        "deeptutor/api/routers/subjects.py",
+        "deeptutor/services/pdf/review_guide.py",
+        "deeptutor/services/session/summarize.py",
+        "deeptutor/services/session/turn_runtime.py",
+        "deeptutor/services/storage/attachment_store.py",
+        "deeptutor/subjects/*.py"
+      ],
+      "symbol_scope": "仅Ruff报告中的I001排序与E741局部变量重命名；不得业务重构或调整pyproject忽略规则。 2026-10-19协调者当前只读Ruff清点为3个I001/1个E741：api/routers/chat.py两处I001、storage/attachment_store.py一处I001、session/summarize.py一处E741。此前12项是历史，不需制造额外修改；本卡仍以实际全目录Ruff为准，仅排序或重命名，不移动延迟导入出局部作用域，不改规则/忽略。",
+      "commands": [
+        "./.venv/bin/ruff check deeptutor deeptutor_cli",
+        "git diff --check"
+      ],
+      "risk": "normal",
+      "kind": "lint",
+      "path": "cards/P1-48.md"
+    },
+    {
+      "id": "P1-49",
+      "title": "运行第一阶段离线全量与差异验收",
+      "contracts": [
+        "C14"
+      ],
+      "depends_on": [
+        "P1-00",
+        "P1-01",
+        "P1-02",
+        "P1-03",
+        "P1-04",
+        "P1-05",
+        "P1-06",
+        "P1-07",
+        "P1-08",
+        "P1-09",
+        "P1-10",
+        "P1-11",
+        "P1-12",
+        "P1-13",
+        "P1-14",
+        "P1-15",
+        "P1-16",
+        "P1-17",
+        "P1-18",
+        "P1-19",
+        "P1-20",
+        "P1-21",
+        "P1-22",
+        "P1-23",
+        "P1-24",
+        "P1-25",
+        "P1-26",
+        "P1-27",
+        "P1-28",
+        "P1-29",
+        "P1-30",
+        "P1-31",
+        "P1-32",
+        "P1-33",
+        "P1-34",
+        "P1-35",
+        "P1-36",
+        "P1-37",
+        "P1-38",
+        "P1-39",
+        "P1-40",
+        "P1-41",
+        "P1-42",
+        "P1-43",
+        "P1-44",
+        "P1-45",
+        "P1-46",
+        "P1-47",
+        "P1-48",
+        "P1-54",
+        "P1-55",
+        "P1-56"
+      ],
+      "allowed_files": [
+        "scripts/phase1_verify.py"
+      ],
+      "symbol_scope": "仅验收脚本与本卡证据；失败回对应卡，不在本卡偷偷修改业务实现。 2026-10-20 S13：完整tests+deeptutor/learning/tests，Node沿用477已验收基线并实际收集；应用导入前临时HOME/DEEPTUTOR_HOME/凭证隔离，真实命令/失败传播、历史receipt兼容、最新145源码、scope与六树和恢复归档；不得改只读实现/测试/配置。",
+      "commands": [
+        "./.venv/bin/python scripts/phase1_verify.py"
+      ],
+      "risk": "gate",
+      "kind": "gate",
+      "path": "cards/P1-49.md"
+    },
+    {
+      "id": "P1-50",
+      "title": "真实OS沙箱与图表安全验收",
+      "contracts": [
+        "C11",
+        "C14"
+      ],
+      "depends_on": [
+        "P1-33",
+        "P1-34",
+        "P1-35"
+      ],
+      "allowed_files": [
+        "scripts/phase1_sandbox_acceptance.py"
+      ],
+      "symbol_scope": "只验收脚本、临时任务与证据；无权限安装bwrap/修改系统策略/一般runner。 2026-10-20 S13：真实合格bwrap与生产PNG/ODE/报告发布链；临时fake secret/canary/localhost监听，正反例验证宿主读写隔离、超时后代清理、进程级RLIMIT和失败无正式PDF；禁止host回退、宿主OOM或fork bomb，缺环境非零blocked_environment。",
+      "commands": [
+        "./.venv/bin/python scripts/phase1_sandbox_acceptance.py"
+      ],
+      "risk": "gate",
+      "kind": "gate",
+      "path": "cards/P1-50.md"
+    },
+    {
+      "id": "P1-51",
+      "title": "HTTP现有功能闭环验收",
+      "contracts": [
+        "C02",
+        "C05",
+        "C06",
+        "C07",
+        "C10",
+        "C11",
+        "C12",
+        "C14"
+      ],
+      "depends_on": [
+        "P1-49",
+        "P1-50",
+        "P1-54"
+      ],
+      "allowed_files": [
+        "tests/phase1/test_http_acceptance.py"
+      ],
+      "symbol_scope": "仅HTTP acceptance scenarios；不改API/业务以使验收过。 2026-10-20 S14：真实HTTP Form/File和outputs下载，至少正式app隔离冒烟；临时CRUD/文档与音频/批改考点/真实Typst+bwrap图表报告/ZIP hash与删除冲突。只stub外部provider，不替换整条业务链。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_http_acceptance.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_http_acceptance.py"
+      ],
+      "risk": "gate",
+      "kind": "python",
+      "path": "cards/P1-51.md"
+    },
+    {
+      "id": "P1-52",
+      "title": "WebSocket科目检索与失败闭环验收",
+      "contracts": [
+        "C08",
+        "C02",
+        "C09",
+        "C14"
+      ],
+      "depends_on": [
+        "P1-49",
+        "P1-22",
+        "P1-23",
+        "P1-24",
+        "P1-46"
+      ],
+      "allowed_files": [
+        "tests/phase1/test_ws_acceptance.py"
+      ],
+      "symbol_scope": "仅WS协议acceptance与本卡localhost model stub；不改主聊天协议。 2026-10-20 S14：真实WS turn与生产工具循环/RAG resolver/source因果链，三态及snapshot重放，跨科伪造失败、图片文本节点检索与PageIndex outline；模型stub需读取实际工具返回，不硬编码期望标记。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_ws_acceptance.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_ws_acceptance.py"
+      ],
+      "risk": "gate",
+      "kind": "python",
+      "path": "cards/P1-52.md"
+    },
+    {
+      "id": "P1-53",
+      "title": "浏览器验收科目状态与现有工作台",
+      "contracts": [
+        "C13",
+        "C08",
+        "C14"
+      ],
+      "depends_on": [
+        "P1-49",
+        "P1-25",
+        "P1-42",
+        "P1-43",
+        "P1-51",
+        "P1-52"
+      ],
+      "allowed_files": [
+        "web/e2e/phase1.spec.ts",
+        "web/playwright.phase1.config.ts"
+      ],
+      "symbol_scope": "仅新的Playwright测试/config与临时应用fixture；不改产品UI或全局playwright策略。",
+      "commands": [
+        "cd web && ./node_modules/.bin/playwright test -c playwright.phase1.config.ts"
+      ],
+      "risk": "gate",
+      "kind": "gate",
+      "path": "cards/P1-53.md"
+    },
+    {
+      "id": "P1-54",
+      "title": "使科目删除处理产物并拒绝忙科目",
+      "contracts": [
+        "C03",
+        "C01",
+        "C12"
+      ],
+      "depends_on": [
+        "P1-11",
+        "P1-19",
+        "P1-32",
+        "P1-41"
+      ],
+      "allowed_files": [
+        "deeptutor/api/routers/subjects.py",
+        "deeptutor/services/pdf/chart_executor.py",
+        "deeptutor/subjects/exam_points.py",
+        "deeptutor/subjects/knowledge_points.py",
+        "deeptutor/subjects/profile.py",
+        "deeptutor/subjects/store.py",
+        "deeptutor/subjects/wrong_book.py",
+        "tests/phase1/test_p1_33.py",
+        "tests/phase1/test_p1_54.py"
+      ],
+      "symbol_scope": "delete_subject数据函数与delete route；不扫描清理其他科/legacy目录。 2026-10-19协调者验收补修：store.subject_transaction及四个学情模块现有短事务接入共享活动租约，防止迟到JSON写入在删除后重建科目；只换锁接缝，不改数据/评分契约。此范围记录已完成S10修复。 2026-10-19协调者warning审计附修：run_bounded_spawn在组长已退出、后代持管道的timeout/cancel/reader_error出口，显式结束读取任务并有界分块排空管道；必要时关闭自己拥有的asyncio transport。仅资源生命周期，不改C11政策/worker/OS验收。三项永久回归修复前均失败。两个前置源码路径在S10验收补修中明确授权，S11仍只读。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_54.py"
+      ],
+      "risk": "storage",
+      "kind": "python",
+      "path": "cards/P1-54.md"
+    },
+    {
+      "id": "P1-55",
+      "title": "建立严格的单对象模型JSON解析器",
+      "contracts": [
+        "C04",
+        "C02"
+      ],
+      "depends_on": [
+        "P1-03"
+      ],
+      "allowed_files": [
+        "deeptutor/subjects/model_output.py",
+        "tests/phase1/test_p1_55.py"
+      ],
+      "symbol_scope": "新pure parser；不在本卡实现批改/考点语义。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_55.py"
+      ],
+      "risk": "normal",
+      "kind": "python",
+      "path": "cards/P1-55.md"
+    },
+    {
+      "id": "P1-56",
+      "title": "统一subject路由的存储和业务错误出口",
+      "contracts": [
+        "C02",
+        "C01"
+      ],
+      "depends_on": [
+        "P1-03",
+        "P1-11"
+      ],
+      "allowed_files": [
+        "deeptutor/api/subject_route.py",
+        "deeptutor/api/routers/subjects.py",
+        "tests/phase1/test_p1_56.py"
+      ],
+      "symbol_scope": "新subject-only APIRoute error wrapper、router route_class及_require_subject；不注册全局handler。",
+      "commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_56.py"
+      ],
+      "risk": "normal",
+      "kind": "python",
+      "path": "cards/P1-56.md"
+    }
+  ],
+  "field_schema": "schemas.json",
+  "examples": "examples.json",
+  "max_parallel_agents": 1,
+  "dependency_layers_are_parallel_batches": false,
+  "bootstrap_cards": [
+    "P1-00",
+    "P1-01",
+    "P1-02"
+  ],
+  "business_prerequisite_gate": "G0: accepted P1-00 coordinator review plus S01 unit evidence and stage acceptance",
+  "stage_index": "stages.json",
+  "execution_policy_version": 2
+}

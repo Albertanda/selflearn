@@ -5,6 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+from pathlib import Path
+import re
 from typing import Any
 
 from deeptutor.capabilities.mastery import MASTERY_TOOL_TYPES
@@ -68,7 +71,104 @@ class BrainstormTool(_PromptHintsMixin, BaseTool):
         return ToolResult(content=result.get("answer", ""), metadata=result)
 
 
-def _rag_sources(result: dict[str, Any], *, query: str, kb_name: str) -> list[dict[str, Any]]:
+#: Provenance fields a ``rag`` citation may carry through to the model and the
+#: UI. Everything else the engine attached is dropped: the scope of a lookup
+#: (``kb_ref``/``subject_id``) is written by the server below, and internal
+#: values (a KB directory, a host cache path, a provider key) must never reach a
+#: public source block just because a pipeline happened to include them.
+_RAG_SOURCE_FIELDS = (
+    "title",
+    "content",
+    "source",
+    "file",
+    "filename",
+    "page",
+    "pages",
+    "location",
+    "chunk_id",
+    "chunk_index",
+    "score",
+    "distance",
+)
+
+#: Fields whose value may be a host path: they are projected relative to the
+#: resolved library (or reduced to a bare name) before being published.
+_RAG_PATH_FIELDS = ("source", "file", "filename")
+
+#: The *entire* public result surface of a ``rag`` call. A deny-list cannot be
+#: safe here: an engine may nest diagnostics (keys, cache directories, provider
+#: payloads) under any key name it likes, and new engines add new ones. So the
+#: projection is an allow-list of scalar fields the tool layer actually consumes
+#: and documents — everything else is dropped, at every depth.
+_RAG_RESULT_FIELDS = (
+    "query",
+    "answer",
+    "content",
+    "provider",
+    "retrieval_kind",
+    "needs_reindex",
+    "error_type",
+    "mode",
+    "documents",
+)
+
+#: Scalar types a public field may hold (a nested dict/list is never forwarded).
+_RAG_SCALARS = (str, int, float, bool, type(None))
+
+
+def _public_rag_result(result: dict[str, Any], sources: list[dict[str, Any]]) -> dict[str, Any]:
+    """The engine's result reduced to the documented, scalar public fields.
+
+    ``ToolResult.metadata`` is public (it rides the tool trace and the persisted
+    events), so neither the raw ``sources`` nor an arbitrary engine payload is
+    forwarded as-is: a citation is rebuilt from allow-listed provenance, and a
+    top-level field survives only when it is one of the documented scalars.
+    """
+    metadata: dict[str, Any] = {}
+    for key in _RAG_RESULT_FIELDS:
+        if key not in result:
+            continue
+        value = result[key]
+        if isinstance(value, bool) or isinstance(value, _RAG_SCALARS):
+            metadata[key] = value
+    metadata["sources"] = sources
+    return metadata
+
+
+#: Windows drive-absolute (``C:\x``, ``C:/x``) and UNC (``\\host\share``)
+#: prefixes. They are absolute paths on the host even when the tests (or the
+#: server) run on POSIX, where ``os.path.isabs`` does not recognise them.
+_WINDOWS_ABSOLUTE_RE = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\)")
+
+
+def _project_path(value: Any, kb_dir: str) -> Any:
+    """Keep a provenance path useful without leaking the host location.
+
+    A host path — POSIX absolute, Windows drive-absolute or UNC — is reduced to
+    its location inside the resolved library when it is under it, and to a bare
+    file name otherwise. A relative path or a URL is already safe and is kept.
+    """
+    if not isinstance(value, str) or not value:
+        return value
+    if _WINDOWS_ABSOLUTE_RE.match(value):
+        return re.split(r"[\\/]+", value.rstrip("\\/"))[-1]
+    if not os.path.isabs(value):
+        return value
+    if kb_dir:
+        try:
+            return Path(value).relative_to(Path(kb_dir)).as_posix()
+        except ValueError:
+            pass
+    return Path(value).name
+
+
+def _rag_sources(
+    result: dict[str, Any],
+    *,
+    query: str,
+    kb_name: str,
+    scope: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     """Citations for one ``rag`` call, from the retrieval's own provenance.
 
     Every pipeline normalises what it retrieved into ``result["sources"]``
@@ -78,11 +178,47 @@ def _rag_sources(result: dict[str, Any], *, query: str, kb_name: str) -> list[di
     only an echo of its own query (issue #694). ``type``/``kb_name`` are kept on
     every entry so consumers that key on them still work, and an engine that
     surfaces no provenance still yields the echo rather than nothing.
+
+    When the server resolved the call (``scope``), the identity fields are
+    written **after** the engine's own keys, so a ``kb_ref``/``subject_id``
+    forged inside ``result["sources"]`` cannot re-label the citation, and the
+    engine's copies of the internal scope fields are never forwarded at all.
     """
+    identity: dict[str, Any] = {}
+    canonical_name = kb_name
+    if scope:
+        canonical_name = str(scope.get("name") or kb_name)
+        identity = {
+            "kb_ref": scope.get("kb_ref"),
+            "subject_id": scope.get("subject_id"),
+        }
     retrieved = [item for item in (result.get("sources") or []) if isinstance(item, dict)]
     if not retrieved:
-        return [{"type": "rag", "query": query, "kb_name": kb_name}]
-    return [{"type": "rag", "kb_name": kb_name, **item} for item in retrieved]
+        return [{"type": "rag", "query": query, "kb_name": canonical_name, **identity}]
+    kb_dir = str((scope or {}).get("kb_dir") or "")
+    sources: list[dict[str, Any]] = []
+    for item in retrieved:
+        projected = {}
+        for key in _RAG_SOURCE_FIELDS:
+            if key not in item:
+                continue
+            value = item[key]
+            if isinstance(value, list):
+                if key != "pages" or not all(type(page) in (int, str) for page in value):
+                    continue
+                value = list(value)
+            elif not isinstance(value, _RAG_SCALARS):
+                continue
+            projected[key] = _project_path(value, kb_dir) if key in _RAG_PATH_FIELDS else value
+        sources.append(
+            {
+                **projected,
+                "type": "rag",
+                "kb_name": canonical_name,
+                **identity,
+            }
+        )
+    return sources
 
 
 class RAGTool(_PromptHintsMixin, BaseTool):
@@ -105,7 +241,18 @@ class RAGTool(_PromptHintsMixin, BaseTool):
         )
 
     async def execute(self, **kwargs: Any) -> ToolResult:
-        from deeptutor.tools.rag_tool import rag_search
+        from deeptutor.subjects.errors import (
+            SubjectOperationError,
+            SubjectStorageError,
+            map_subject_exception,
+            to_tool_result,
+        )
+        from deeptutor.tools import rag_tool as rag_tool_module
+
+        rag_search = rag_tool_module.rag_search
+        # The scope key is a private contract of the rag tool; a test double that
+        # replaces the module wholesale simply has no scope to expose.
+        scope_key = getattr(rag_tool_module, "SCOPE_KEY", "_subject_kb_scope")
 
         query = str(kwargs.get("query") or "").strip()
         if not query:
@@ -120,17 +267,34 @@ class RAGTool(_PromptHintsMixin, BaseTool):
             if key not in {"query", "kb_name", "event_sink"}
         }
 
-        result = await rag_search(
-            query=query,
-            kb_name=kb_name,
-            event_sink=event_sink,
-            **extra_kwargs,
-        )
+        try:
+            result = await rag_search(
+                query=query,
+                kb_name=kb_name,
+                event_sink=event_sink,
+                **extra_kwargs,
+            )
+        except (SubjectOperationError, SubjectStorageError) as exc:
+            # A refused or unusable scope is a visible tool failure (C02): the
+            # model gets the fixed message and must not answer from another
+            # library, and the failure carries the structured code/retryable.
+            mapped = map_subject_exception(exc)
+            failure = to_tool_result(mapped)
+            return ToolResult(
+                content=mapped.message,
+                success=False,
+                metadata=failure["metadata"],
+            )
+        # The scope is server-owned and internal: it never becomes part of the
+        # public result (it carries the KB directory), it only informs the
+        # citation identity written below.
+        scope = result.pop(scope_key, None) if isinstance(result, dict) else None
         content = result.get("answer") or result.get("content", "")
+        sources = _rag_sources(result, query=query, kb_name=kb_name, scope=scope)
         return ToolResult(
             content=content,
-            sources=_rag_sources(result, query=query, kb_name=kb_name),
-            metadata=result,
+            sources=sources,
+            metadata=_public_rag_result(result, sources),
         )
 
 
@@ -180,21 +344,69 @@ class KbFilesTool(_PromptHintsMixin, BaseTool):
         )
 
     async def execute(self, **kwargs: Any) -> ToolResult:
-        from deeptutor.knowledge.manifest import render_manifest_report
+        from deeptutor.knowledge.manifest import build_manifest, render_manifest_report
         from deeptutor.multi_user.knowledge_access import resolve_kb_manifest
+        from deeptutor.subjects import kb_scope
+        from deeptutor.subjects.errors import (
+            SubjectOperationError,
+            SubjectStorageError,
+            map_subject_exception,
+            to_tool_result,
+        )
 
         kb_name = str(kwargs.get("kb_name") or "").strip()
         if not kb_name:
             raise ValueError("kb_files requires an explicit kb_name.")
         pattern = str(kwargs.get("pattern") or "").strip()
         language = str(kwargs.get("language") or "en")
+        limit = _kb_files_limit(kwargs.get("limit"))
+        # The pipeline injects the turn's scope for this tool too. When it is
+        # present the reference is resolved by the shared subject resolver, so a
+        # same-named library in another subject (or a global one) is never
+        # listed; without it the historical access-checked seam answers, which is
+        # what a direct in-process caller gets.
+        subject_id = kwargs.get("_subject_id")
+        mounted_refs = kwargs.get("_mounted_refs")
+        scoped = bool(subject_id) or mounted_refs is not None
 
-        manifest = await asyncio.to_thread(
-            resolve_kb_manifest,
-            kb_name,
-            limit=_kb_files_limit(kwargs.get("limit")),
-            pattern=pattern,
-        )
+        identity: dict[str, Any] = {}
+        try:
+            if scoped:
+                resource = kb_scope.resolve_kb_ref(
+                    kb_name,
+                    expected_subject_id=subject_id,
+                    mounted_refs=mounted_refs,
+                    require_ready=True,
+                )
+                manifest = await asyncio.to_thread(
+                    build_manifest,
+                    name=resource.name,
+                    kb_dir=resource.kb_dir,
+                    entry=kb_scope.kb_entry(resource.base_dir, resource.name),
+                    limit=limit,
+                    pattern=pattern,
+                )
+                identity = {
+                    "kb_ref": resource.kb_ref,
+                    "subject_id": resource.subject_id,
+                }
+            else:
+                manifest = await asyncio.to_thread(
+                    resolve_kb_manifest,
+                    kb_name,
+                    limit=limit,
+                    pattern=pattern,
+                )
+        except (SubjectOperationError, SubjectStorageError) as exc:
+            # Same visible-failure contract as ``rag``: the fixed C02 message plus
+            # the structured code, never a listing from another library.
+            mapped = map_subject_exception(exc)
+            failure = to_tool_result(mapped)
+            return ToolResult(
+                content=mapped.message,
+                success=False,
+                metadata=failure["metadata"],
+            )
         if manifest is None:
             raise ValueError(f"Knowledge base '{kb_name}' is not accessible.")
 
@@ -202,6 +414,9 @@ class KbFilesTool(_PromptHintsMixin, BaseTool):
             content=render_manifest_report(manifest, language=language),
             metadata={
                 "kb_name": manifest.name,
+                # Wire identity and the friendly name are both kept: the name is
+                # what the learner sees, the ref is what a follow-up call must use.
+                **identity,
                 "total": manifest.total,
                 "matched": manifest.matched,
                 "listed": [document.name for document in manifest.documents],

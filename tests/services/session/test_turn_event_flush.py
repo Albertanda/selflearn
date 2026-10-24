@@ -202,6 +202,80 @@ async def test_flush_is_idempotent_per_execution(tmp_path, stub_workspace) -> No
     assert len(mirror.read_text().splitlines()) == 3
 
 
+async def test_repeated_cancel_waits_for_status_and_event_flush(
+    tmp_path, stub_workspace, monkeypatch
+):
+    store = SQLiteSessionStore(tmp_path / "cancel.db")
+    runtime = TurnRuntimeManager(store)
+    session = await store.ensure_session(None)
+    turn = await store.create_turn(session["id"], capability="chat")
+    execution = _TurnExecution(
+        turn_id=turn["id"],
+        session_id=session["id"],
+        capability="chat",
+        payload={"content": "cancel me", "config": {}, "tools": []},
+    )
+    user_started, cleanup_entered, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    real_add, real_flush = store.add_message, runtime._flush_buffered_events
+
+    async def add_message(**kwargs):
+        if kwargs.get("role") == "user":
+            user_started.set()
+            await asyncio.Event().wait()
+        return await real_add(**kwargs)
+
+    async def flush(current):
+        cleanup_entered.set()
+        await release.wait()
+        await real_flush(current)
+
+    monkeypatch.setattr(store, "add_message", add_message)
+    monkeypatch.setattr(runtime, "_flush_buffered_events", flush)
+    runtime._executions[turn["id"]] = execution
+    execution.task = asyncio.create_task(runtime._run_turn(execution))
+    try:
+        await asyncio.wait_for(user_started.wait(), 3)
+        first = asyncio.create_task(runtime.cancel_turn(turn["id"]))
+        await asyncio.wait_for(cleanup_entered.wait(), 3)
+        second = asyncio.create_task(runtime.cancel_turn(turn["id"]))
+        await asyncio.sleep(0)
+        release.set()
+        assert await asyncio.wait_for(asyncio.gather(first, second), 3) == [True, True]
+        assert not await runtime.has_live_execution(turn["id"])
+        assert (await store.get_turn(turn["id"]))["status"] == "cancelled"
+        events = await store.get_turn_events(turn["id"])
+        assert len([event for event in events if event["type"] == "done"]) == 1
+    finally:
+        release.set()
+        if execution.task and not execution.task.done():
+            execution.task.cancel()
+        await asyncio.gather(execution.task, return_exceptions=True)
+
+
+async def test_cancel_before_task_starts_persists_terminal_and_releases_execution(
+    tmp_path, stub_workspace
+):
+    store = SQLiteSessionStore(tmp_path / "prestart-cancel.db")
+    runtime = TurnRuntimeManager(store)
+    session = await store.ensure_session(None)
+    turn = await store.create_turn(session["id"], capability="chat")
+    execution = _TurnExecution(
+        turn_id=turn["id"], session_id=session["id"], capability="chat", payload={}
+    )
+    runtime._executions[turn["id"]] = execution
+    execution.task = asyncio.create_task(runtime._run_turn(execution))
+
+    assert await runtime.cancel_turn(turn["id"]) is True
+    assert execution.task.cancelled()
+    assert (await store.get_turn(turn["id"]))["status"] == "cancelled"
+    assert not await runtime.has_live_execution(turn["id"])
+    events = await store.get_turn_events(turn["id"])
+    assert [event["metadata"]["status"] for event in events if event["type"] == "done"] == [
+        "cancelled"
+    ]
+    assert await store.get_messages(session["id"]) == []
+
+
 async def test_concurrent_flush_callers_share_one_persistence_attempt(
     tmp_path, stub_workspace
 ) -> None:

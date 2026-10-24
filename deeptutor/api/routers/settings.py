@@ -14,8 +14,8 @@ import time
 from typing import Any, List, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Request, status
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,18 @@ from deeptutor.services.config import (
     redact_catalog_secrets,
     restore_catalog_secrets,
 )
+from deeptutor.services.config.custom_providers import (
+    CustomProviderConflict,
+    CustomProviderValidationError,
+    custom_provider_capabilities,
+    normalize_custom_provider_catalog,
+    resolve_provider_presentation,
+    validate_custom_provider_catalog,
+)
+from deeptutor.services.config.model_catalog import (
+    CatalogRevisionConflict,
+    catalog_revision,
+)
 from deeptutor.services.config.origins import normalize_origins
 from deeptutor.services.config.runtime_settings import (
     CHAT_ATTACHMENT_CHARS_RANGE,
@@ -45,8 +57,24 @@ from deeptutor.services.config.runtime_settings import (
 from deeptutor.services.embedding.client import reset_embedding_client
 from deeptutor.services.llm.client import reset_llm_client
 from deeptutor.services.llm.config import clear_llm_config_cache
-from deeptutor.services.model_selection import list_llm_options
+from deeptutor.services.model_discovery.metadata import (
+    validate_catalog_model_metadata,
+)
+from deeptutor.services.model_discovery.provider_policy import provider_identity
+from deeptutor.services.model_discovery.service import get_model_discovery_service
+from deeptutor.services.model_discovery.types import (
+    DiscoveryErrorCode,
+    DiscoveryRequestError,
+    hide_current_default,
+    url_origin,
+    validate_directory_url,
+)
+from deeptutor.services.model_selection.llm import (
+    present_llm_options,
+    reasoning_controls_by_model,
+)
 from deeptutor.services.path_service import get_path_service
+from deeptutor.services.provider_registry import find_by_name
 from deeptutor.services.settings.interface_settings import (
     DEFAULT_UI_SETTINGS as INTERFACE_DEFAULTS,
 )
@@ -180,6 +208,23 @@ class EnabledToolsUpdate(BaseModel):
 
 class CatalogPayload(BaseModel):
     catalog: dict[str, Any]
+    # Optional for old clients; when supplied the whole read/validate/write is
+    # compared and performed under the catalog service's lock.
+    expected_revision: str | None = Field(default=None, max_length=128)
+
+
+class DefaultModelRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    profile_id: str = Field(min_length=1, max_length=256)
+    model_id: str | None = Field(default=None, max_length=256)
+
+
+class DefaultModelsPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: str = Field(min_length=1, max_length=128)
+    defaults: dict[str, DefaultModelRef] = Field(min_length=1)
 
 
 class CodexReasoningEffortUpdate(BaseModel):
@@ -192,6 +237,24 @@ class FetchModelsPayload(BaseModel):
     base_url: str = ""
     api_key: Optional[str] = None
     profile_id: Optional[str] = None
+
+
+class ModelDiscoveryConnection(BaseModel):
+    """A partially supplied connection; omitted fields come from the profile."""
+
+    binding: Optional[str] = None
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    api_version: Optional[str] = None
+    extra_headers: Optional[dict[str, str] | str] = None
+    model_directory_url: Optional[str] = None
+
+
+class ModelDiscoveryPayload(BaseModel):
+    service: str
+    profile_id: Optional[str] = None
+    mode: Literal["cache_first", "refresh"] = "cache_first"
+    connection: Optional[ModelDiscoveryConnection] = None
 
 
 class NetworkSettingsUpdate(BaseModel):
@@ -384,6 +447,194 @@ def _require_settings_admin() -> None:
         )
 
 
+_DEFAULT_MODEL_SERVICES: tuple[str, ...] = (
+    "llm",
+    "embedding",
+    "search",
+    "stt",
+    "tts",
+    "vision",
+    "imagegen",
+    "videogen",
+)
+_DEFAULT_MODEL_SERVICE_SET = frozenset(_DEFAULT_MODEL_SERVICES)
+
+
+def _default_refs(catalog: dict[str, Any]) -> dict[str, dict[str, str] | None]:
+    services = catalog.get("services") if isinstance(catalog.get("services"), dict) else {}
+    result: dict[str, dict[str, str] | None] = {}
+    for name in _DEFAULT_MODEL_SERVICES:
+        service = services.get(name) if isinstance(services.get(name), dict) else {}
+        profile_id = str(service.get("active_profile_id") or "").strip()
+        model_id = str(service.get("active_model_id") or "").strip()
+        if not profile_id:
+            result[name] = None
+        elif name == "search" or not model_id:
+            result[name] = {"profile_id": profile_id}
+        else:
+            result[name] = {"profile_id": profile_id, "model_id": model_id}
+    return result
+
+
+def _safe_default_options(catalog: dict[str, Any]) -> dict[str, Any]:
+    services = catalog.get("services") if isinstance(catalog.get("services"), dict) else {}
+    result: dict[str, Any] = {}
+    for name in _DEFAULT_MODEL_SERVICES:
+        service = services.get(name) if isinstance(services.get(name), dict) else {}
+        profiles: list[dict[str, Any]] = []
+        for profile in service.get("profiles", []) or []:
+            if not isinstance(profile, dict) or not profile.get("id"):
+                continue
+            provider = str(
+                (
+                    profile.get("provider")
+                    if name == "search"
+                    else profile.get("binding")
+                )
+                or ""
+            )
+            spec = find_by_name(provider) if name != "search" else None
+            presentation = resolve_provider_presentation(
+                catalog,
+                name,
+                profile,
+                fallback_label=(
+                    spec.label
+                    if spec is not None
+                    else (provider or str(profile.get("name") or ""))
+                ),
+            )
+            provider_label = presentation["provider_label"]
+            models: list[dict[str, Any]] = []
+            if name != "search":
+                for model in profile.get("models", []) or []:
+                    if not isinstance(model, dict) or not model.get("id"):
+                        continue
+                    if model.get("visible_in_picker") is False:
+                        # The default page cannot be used to bypass the
+                        # "current default must stay visible" rule.
+                        continue
+                    models.append(
+                        {
+                            "model_id": str(model.get("id")),
+                            "model_name": str(model.get("name") or model.get("model") or model.get("id")),
+                            "hidden": model.get("visible_in_picker") is False,
+                        }
+                    )
+            profiles.append(
+                {
+                    "profile_id": str(profile.get("id")),
+                    "profile_name": str(profile.get("name") or profile.get("id")),
+                    "provider": provider,
+                    "provider_label": provider_label,
+                    "provider_icon": presentation["provider_icon"],
+                    "custom_provider_id": presentation["custom_provider_id"],
+                    "models": models,
+                }
+            )
+        result[name] = {
+            "kind": "profile" if name == "search" else "model",
+            "profiles": profiles,
+        }
+    return result
+
+
+def _default_models_payload(catalog: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "revision": catalog_revision(catalog),
+        "defaults": _default_refs(catalog),
+        "services": _safe_default_options(catalog),
+    }
+
+
+def _default_revision_conflict(exc: CatalogRevisionConflict) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": "CATALOG_REVISION_CONFLICT",
+            "message": str(exc),
+            "current_revision": exc.current_revision,
+        },
+    )
+
+
+def _apply_default_refs(
+    current: dict[str, Any],
+    payload: DefaultModelsPayload,
+) -> dict[str, Any]:
+    """Return a copy that patches only the requested active references."""
+
+    if not payload.defaults:
+        raise HTTPException(status_code=422, detail="At least one default service is required.")
+    unknown = sorted(set(payload.defaults) - _DEFAULT_MODEL_SERVICE_SET)
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown default service: {', '.join(unknown)}",
+        )
+    proposed = json.loads(json.dumps(current))
+    services = proposed.setdefault("services", {})
+    for service_name, reference in payload.defaults.items():
+        service = services.setdefault(service_name, {})
+        profiles = service.get("profiles") if isinstance(service.get("profiles"), list) else []
+        profile = next(
+            (
+                item
+                for item in profiles
+                if isinstance(item, dict) and str(item.get("id") or "") == reference.profile_id
+            ),
+            None,
+        )
+        if profile is None:
+            raise HTTPException(
+                status_code=422,
+                detail=f"The selected {service_name} profile no longer exists.",
+            )
+        if service_name == "search":
+            if reference.model_id not in (None, ""):
+                raise HTTPException(
+                    status_code=422,
+                    detail="The search default is a profile, not a model.",
+                )
+            if not str(profile.get("provider") or "").strip():
+                raise HTTPException(
+                    status_code=422,
+                    detail="The selected search profile has no provider.",
+                )
+            service["active_profile_id"] = reference.profile_id
+            continue
+        if not reference.model_id:
+            raise HTTPException(
+                status_code=422,
+                detail=f"The {service_name} default requires a model_id.",
+            )
+        model = next(
+            (
+                item
+                for item in (profile.get("models") or [])
+                if isinstance(item, dict)
+                and str(item.get("id") or "") == reference.model_id
+            ),
+            None,
+        )
+        if model is None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"The selected {service_name} model no longer exists.",
+            )
+        if model.get("visible_in_picker") is False:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "A hidden model cannot become the saved default. "
+                    "Show it in the chat picker first."
+                ),
+            )
+        service["active_profile_id"] = reference.profile_id
+        service["active_model_id"] = reference.model_id
+    return proposed
+
+
 def _require_codex_oauth_actor() -> None:
     """Gate the Codex OAuth lifecycle: personal, not administrative.
 
@@ -394,18 +645,14 @@ def _require_codex_oauth_actor() -> None:
     profile is (correctly) never grantable, and they could not sign in for
     themselves either (#781).
 
-    A partner is refused: it is a synthetic user whose owner is a real
-    account, so letting one in would mean acting on that person's login —
-    including signing them out. Partners inherit the owner's login at call
-    time and need no lifecycle of their own.
+    Upstream also refused *partners* here (a synthetic user must not drive its
+    owner's login). Partners were removed by the M0 fork trim, so that check is
+    gone: it imported ``deeptutor.services.partners.scope``, which no longer
+    exists, and made every Codex-OAuth endpoint fail with
+    ``ModuleNotFoundError``. The gate is now satisfied by any authenticated
+    caller, which is exactly the "personal, not administrative" contract above.
     """
-    from deeptutor.services.partners.scope import is_partner_user_id
-
-    if is_partner_user_id(get_current_user().id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="A partner uses the Codex login of the account that owns it.",
-        )
+    return
 
 
 def _codex_http_exception(error: CodexAuthError) -> HTTPException:
@@ -634,10 +881,14 @@ async def get_settings():
         # Non-admins never see the catalog (provider URLs/keys); their model
         # choices come from /settings/llm-options (grant-filtered).
         return {"ui": load_ui_settings()}
+    catalog = get_model_catalog_service().load()
     return {
         "ui": load_ui_settings(),
-        "catalog": redact_catalog_secrets(get_model_catalog_service().load()),
+        "catalog": redact_catalog_secrets(catalog),
         "providers": _provider_choices(),
+        "catalog_revision": catalog_revision(catalog),
+        "reasoning_controls": reasoning_controls_by_model(catalog),
+        "custom_provider_capabilities": custom_provider_capabilities(),
     }
 
 
@@ -732,7 +983,35 @@ async def update_openai_codex_reasoning_effort(
 @router.get("/catalog")
 async def get_catalog():
     _require_settings_admin()
-    return {"catalog": redact_catalog_secrets(get_model_catalog_service().load())}
+    catalog = get_model_catalog_service().load()
+    return {
+        "catalog": redact_catalog_secrets(catalog),
+        "revision": catalog_revision(catalog),
+    }
+
+
+@router.get("/default-models")
+async def get_default_models():
+    _require_settings_admin()
+    return _default_models_payload(get_model_catalog_service().load())
+
+
+@router.patch("/default-models")
+async def patch_default_models(payload: DefaultModelsPayload):
+    _require_settings_admin()
+    service = get_model_catalog_service()
+    try:
+        saved = service.update_checked(
+            payload.expected_revision,
+            lambda current: _apply_default_refs(current, payload),
+        )
+    except CatalogRevisionConflict as exc:
+        raise _default_revision_conflict(exc) from exc
+    _invalidate_runtime_caches()
+    return {
+        "revision": catalog_revision(saved),
+        "defaults": _default_refs(saved),
+    }
 
 
 @router.get("/network")
@@ -1280,39 +1559,243 @@ async def test_mineru_connection(payload: MinerUSettingsUpdate):
 async def get_llm_options():
     if not get_current_user().is_admin:
         return allowed_llm_options()
-    return list_llm_options(get_model_catalog_service().load())
+    return present_llm_options(get_model_catalog_service().load())
+
+
+def _validate_visibility_field(catalog: dict[str, Any]) -> None:
+    """Reject a non-boolean visibility value before it can be persisted."""
+
+    services = catalog.get("services")
+    if not isinstance(services, dict):
+        return
+    llm = services.get("llm")
+    if not isinstance(llm, dict):
+        return
+    for profile in llm.get("profiles", []) or []:
+        if not isinstance(profile, dict):
+            continue
+        for model in profile.get("models", []) or []:
+            if not isinstance(model, dict) or "visible_in_picker" not in model:
+                continue
+            if not isinstance(model["visible_in_picker"], bool):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="visible_in_picker must be a boolean.",
+                )
+
+
+def _masked_secret(value: Any) -> bool:
+    if value == CATALOG_SECRET_MASK:
+        return True
+    if isinstance(value, dict):
+        return any(_masked_secret(item) for item in value.values())
+    return False
+
+
+def _all_profiles(catalog: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    services = catalog.get("services")
+    if not isinstance(services, dict):
+        return result
+    for service_name, service in services.items():
+        if not isinstance(service, dict):
+            continue
+        for profile in service.get("profiles", []) or []:
+            if isinstance(profile, dict) and profile.get("id"):
+                result[f"{service_name}:{profile['id']}"] = profile
+    return result
+
+
+def _reject_masked_identity_change(
+    current: dict[str, Any], proposed: dict[str, Any]
+) -> None:
+    """A masked credential cannot silently move to another identity/origin."""
+
+    before = _all_profiles(current)
+    after = _all_profiles(proposed)
+    for key, profile in after.items():
+        old = before.get(key)
+        if old is None:
+            continue
+        service_name = key.split(":", 1)[0]
+        if profile.get("managed_by") or profile.get("read_only"):
+            continue
+        old_binding = str(old.get("binding") or old.get("provider") or "")
+        new_binding = str(profile.get("binding") or profile.get("provider") or "")
+        old_base = str(old.get("base_url") or "")
+        new_base = str(profile.get("base_url") or "")
+        old_dir = str(old.get("model_directory_url") or "")
+        new_dir = str(profile.get("model_directory_url") or "")
+        identity_changed = (
+            provider_identity(old_binding, service_name)
+            != provider_identity(new_binding, service_name)
+        ) or (
+            old_base and new_base and url_origin(old_base) != url_origin(new_base)
+        )
+        if old_dir and old_dir != new_dir:
+            identity_changed = (
+                identity_changed
+                or url_origin(old_dir) != url_origin(old_base)
+                or (new_dir != "" and url_origin(new_dir) != url_origin(old_dir))
+            )
+        elif new_dir and not old_dir:
+            identity_changed = identity_changed or (
+                url_origin(new_dir) != url_origin(new_base)
+            )
+        if not identity_changed:
+            continue
+        if _masked_secret(profile.get("api_key")) or _masked_secret(
+            profile.get("extra_headers")
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": DiscoveryErrorCode.CREDENTIAL_REENTRY_REQUIRED.value,
+                    "message": (
+                        "The provider identity or URL origin changed. "
+                        "Re-enter credentials before saving."
+                    ),
+                },
+            )
+
+
+def _validate_custom_providers(
+    current: dict[str, Any], proposed: dict[str, Any]
+) -> None:
+    try:
+        validate_custom_provider_catalog(proposed, current)
+    except CustomProviderConflict as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "CUSTOM_PROVIDER_REFERENCED",
+                "message": str(exc),
+            },
+        ) from exc
+    except CustomProviderValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "CUSTOM_PROVIDER_INVALID",
+                "message": str(exc),
+            },
+        ) from exc
+
+
+def _validate_model_metadata(catalog: dict[str, Any]) -> None:
+    """Validate only fields this build understands; old rows stay readable."""
+
+    services = catalog.get("services")
+    if not isinstance(services, dict):
+        return
+    for service in services.values():
+        if not isinstance(service, dict):
+            continue
+        for profile in service.get("profiles", []) or []:
+            if not isinstance(profile, dict):
+                continue
+            directory_url = profile.get("model_directory_url")
+            if directory_url not in (None, ""):
+                try:
+                    validate_directory_url(str(directory_url))
+                except DiscoveryRequestError as exc:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=str(exc),
+                    ) from exc
+            for model in profile.get("models", []) or []:
+                if not isinstance(model, dict):
+                    continue
+                try:
+                    validate_catalog_model_metadata(model)
+                except ValueError as exc:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Invalid model parameters: {exc}",
+                    ) from exc
+
+
+def _reject_hidden_default(current: dict[str, Any], proposed: dict[str, Any]) -> None:
+    hidden = hide_current_default(current, proposed)
+    if hidden is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The current global default model cannot be hidden. Choose another default first.",
+        )
 
 
 @router.put("/catalog")
 async def update_catalog(payload: CatalogPayload):
     _require_settings_admin()
     service = get_model_catalog_service()
-    current = service.load()
-    restored = restore_catalog_secrets(payload.catalog, current)
-    proposed = reconcile_codex_catalog_update(current, restored)
-    catalog = service.save(proposed)
+
+    def build(current: dict[str, Any]) -> dict[str, Any]:
+        _reject_masked_identity_change(current, payload.catalog)
+        restored = restore_catalog_secrets(payload.catalog, current)
+        normalized = normalize_custom_provider_catalog(restored)
+        return reconcile_codex_catalog_update(current, normalized)
+
+    def validate(current: dict[str, Any], proposed: dict[str, Any]) -> None:
+        _validate_visibility_field(proposed)
+        _validate_model_metadata(proposed)
+        _validate_custom_providers(current, proposed)
+        _reject_hidden_default(current, proposed)
+
+    try:
+        catalog = service.update_checked(
+            payload.expected_revision,
+            build,
+            validate=validate,
+        )
+    except CatalogRevisionConflict as exc:
+        raise _default_revision_conflict(exc) from exc
     _invalidate_runtime_caches()
-    return {"catalog": redact_catalog_secrets(catalog)}
+    return {
+        "catalog": redact_catalog_secrets(catalog),
+        "revision": catalog_revision(catalog),
+    }
 
 
 @router.post("/apply")
 async def apply_catalog(payload: CatalogPayload | None = None):
     _require_settings_admin()
     service = get_model_catalog_service()
-    current = service.load()
-    catalog = (
-        reconcile_codex_catalog_update(
-            current,
-            restore_catalog_secrets(payload.catalog, current),
-        )
-        if payload is not None
-        else current
-    )
-    applied = service.apply(catalog)
+    if payload is None:
+        catalog = service.load()
+        applied = service.apply(catalog)
+    else:
+        def build(current: dict[str, Any]) -> dict[str, Any]:
+            _reject_masked_identity_change(current, payload.catalog)
+            return reconcile_codex_catalog_update(
+                current,
+                normalize_custom_provider_catalog(
+                    restore_catalog_secrets(payload.catalog, current)
+                ),
+            )
+
+        def validate(current: dict[str, Any], proposed: dict[str, Any]) -> None:
+            _validate_visibility_field(proposed)
+            _validate_model_metadata(proposed)
+            _validate_custom_providers(current, proposed)
+            _reject_hidden_default(current, proposed)
+
+        try:
+            catalog = service.update_checked(
+                payload.expected_revision,
+                build,
+                validate=validate,
+            )
+        except CatalogRevisionConflict as exc:
+            raise _default_revision_conflict(exc) from exc
+        applied = {
+            "catalog_path": str(service.path),
+            "services": list(catalog.get("services", {})),
+        }
     _invalidate_runtime_caches()
     return {
         "message": "Catalog applied to runtime settings.",
         "catalog": redact_catalog_secrets(service.load()),
+        "revision": catalog_revision(service.load()),
         "runtime": applied,
     }
 
@@ -1359,6 +1842,54 @@ async def fetch_models_from_provider(payload: FetchModelsPayload):
         ) from exc
 
     return {"models": [{"id": model_id, "name": model_id} for model_id in model_ids]}
+
+
+@router.post("/model-discovery")
+async def discover_models(payload: ModelDiscoveryPayload):
+    """Read a bounded provider directory without touching the saved catalog.
+
+    All 200 responses use the versioned envelope; only local request facts use
+    a 4xx status.  The caller must be an administrator because this endpoint
+    resolves saved credentials and writes the server directory cache.
+    """
+    _require_settings_admin()
+    connection = (
+        payload.connection.model_dump(exclude_unset=True)
+        if payload.connection is not None
+        else None
+    )
+    try:
+        result = await get_model_discovery_service().discover(
+            service=payload.service,
+            profile_id=payload.profile_id,
+            mode=payload.mode,
+            connection=connection,
+        )
+    except DiscoveryRequestError as exc:
+        body = {
+            "detail": str(exc),
+            "error": {
+                "code": exc.code,
+                "message": str(exc),
+                "retryable": False,
+            },
+        }
+        status_code = exc.status_code if 400 <= exc.status_code <= 599 else 400
+        return JSONResponse(status_code=status_code, content=body)
+    except Exception:
+        logger.exception("Model discovery failed")
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "detail": "Model discovery failed.",
+                "error": {
+                    "code": DiscoveryErrorCode.UNAVAILABLE.value,
+                    "message": "Model discovery failed.",
+                    "retryable": True,
+                },
+            },
+        )
+    return JSONResponse(status_code=200, content=result.to_dict())
 
 
 @router.put("/theme")

@@ -1,0 +1,121 @@
+S03 合并返修指令（2026-10-11）
+
+工作目录：/home/albert/selflearn/selflearn
+本次只执行 S03 的一次返修批次 R1–R6；内部逐项测试、自修，阶段末交接一次，不进入 S04。
+S02 accepted 仍有效。S03 当前 changes_requested；初次 report.json 的 verified_local 不等于独立签收。
+先读本文件、.phase1-evidence/reviews/S03/review.json、STAGE_WORKFLOW.md 和五张原卡的相关范围；不用重新遍历所有文件/57卡。C01/C02及附录A不改。
+
+一、已经确认的成果与遗漏
+
+指定合并回归 466 passed，完整 phase1/services/API 相关目录 2102 passed、18 skipped，11文件Ruff通过。11个源码哈希与13个证据哈希吻合、StageReport合法、改动恰好在11个白名单文件内，归档1822/1822匹配。三棵强制树及supplementary三根本轮无新变化。
+已有线程/全新解释器子进程的 flock 测试和坏对照是有效成果；无锁平台明确拒绝、非标准JSON拒绝、0.8舍入策略、facts去重/20条和一次批量写等应保留。
+独立 probe_s03.py 在17个行为场景及参数化子场景中复现28个断言失败、4个未按契约处理的错误；probe_fork.py另复现fork子进程继承父锁后不互斥。全部只操作tmp与虚构数据，原源码未被协调者修改。
+本轮必须解决的是路径读取/根锚点、创建提交、数据校验/兼容默认、输入分类/字段保留、锁资源与写入错误处理；不是重新设计数据库。
+
+二、允许修改范围
+
+仍为原S03的11个路径：
+- deeptutor/subjects/json_store.py
+- deeptutor/subjects/store.py
+- deeptutor/subjects/wrong_book.py
+- deeptutor/subjects/exam_points.py
+- deeptutor/subjects/knowledge_points.py
+- deeptutor/subjects/profile.py
+- tests/phase1/test_p1_10.py
+- tests/phase1/test_p1_11.py
+- tests/phase1/test_p1_12.py
+- tests/phase1/test_p1_13.py
+- tests/phase1/test_p1_14.py
+写执行证据仅 .phase1-evidence/stages/S03/rework01/，并向 .phase1-evidence/stages/S03/execution.log 追加原始记录。本轮唯一新汇总 rework01/report.json。
+保留初次report/source/data清单/归档/原日志行和reviews/**；审查探针只读，只可运行复核，将等价行为测试加入允许的五份测试文件。
+不得改S01 helpers、S02 file_io/errors/model_output/generation、routers、Schema/任务包、真实数据或实际settings；不提交/推送、安装/升级、真实模型调用/服务启动/索引重建。若基础库确有范围外问题列最小blocked_scope，不私改已验收模块。
+
+三、六个内部返修单元
+
+R1：路径防护同时覆盖读取、根目录和锁目录
+目标：校验必须发生在语义读取/创建目录/打开锁之前，不能写时安全、读时串科；不能把符号链接的目标重新当作合法根。
+证据：wrong_book/exam_points/knowledge_points/profile 的A文件指向B文件，load(A)会读出B；subjects根本身为symlink时load_subjects会读取外部index；knowledge_bases子目录symlink及materials_dir的../../../会被返回/创建；json_transaction(lock-root-symlink)在外部目录创建锁并成功进入。
+范围：json_store.py、store.py、必要的四个消费者路径helper；对应test_p1_10/11/12/13/14。
+处理：从可信当前用户PathService锚点验证subjects根及所有子路径，不能先mkdir再验证。read/write共用相同受约束入口，叶JSON、subject根、subjects根、锁目录/锁文件、KB/materials子目录都覆盖；至少拒绝跨科/用户/管理员/外部的symlink和路径穿越，dangling symlink不等于文件缺失。
+低层read_list/read_object签名保持，domain调用先证明可信作用域，底层也不得盲目follow JSON/锁的symlink；使用现有Linux能力做必要的安全打开。不能只比字符串前缀、只修probe的几个文件名，或先读了别科数据再因subject_id不匹配报错。
+事务根规范化后必须保持正确边界，不能每次resolve一个可能已变成symlink的根并信任新目标；检查前后实际使用的是同一路径。不要为本轮新造通用文件系统安全框架。
+证据要求：合法A/B各自读写成功；逐层symlink/越界负例（包含同用户另一科）；对被拒目标的read/open/mkdir spy必须0，受害文件字节不变、外部不新增.lock。缺失常规文件仍按默认返回，坏链明确错误。既有中文/fullmatch和严格用户解析失败不fallback的证据保留。
+完成：所有实际消费者的load/_save及辅助路径都受同一约束，验证前不碰越界目标，不靠字段错误掩盖已读到的数据。
+
+R2：创建科目只在准备成功后提交注册表，并严格确认身份
+目标：目录/空知识记录未准备成功时不发布注册项；不覆盖未注册但已有的数据树；不存在的subject不能被普通写入口悄悄创建。
+证据：_initialize_subject_tree抛StorageIOError时，create先写的index没有回滚（只catch OSError）；已有orphan/knowledge.json会被同名create重写为[]；wrong_book.add_entry("unregistered")成功建目录；坏registry的id=None/5/[]/bad/id可被接受或抛原生TypeError，非storage_corrupt。
+范围：store.py、test_p1_11.py，必要的json_store接口集成。
+处理：为registry增加最小记录校验：实际使用的id/名称/metadata字段类型、合法slug、身份唯一；缺失的兼容可选字段有确定默认，未知字段保留。不以s.get掩盖必需id缺失或错误。损坏整份报StorageCorruptError且原字节保持，不能跳过坏条目继续创建。
+id分配除registry外要避开已有目录/文件/symlink，已占用数据树不是可直接清空的新目录；可以另取唯一id或明确拒绝，不能认领/重写未知orphan数据。
+保持registry锁覆盖选择id、准备与最终提交。优先在新建、确定归本次所有的路径上完成目录及初始文件准备后，只提交一次注册表；不要靠“先发布，再试着第二次写回滚”的脆弱流程。失败目录可私有诊断/安全处理本次新建内容，但不做全树扫描、自动清理历史orphan、目录迁移或多文件数据库事务。
+普通subject数据入口确认当前用户registry存在，未知合法slug为subject_not_found/404，不建立该sid的学习/产物树。创建阶段的未注册新路径仅由内部创建流程在registry锁下使用，不给模型/API暴露allow_missing/base_dir绕过。
+注意：get_subject对未知合法id可保持None的旧接口；数据写/路径使用必须拒绝。若严格存在性使旧delete在去注册后无法构造路径，只最小调整预先校验/取路径时机，保持接口可用；不要提前实施P1-54两树删除/忙状态/重试流程。
+证据要求：坏registry每种id/字段/重复身份反例均不写；初始化、初始文件fsync/replace、registry最后提交分别注入错误，未返回成功且registry旧字节不变；新科成功仍unique及完整树。同名既有orphan文件保持，未知subject写入口不建sid目录；并发同名创建回归保留。
+完成：准备失败不留下可见注册项，不把“回滚写也可能失败”作为本阶段可接受的常规限制；已有数据不被创建流程覆盖。
+
+R3：补齐会使用到的字段校验与合法legacy默认
+目标：坏字段明确报StorageCorruptError并保持旧文件；合法缺失默认能被真实消费者使用，不只是get(...,default)断言通过。
+证据：wrong_book.question=7、exam.content=7、KP.wrong_ids=None被load接受；profile.explanation_style=[]抛原生TypeError。缺status的legacy错题使context_summary KeyError；无attempt却stored mastery=1/status=mastered仍读成已掌握。
+范围：四个消费者及test_p1_12/13/14；registry相关校验在R2完成。
+处理：按各模块真实访问字段校验，不给旧数据套新响应Schema。至少含查询/显示用的字符串、id/subject_id（如存在应属于当前科）、集合关联数组及其id元素、bool、排序/日期数值。显式null/错误类型与字段缺失分清；时间旧float秒可读、不变成整数，bool不作时间数值。坏field不得转换成str/bool或落入默认后覆盖。
+合法缺失可选字段给确定读视图默认；无attempt时读视图mastery=0/untracked；有attempt按原MASTERY_PRECISION与原公式得到一致读视图，不为读取写回历史文件。保留未知键、旧时间与磁盘字节。缺question等实际必需字段明确损坏；缺status等合法旧可选字段不能让ctx/stats/list崩溃。
+profile：未知但类型为str的style保持既有balanced fallback；list/dict/int等不许当合法未知style修复。facts的null/非数组、item/text坏类型及使用的时间字段明确诊断；默认对象仍深拷贝且不同科不共享。
+KP：wrong_ids/exam_point_ids缺失可按旧默认[]，显式坏类型/坏元素不能通过后再在append/aggregate处TypeError。仅使旧aggregate安全读取合法数据，不提前改变P1-39的无证据null/assessment新语义。
+证据要求：每个坏字段先从合法条目只改一个点；load、查询/summary及相关更新都明确错误且旧字节不变。合法legacy缺字段、float秒、未知键，在真实context_summary/stats/list/link等入口可用；无作答证据不标mastered。不新增skip/迁移或“修复保存”坏文件。
+完成：本模块用到的坏字段不会原生KeyError/TypeError，也不会被后续更新顺带清洗；读取默认和派生值不改变磁盘。
+
+R4：调用参数与存量损坏分开，保留匹配记录未知字段
+目标：非法调用参数invalid_input/400，不误报数据库损坏；必要名称/内容非空；正常更新保留未提供历史字段。
+证据：KP.add_point(name=7)、profile.update(goals=7)/add_fact(7)被报storage_corrupt；upsert([])抛AttributeError；空科名/错题/知识点/考点批次被持久化；同kb upsert只传新status会丢匹配记录legacy字段。
+范围：store/wrong_book/exam_points/knowledge_points/profile与对应测试。
+处理：本阶段mutator会使用的参数先验证类型和必要非空，用明确SubjectOperationError/INVALID_INPUT（复用固定安全投影），不把它们当磁盘损坏。空description/term/goals及既有blank fact不写策略保持；KP.add_many对合法空白字符串的既有跳过策略可保持，但不创建空名称条目。
+考点content.trim必须非空；坏批次整批拒绝、一条不留，不能“写了空条目却从返回值过滤”并说成功。此处是基本存储输入有效性，不是提前做C06模型level/evidence/去重业务；历史inferred与未知level字符串的原策略保持到相关卡。
+同kb_name更新在subject锁内基于匹配旧record合并新字段，所有未提供键（含未知legacy）保留；显式提供字段按旧更新规则覆盖，不新造通用深合并库。其他记录保持，禁止过滤旧record后只append新dict丢字段。
+证据要求：类型/blank单字段负例映射400并无学习数据变化；已存在坏文件仍按R3报corrupt，不借此校验输入后覆盖坏文件。合法新status更新保留本记录及其他记录未知字段；整批考点失败旧字节保持、合法批次仍一次写。
+完成：输入错误、缺失数据与磁盘损坏分清；不把报告中的这两类遗漏当作“有意兼容行为”留给S04。
+
+R5：锁在异常及fork后仍可靠，写入不制造坏集合
+目标：资源释放不会因异常漏FD/留锁；fork后的独立进程不能借继承的重入计数绕过互斥；写入失败和坏回调不被当成功。
+证据：LOCK_UN注入OSError时os.close被跳过，fd仍打开且flock留住；atomic_write_json的OSError从transaction原样逃逸而非StorageIOError；update_list回调返回dict会经list(records)变成字符串数组并覆盖旧合法数据；probe_fork父持锁期间child已写acquired marker。
+范围：json_store.py、test_p1_10.py（业务调用回归在对应测试内）。
+处理：release各层finally保证fd与RLock都释放；失败不能把handle.fd先清空后丢掉关闭机会。acquire/flock/mkdir/write的OS失败明确StorageIOError并保留相对诊断；不吞错误、不无锁fallback。不要改S02 shared atomic_write_json的契约。
+写集合/对象及update回调结果在提交前验证实际形状，不用list/dict隐式转换将错类型变成“合法”坏文件；不能把非对象记录写回、坏回调不改旧字节。序列化/replace错误仍保持目标并清理tmp，别把调用生成坏值说成已有文件已损坏。
+Linux fork继承的RLock/线程local.depth/flock fd不是子进程合法持有。用合适的PID/at-fork重置与资源处理，让子进程重新获得独立线程锁和OS锁；不能对子进程继承的父fd执行LOCK_UN把父锁解开。必要时关闭子继承fd，父进程锁仍保持。也覆盖父进程别的线程持锁时fork，不能只处理当前线程的local.handle。
+fork检查在独立tmp子进程中跑，设清晰握手/有限超时并清理child；不在主pytest进程unsafe地fork整个活跃服务。已有fresh Python subprocess的flock测试是有效成果，应保留；补fork能力而非以全局改启动方式/禁止fork掩盖错误。
+证据要求：在open/flock/解锁/atomic-write点受控注入异常，已打开FD被关闭、线程锁释放、下一次调用可取锁，body错误不被cleanup错误无意义覆盖。对close故障须标明发生于系统调用前后及errno，验证计数/线程锁恢复和错误传播；不要承诺OS持续拒绝关闭时仍已关闭，更不能对可能已释放/被复用的FD盲目retry close。父持锁时fresh与fork child均不能进入，释放后才进入；子动作不改变父持锁状态。两个线程、两个真实新进程2N/不同subject/重入异常测试回归。
+完成：跨线程/进程保护不是只在成功路径成立；所有承诺的写入路径拒绝坏结果，失败状态可诊断且没有遗留持锁FD。
+
+R6：准确证据与阶段收尾
+目标：本轮一份可复核汇总，日志是实际命令输出，不再靠事后文字修正占位符。
+范围：五份允许测试文件及rework01执行证据；旧文件不改。
+初次日志scope和Ruff的echo简写已在后段修正；保留这个历史，不宣称原行区间本身含完整实际命令。新记录实时包含cwd、实际argv/字面命令、时间、原stdout/stderr及exit；标签/id不是可执行文件名。
+建议在本轮evidence目录用简单标准库运行记录器统一调用命令和追加日志，或在Harness输出中同样做到；不要为此新建生产框架。提交前检查成功命令的文字、输出与退出码确实处于commands[]指向的范围，不能只查行号没越界。
+17探针的failures=28/errors=4含参数化子场景，不是32个彼此独立的根因。完整回归2102/18是协调者另跑的结果，不能算成执行者的新证据。移植有效边界用例，不为每个subtest造一张卡/一份报告。
+完成：四类结果分清：本次真实通过、承重坏对照预期失败、历史开发失败、仍延期的其他阶段；所有hash对应当前源码，范围/数据/归档实际核验通过。
+
+四、原报告残余限制的处理决定
+
+- correct真bool、坏profile拒绝不退默认、严格已有文件形状，是C01/C05既定要求，保留。不要为旧错误类型开自动转换/迁移或删坏文件。
+- 新隐藏.lock是合法的运行时协调文件；所有本轮测试必须tmp，真实树不新增锁。本阶段不改导出，后续导出按内部运行文件排除规则处理，别把锁当学习材料。
+- delete_subject两树产物、ignore_errors与删除忙状态策略留P1-54；PATCH省略/清空留P1-15；aggregate无证据新语义留P1-39；模型批改/考点检测接入留S04。不得借返修扩大到这些业务。
+- 创建发布前准备失败、孤立树被覆写、错误调用参数被报corrupt、空content被偷偷写入、匹配记录未知键丢失，均属本阶段未完成，不能通过limitations声明免验。
+- 不要求长时间生产压力测试、全仓库/前端/浏览器验收或新增数据库。仅声明已验证的平台与进程模式，不把成功路径或fresh subprocess的通过推断成所有生命周期都安全。
+- 历史memory trace继续保留，不删不解析；不把“人工修复/移除”作为本轮agent对真实文件的操作授权。
+
+五、一次会话执行及交付
+
+1. 留新的rework01 source/data起点，capture --include原S01/S02 accepted的16个批准文件和S03的11个路径，原基线/dirty树/归档保持只读。
+2. 建议顺序：R1/R5（底层路径、锁、错误/写入形状）→ R2（registry/create/存在性）→ R3/R4（消费者校验/兼容/合并）→ R6收尾；内部自修，无需逐单元请求用户批准。
+3. 定向：
+./.venv/bin/python -m pytest -q tests/phase1/test_p1_10.py tests/phase1/test_p1_11.py tests/phase1/test_p1_12.py tests/phase1/test_p1_13.py tests/phase1/test_p1_14.py
+所有业务/配置测试用已验收的p1_runtime；OS锁/fork测试在受控tmp进程中实际运行。保持2N、symlink读spy0、旧字节不变等承重断言，不增加skip/xfail或替换成源码字符串检查。
+4. 收尾各做一次相关回归：
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q tests/phase1 tests/services/test_file_io.py tests/services/test_codebuddy_credentials.py tests/services/rag/test_llamaindex_document_loader.py
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q tests/phase1 tests/services tests/api
+不要改启动器、S01 fixture或已验收S02模块；若新存在性/形状让旧合法fixture不兼容，先定位具体原因，不能放松生产规则掩盖。
+5. 对11个允许路径做Ruff。snapshot compare --allow逐个列11路径，不含任何简述；三树与supplementary三根相比本轮起点无新变化。禁止真实数据试写后还原、服务重启/索引重建/依赖升级。
+6. 本轮一个最终source归档/sidecar，verify-rebuild到新的tmp目录；StageReport仍五个card_results（P1-10..14），按本轮发现关联结果。supersedes初次报告hash，最新源码hash、场景输入/预期/实际/测试名、命令原输出定位、scope/data/归档及剩余限制都记录。
+7. rework01/report.json为本轮唯一汇总，execution.log只追加。完成后verified_local，停止等待协调者复核；不自签accepted、不进入S04。
+
+完成条件：R1–R6的真实行为与有效负例成立，原重入/2N/分科并发及C01旧格式兼容保留，全部相关回归/Ruff/范围/真实数据/恢复归档通过。普通失败阶段内自修；安全/真实数据失败立即停，明确真正范围外事项即可，不为阶段内返修再建新卡。

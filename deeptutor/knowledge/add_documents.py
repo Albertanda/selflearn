@@ -18,10 +18,13 @@ from deeptutor.services.config import resolve_llm_runtime_config
 from deeptutor.services.file_io import atomic_write_json
 from deeptutor.services.rag.factory import (
     DEFAULT_PROVIDER,
+    LIGHTRAG_PROVIDER,
     has_ready_provider_index,
     normalize_provider_name,
+    provider_failure_summary,
 )
 from deeptutor.services.rag.file_routing import FileTypeRouter
+from deeptutor.services.rag.index_versioning import list_kb_versions
 from deeptutor.services.rag.provider_binding import resolve_bound_provider
 from deeptutor.services.rag.service import RAGService
 
@@ -185,7 +188,31 @@ class DocumentAdder:
             )
 
         if not has_provider_index:
-            raise ValueError(f"Knowledge base not initialized ({self.rag_provider}): {kb_name}")
+            # A knowledge base created *empty* (no files yet) has no index
+            # versions at all, and its first upload must be allowed to build the
+            # index — that is what "bootstrap" means here. Ported from upstream
+            # v1.6.9 ("An empty knowledge base now bootstraps on its first upload
+            # for every local engine"); before it, every such upload raised
+            # "Knowledge base not initialized".
+            #
+            # The distinction that matters: *no versions* is an empty KB and may
+            # bootstrap; *versions present but none ready* is a broken index and
+            # must still require an explicit reindex rather than being silently
+            # replaced (#1458).
+            versions = list_kb_versions(self.kb_dir)
+            allows_bootstrap = (
+                self.rag_provider in {DEFAULT_PROVIDER, LIGHTRAG_PROVIDER} and not versions
+            )
+            if not allows_bootstrap:
+                if versions:
+                    summary = provider_failure_summary(self.kb_dir, self.rag_provider)
+                    raise ValueError(
+                        f"Knowledge base has no ready {self.rag_provider} index; "
+                        f"reindex required: {summary or 'stored index version is incomplete'}"
+                    )
+                raise ValueError(
+                    f"Knowledge base not initialized ({self.rag_provider}): {kb_name}"
+                )
 
         self.api_key = api_key
         self.base_url = base_url

@@ -98,17 +98,16 @@ SOURCE = "deep_research"
 # produce evidence for a block-level research summary.
 RESEARCH_OPTIONAL_TOOLS: list[str] = default_optional_tools()
 
-# Read-only Obsidian tools a research block may use when the selected KB is a
-# connected Obsidian vault. Write tools stay out of research blocks — the
-# block loop only retrieves evidence, never mutates the vault. The vault root
-# is injected server-side as ``_vault_path`` (see ``_augment_tool_kwargs``).
-RESEARCH_OBSIDIAN_READ_TOOLS: tuple[str, ...] = (
-    "obsidian_search",
-    "obsidian_read",
-    "obsidian_list",
-)
+# NOTE: upstream also allowlisted three read-only Obsidian tools here
+# (``obsidian_search`` / ``obsidian_read`` / ``obsidian_list``) for research
+# blocks whose KB was a connected Obsidian vault, and injected the vault root
+# server-side as ``_vault_path``. Both were removed by the M0 fork trim: the
+# tools are not registered, and the vault-connection route now refuses — so an
+# ``obsidian`` KB can no longer be attached, and keeping the names here only
+# advertised tools that do not exist (the block prompt told the model to use
+# them and to avoid ``rag``, leaving it no working retrieval path).
 RESEARCH_BLOCK_TOOL_ALLOWLIST: frozenset[str] = frozenset(
-    {"rag", "web_search", "paper_search", "code_execution", *RESEARCH_OBSIDIAN_READ_TOOLS}
+    {"rag", "web_search", "paper_search", "code_execution"}
 )
 
 # ---------------------------------------------------------------------------
@@ -211,7 +210,6 @@ CITABLE_TOOLS: frozenset[str] = frozenset(
         "web_search",
         "paper_search",
         "code_execution",
-        *RESEARCH_OBSIDIAN_READ_TOOLS,
     }
 )
 
@@ -282,6 +280,19 @@ class ReportOutline:
 # ---------------------------------------------------------------------------
 
 
+def _context_subject_id(context: UnifiedContext) -> str | None:
+    """The turn's validated subject, read verbatim from the runtime metadata.
+
+    Same source and same rule as the chat pipeline: the model contributes
+    nothing to the scope, and ``None``/``""`` both mean "no subject".
+    """
+    raw = (context.metadata or {}).get("subject_id")
+    if isinstance(raw, str):
+        value = raw.strip()
+        return value or None
+    return None
+
+
 class ResearchPipeline:
     """One-shot orchestrator: instantiate per turn, call :meth:`run` once.
 
@@ -304,28 +315,12 @@ class ResearchPipeline:
         self.enabled_tools = list(enabled_tools or [])
         self.runtime_config: dict[str, Any] = dict(runtime_config or {})
 
-        # Resolve whether the attached KB is a connected Obsidian vault. The
-        # metadata comes from the access-controlled resolver (never the model),
-        # and the resolution is a pure read with no RAG usage audit. Unresolvable
-        # references / ordinary KBs behave exactly as before (``rag``-style KB).
-        self._is_obsidian_kb = False
-        self._vault_path: str | None = None
-        if self.kb_name:
-            try:
-                from deeptutor.knowledge.kb_types import OBSIDIAN_KB_TYPE
-                from deeptutor.multi_user.knowledge_access import resolve_kb_metadata
-
-                meta = resolve_kb_metadata(self.kb_name)
-                if meta and meta.get("type") == OBSIDIAN_KB_TYPE:
-                    self._is_obsidian_kb = True
-                    vault_path = str(meta.get("vault_path") or "").strip()
-                    if vault_path:
-                        self._vault_path = vault_path
-            except Exception:
-                logger.warning(
-                    "Failed to resolve KB metadata for %r; treating as non-Obsidian.",
-                    self.kb_name,
-                )
+        # NOTE: upstream resolved here whether the attached KB was a connected
+        # Obsidian vault, and kept its ``vault_path`` for the read tools. Both
+        # the Obsidian capability and its tools were removed by the M0 fork
+        # trim, and ``/connect-obsidian`` now refuses, so no ``obsidian`` KB can
+        # exist and there is nothing left to resolve. The attached-KB handling
+        # below is the ordinary ``rag`` path.
 
         # Read structured policy sub-dicts produced by
         # :func:`build_research_runtime_config`. All keys are best-effort —
@@ -407,6 +402,9 @@ class ResearchPipeline:
         self.api_version = getattr(self.llm_config, "api_version", None)
         self.extra_headers = getattr(self.llm_config, "extra_headers", None) or {}
         self.reasoning_effort = getattr(self.llm_config, "reasoning_effort", None)
+        self.reasoning_protocol = getattr(
+            self.llm_config, "reasoning_protocol", None
+        )
         self.client_config = LLMClientConfig(
             binding=self.binding,
             model=self.model,
@@ -415,6 +413,7 @@ class ResearchPipeline:
             api_version=self.api_version,
             extra_headers=self.extra_headers or None,
             reasoning_effort=self.reasoning_effort,
+            reasoning_protocol=getattr(self, "reasoning_protocol", None),
         )
 
         self.registry = get_tool_registry()
@@ -993,16 +992,12 @@ class ResearchPipeline:
     def _kb_system_note(self) -> str:
         if not self.kb_name:
             return ""
-        if self._is_obsidian_kb:
-            return self._t(
-                "system.obsidian_kb_system_note",
-                default=(
-                    f"Attached knowledge base {self.kb_name!r} is a read-only "
-                    f"Obsidian vault. Gather evidence with obsidian_search, "
-                    f"obsidian_list and obsidian_read. Do not call rag."
-                ),
-                kb_name=self.kb_name,
-            )
+        # NOTE: upstream branched here for a connected Obsidian vault, telling
+        # the model to gather evidence with ``obsidian_search`` /
+        # ``obsidian_list`` / ``obsidian_read`` and *not* to call ``rag``. Those
+        # tools were removed by the M0 fork trim, so that branch instructed the
+        # model to use tools that do not exist while forbidding the only working
+        # retrieval path. Every attached KB is an ordinary ``rag`` KB now.
         return self._t(
             "system.kb_system_note",
             default=(
@@ -1806,7 +1801,7 @@ class ResearchPipeline:
             requested_tools=self.enabled_tools,
             optional_whitelist=RESEARCH_OPTIONAL_TOOLS,
             mount_flags=ToolMountFlags(
-                has_kb=bool(self.kb_name and not self._is_obsidian_kb),
+                has_kb=bool(self.kb_name),
                 has_sources=False,
                 has_memory=user_has_memory(),
                 has_notebooks=user_has_notebooks(),
@@ -1818,12 +1813,6 @@ class ResearchPipeline:
             for name in composed
             if name in RESEARCH_BLOCK_TOOL_ALLOWLIST and self._tool_in_registry(name)
         ]
-        if self._vault_path:
-            names.extend(
-                name
-                for name in RESEARCH_OBSIDIAN_READ_TOOLS
-                if name in RESEARCH_BLOCK_TOOL_ALLOWLIST and self._tool_in_registry(name)
-            )
         return names
 
     def _build_block_tool_schemas(
@@ -1862,14 +1851,23 @@ class ResearchPipeline:
         if turn_id:
             task_dir = get_path_service().get_task_workspace("deep_research", turn_id)
         if tool_name == "rag":
-            kwargs.setdefault("mode", "hybrid")
+            # The scope of a retrieval is server-owned here too (C08): the
+            # model's own carriers are dropped first, then this consumer's
+            # validated bindings are written unconditionally. The mounted set is
+            # always the *actual* one — `[]` included, never ``None`` — so an
+            # empty mount cannot fall back to any global library. `kb_name` stays
+            # the single library this capability bound; the model cannot pick
+            # another one.
+            from deeptutor.subjects import kb_scope as _kb_scope
+
+            for key in _kb_scope.SCOPE_KWARGS:
+                kwargs.pop(key, None)
+            mounted = [str(ref) for ref in (context.knowledge_bases or []) if str(ref).strip()]
+            kwargs["_subject_id"] = _context_subject_id(context)
+            kwargs["_mounted_refs"] = mounted
             if self.kb_name:
-                kwargs.setdefault("kb_name", self.kb_name)
-        elif tool_name in RESEARCH_OBSIDIAN_READ_TOOLS:
-            if self._vault_path:
-                # Server-owned: overwrite any model-supplied value so the path
-                # can't be forged to read outside the connected vault.
-                kwargs["_vault_path"] = self._vault_path
+                kwargs["kb_name"] = self.kb_name
+            kwargs.setdefault("mode", "hybrid")
         elif tool_name == "code_execution":
             from deeptutor.services.sandbox import Mount
 
@@ -1927,6 +1925,7 @@ class ResearchPipeline:
             max_tokens=max_tokens,
             binding=self.binding,
             reasoning_effort=self.reasoning_effort,
+            reasoning_protocol=getattr(self, "reasoning_protocol", None),
         )
 
     async def _run_labeled_step(
@@ -2446,13 +2445,10 @@ class _BlockLoopHost:
             if not raw_answer.strip():
                 continue
             try:
-                query_key = {
-                    "obsidian_read": "note",
-                    "obsidian_list": "folder",
-                }.get(tool_name, "query")
-                query = str(tool_args.get(query_key) or "")
-                if tool_name == "obsidian_list" and not query:
-                    query = "/"
+                # The per-tool argument mapping only special-cased the removed
+                # Obsidian tools (``note`` / ``folder``); every citable tool left
+                # in CITABLE_TOOLS reads its query from ``query``.
+                query = str(tool_args.get("query") or "")
                 summary = await self._pipeline._summarise_tool_result(
                     tool_name=tool_name,
                     query=query,
@@ -2861,7 +2857,6 @@ __all__ = [
     "LABEL_THINK",
     "LABEL_TOOL",
     "RESEARCH_BLOCK_TOOL_ALLOWLIST",
-    "RESEARCH_OBSIDIAN_READ_TOOLS",
     "ResearchPipeline",
     "ResearchedBlock",
     "ReportOutline",

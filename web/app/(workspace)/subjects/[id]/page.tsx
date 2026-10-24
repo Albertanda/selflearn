@@ -1,11 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 
 import { apiFetch } from "@/lib/api";
+import {
+  EXPORT_SCOPE_NOTE,
+  archiveEntryAction,
+  confirmExamPointAction,
+  detectExamPointsAction,
+  exportSubjectAction,
+  fetchSubjectArtifact,
+  generateReviewPackAction,
+  loadSubjectDetail,
+  recordAttemptAction,
+  saveProfileAction,
+} from "@/lib/subject-results";
+import AsrJobPanel from "@/components/subjects/AsrJobPanel";
 
 type WrongEntry = {
   id: string;
@@ -66,38 +79,165 @@ export default function SubjectDetailPage() {
   const [profile, setProfile] = useState({ explanation_style: "balanced", goals: "" });
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
-
-  const refresh = useCallback(async () => {
-    const [kr, wr, er, pr] = await Promise.all([
-      apiFetch(`/api/v1/subjects/${subjectId}/knowledge`),
-      apiFetch(`/api/v1/subjects/${subjectId}/wrong-book`),
-      apiFetch(`/api/v1/subjects/${subjectId}/exam-points`),
-      apiFetch(`/api/v1/subjects/${subjectId}/profile`),
-    ]);
-    if (kr.ok) setKnowledge((await kr.json()).knowledge ?? []);
-    if (wr.ok) setWrongs((await wr.json()).entries ?? []);
-    if (er.ok) setPoints((await er.json()).points ?? []);
-    if (pr.ok) setProfile((await pr.json()).profile ?? profile);
-  }, [subjectId]);
+  const activeSubject = useRef({ id: subjectId, active: true });
+  const loadGeneration = useRef(0);
+  if (activeSubject.current.id !== subjectId) {
+    activeSubject.current = { id: subjectId, active: true };
+  }
+  const scope = activeSubject.current;
+  const isCurrent = useCallback(
+    () => scope.active && activeSubject.current === scope,
+    [scope],
+  );
 
   useEffect(() => {
-    void refresh();
+    scope.active = true;
+    return () => { scope.active = false; };
+  }, [scope]);
+
+  const refresh = useCallback(
+    async (notify = false) => {
+      if (!isCurrent()) return;
+      const generation = ++loadGeneration.current;
+      await loadSubjectDetail({
+        request: apiFetch,
+        isCurrent: () => isCurrent() && generation === loadGeneration.current,
+        subjectId,
+        notify,
+        onLoaded: (view) => {
+          if (view.loaded.knowledge) setKnowledge(view.knowledge as unknown as KnowledgeRecord[]);
+          if (view.loaded.wrongs) setWrongs(view.wrongs as unknown as WrongEntry[]);
+          if (view.loaded.points) setPoints(view.points as unknown as ExamPoint[]);
+          if (view.loaded.profile && view.profile) {
+            setProfile({
+              explanation_style:
+                typeof view.profile.explanation_style === "string"
+                  ? view.profile.explanation_style
+                  : "balanced",
+              goals:
+                typeof view.profile.goals === "string" ? view.profile.goals : "",
+            });
+          }
+        },
+        onError: (message) => {
+          if (isCurrent()) setMsg(message);
+        },
+      });
+    },
+    [subjectId, isCurrent],
+  );
+
+  useEffect(() => {
+    // Never show the previous subject's data or its success message while the
+    // new subject is loading (or if that load fails).
+    setKnowledge([]);
+    setWrongs([]);
+    setPoints([]);
+    setProfile({ explanation_style: "balanced", goals: "" });
+    setWrongStatus("");
+    setBusy(false);
+    setMsg("");
+    void refresh(true);
   }, [refresh]);
 
-  const post = async (path: string, fields: Record<string, string>) => {
-    const body = new FormData();
-    Object.entries(fields).forEach(([k, v]) => body.append(k, v));
-    return apiFetch(`/api/v1/subjects/${subjectId}${path}`, { method: "POST", body });
-  };
-
   async function recordAttempt(entryId: string, correct: boolean) {
-    await post(`/wrong-book/${entryId}/attempt`, { correct: String(correct) });
-    await refresh();
+    await recordAttemptAction({
+      request: apiFetch,
+      isCurrent,
+      subjectId,
+      entryId,
+      correct,
+      setBusy,
+      onError: setMsg,
+      onSuccess: () => {
+        setMsg(correct ? "已记录答对。" : "已记录答错。");
+        void refresh(false);
+      },
+    });
   }
 
   async function archiveEntry(entryId: string) {
-    await post(`/wrong-book/${entryId}/archive`, {});
-    await refresh();
+    await archiveEntryAction({
+      request: apiFetch,
+      isCurrent,
+      subjectId,
+      entryId,
+      setBusy,
+      onError: setMsg,
+      onSuccess: () => {
+        setMsg("错题已归档。");
+        void refresh(false);
+      },
+    });
+  }
+
+  async function confirmPoint(pointId: string) {
+    await confirmExamPointAction({
+      request: apiFetch,
+      isCurrent,
+      subjectId,
+      pointId,
+      setBusy,
+      onError: setMsg,
+      onSuccess: () => {
+        setMsg("考点已确认。");
+        void refresh(false);
+      },
+    });
+  }
+
+  async function saveProfile() {
+    await saveProfileAction({
+      request: apiFetch,
+      isCurrent,
+      subjectId,
+      goals: profile.goals,
+      explanationStyle: profile.explanation_style,
+      setBusy,
+      onError: setMsg,
+      onSuccess: () => setMsg("画像已保存"),
+    });
+  }
+
+  async function generateReviewPack(format: "pdf" | "docx") {
+    await generateReviewPackAction({
+      request: apiFetch,
+      isCurrent,
+      subjectId,
+      format,
+      term: "",
+      setBusy,
+      onError: setMsg,
+      onSuccess: () => setMsg("复习包已生成，开始下载。"),
+      openDownload: (url) => downloadArtifact(url, format),
+    });
+  }
+
+  async function exportSubject() {
+    await exportSubjectAction({
+      request: apiFetch,
+      isCurrent,
+      subjectId,
+      setBusy,
+      onError: setMsg,
+      onSuccess: () => setMsg("导出已开始下载。"),
+      openDownload: (url) => downloadArtifact(url, "zip"),
+    });
+  }
+
+  async function downloadArtifact(url: string, format: "zip" | "pdf" | "docx") {
+    const blob = await fetchSubjectArtifact(apiFetch, url, format);
+    if (!isCurrent()) return;
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = url.split("/").pop()!.split("?")[0];
+    document.body.appendChild(link);
+    try { link.click(); }
+    finally {
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    }
   }
 
   function filteredWrongs() {
@@ -120,6 +260,18 @@ export default function SubjectDetailPage() {
           ← 科目列表
         </Link>
         <h1 className="text-2xl font-semibold">{subjectId}</h1>
+        <div className="ml-auto text-right">
+          <button
+            onClick={() => void exportSubject()}
+            disabled={busy}
+            className="rounded-md border px-3 py-1.5 text-sm disabled:opacity-50"
+          >
+            {busy ? "处理中…" : "导出科目资料"}
+          </button>
+          <div className="mt-1 max-w-[18rem] text-[11px] opacity-50">
+            {EXPORT_SCOPE_NOTE}
+          </div>
+        </div>
       </div>
       <div className="mt-4 flex flex-wrap gap-2 border-b pb-2">
         {tabs.map(([key, label]) => (
@@ -192,10 +344,10 @@ export default function SubjectDetailPage() {
                 <div className="mt-1 text-sm">{w.question}</div>
                 {w.answer && <div className="mt-1 text-xs opacity-60">答案：{w.answer}</div>}
                 <div className="mt-2 flex gap-2">
-                  <button onClick={() => recordAttempt(w.id, true)} className="rounded bg-emerald-600 px-2 py-0.5 text-xs text-white">记录答对</button>
-                  <button onClick={() => recordAttempt(w.id, false)} className="rounded bg-red-600 px-2 py-0.5 text-xs text-white">记录答错</button>
+                  <button onClick={() => void recordAttempt(w.id, true)} disabled={busy} className="rounded bg-emerald-600 px-2 py-0.5 text-xs text-white disabled:opacity-50">记录答对</button>
+                  <button onClick={() => void recordAttempt(w.id, false)} disabled={busy} className="rounded bg-red-600 px-2 py-0.5 text-xs text-white disabled:opacity-50">记录答错</button>
                   {!w.archived && (
-                    <button onClick={() => archiveEntry(w.id)} className="rounded bg-gray-500 px-2 py-0.5 text-xs text-white">归档</button>
+                    <button onClick={() => void archiveEntry(w.id)} disabled={busy} className="rounded bg-gray-500 px-2 py-0.5 text-xs text-white disabled:opacity-50">归档</button>
                   )}
                 </div>
               </div>
@@ -207,7 +359,7 @@ export default function SubjectDetailPage() {
 
       {tab === "exam" && (
         <div className="mt-4 space-y-4">
-          <ExamPointDetect subjectId={subjectId} onDone={refresh} />
+          <ExamPointDetect key={subjectId} subjectId={subjectId} onDone={() => void refresh(false)} />
           <div className="space-y-2">
             {points.map((p) => (
               <div key={p.id} className="rounded-xl border p-3 text-sm">
@@ -215,7 +367,7 @@ export default function SubjectDetailPage() {
                   <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-xs text-amber-600">{LEVEL_LABEL[p.level]}</span>
                   <span className="flex gap-2">
                     {!p.confirmed && (
-                      <button onClick={async () => { await post(`/exam-points/${p.id}/confirm`, {}); await refresh(); }} className="rounded bg-emerald-600 px-2 py-0.5 text-xs text-white">确认</button>
+                      <button onClick={() => void confirmPoint(p.id)} disabled={busy} className="rounded bg-emerald-600 px-2 py-0.5 text-xs text-white disabled:opacity-50">确认</button>
                     )}
                     <span className={p.confirmed ? "text-xs text-emerald-600" : "text-xs text-gray-400"}>
                       {p.confirmed ? "已确认" : "待确认"}
@@ -223,7 +375,7 @@ export default function SubjectDetailPage() {
                   </span>
                 </div>
                 <div className="mt-1">{p.content}</div>
-                {p.evidence && <div className="mt-1 text-xs opacity-60">证据："{p.evidence}"</div>}
+                {p.evidence && <div className="mt-1 text-xs opacity-60">证据：&quot;{p.evidence}&quot;</div>}
               </div>
             ))}
             {points.length === 0 && <div className="text-sm opacity-50">暂无考点，可粘贴课堂转写文字进行检测</div>}
@@ -255,16 +407,11 @@ export default function SubjectDetailPage() {
             />
           </div>
           <button
-            onClick={async () => {
-              setBusy(true);
-              await post("/profile", { goals: profile.goals, explanation_style: profile.explanation_style });
-              setMsg("画像已保存");
-              setBusy(false);
-            }}
+            onClick={() => void saveProfile()}
             disabled={busy}
             className="rounded-md bg-blue-600 px-4 py-1.5 text-sm text-white disabled:opacity-50"
           >
-            保存画像
+            {busy ? "保存中…" : "保存画像"}
           </button>
         </div>
       )}
@@ -278,23 +425,11 @@ export default function SubjectDetailPage() {
             {["pdf", "docx"].map((fmt) => (
               <button
                 key={fmt}
-                onClick={async () => {
-                  setBusy(true);
-                  const res = await post("/review-pack", { format: fmt, term: "" });
-                  if (res.ok) {
-                    const data = await res.json();
-                    setMsg(`已生成：${decodeURIComponent(data.url)}`);
-                    setBusy(false);
-                    window.open(data.url, "_blank");
-                  } else {
-                    setMsg(await res.text());
-                    setBusy(false);
-                  }
-                }}
+                onClick={() => void generateReviewPack(fmt as "pdf" | "docx")}
                 disabled={busy}
                 className="rounded-md bg-blue-600 px-4 py-1.5 text-sm text-white disabled:opacity-50"
               >
-                生成 {fmt === "pdf" ? "PDF" : "Word"}
+                {busy ? "生成中…" : `生成 ${fmt === "pdf" ? "PDF" : "Word"}`}
               </button>
             ))}
           </div>
@@ -310,66 +445,41 @@ function ExamPointDetect({ subjectId, onDone }: { subjectId: string; onDone: () 
   const [transcript, setTranscript] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState("");
-  const [asrMsg, setAsrMsg] = useState("");
-
-  async function uploadAudio(files: FileList | null) {
-    if (!files || files.length === 0) return;
-    setBusy(true);
-    setAsrMsg("正在上传录音并转写（ASR）…");
-    const body = new FormData();
-    body.append("type", "lecture");
-    for (const f of Array.from(files)) body.append("files", f);
-    const res = await apiFetch(`/api/v1/subjects/${subjectId}/knowledge/upload`, {
-      method: "POST",
-      body,
-    });
-    if (res.ok) {
-      const data = await res.json();
-      const pieces = (data.transcripts ?? []).map((t: { text: string }) => t.text);
-      const joined = pieces.join("\n\n");
-      if (joined) {
-        setTranscript((prev) => (prev ? prev + "\n\n" + joined : joined));
-        setAsrMsg(`转写完成（${(data.transcripts ?? []).length} 段，已填入下方检测框）`);
-      } else {
-        setAsrMsg("转写完成但没有文本内容，请检查录音。");
-      }
-    } else {
-      setAsrMsg(await res.text());
-    }
-    setBusy(false);
-  }
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+  const isCurrent = () => mounted.current;
 
   async function run() {
     if (!transcript.trim()) return;
-    setBusy(true);
-    const body = new FormData();
-    body.append("transcript", transcript);
-    body.append("term", "");
-    const res = await apiFetch(`/api/v1/subjects/${subjectId}/exam-points/detect`, {
-      method: "POST",
-      body,
+    await detectExamPointsAction({
+      request: apiFetch,
+      isCurrent,
+      subjectId,
+      transcript,
+      term: "",
+      setBusy,
+      onError: setResult,
+      onSuccess: (message) => {
+        setResult(message);
+        onDone();
+      },
     });
-    if (res.ok) {
-      const data = await res.json();
-      setResult(`检出 ${data.detected} 条候选考点（明示已自动确认，其余请在列表中确认）`);
-      onDone();
-    } else {
-      setResult(await res.text());
-    }
-    setBusy(false);
   }
 
   return (
     <div className="rounded-xl border p-4">
       <div className="text-sm font-medium">课堂考点检测</div>
-      <div className="mt-2 flex flex-wrap items-center gap-3 text-xs opacity-70">
-        <label className="cursor-pointer rounded-md bg-blue-600 px-3 py-1.5 text-xs text-white">
-          {busy ? "处理中…" : "上传录音（mp3/m4a/wav）"}
-          <input type="file" multiple accept=".mp3,.m4a,.wav,.flac,.ogg,.aac" className="hidden" onChange={(e) => uploadAudio(e.target.files)} />
-        </label>
-        <span>或直接粘贴讲课转写文字：</span>
-      </div>
-      {asrMsg && <div className="mt-1 text-xs text-emerald-600">{asrMsg}</div>}
+      <AsrJobPanel
+        request={apiFetch}
+        subjectId={subjectId}
+        onCompleted={(_result, text) => {
+          if (text) setTranscript((prev) => (prev ? prev + "\n\n" + text : text));
+        }}
+      />
+      <div className="mt-2 text-xs opacity-70">或直接粘贴讲课转写文字：</div>
       <textarea
         value={transcript}
         onChange={(e) => setTranscript(e.target.value)}

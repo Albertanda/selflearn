@@ -1,0 +1,102 @@
+仅执行第一阶段 S11「现有UI与裁剪残留收敛」。连续完成 P1-42 → P1-43 → P1-44 → P1-45 → P1-46；五单元阶段末一次交付，不逐卡请示，不进入S12或第二阶段。
+
+工作目录 /home/albert/selflearn/selflearn。先读本指令、S11_EXPLORATION.md已探索文件清单+关键片段、C02/C07/C08/C12/C13及五卡，按符号直达。复用已核hash的原样片段，不重做全仓orientation；实现需要时只补读有关相邻段落。
+
+一、开工门与保护
+
+读取 .phase1-evidence/stages/S10/review.json，必须accepted、goal_met=true、next_stage_authorized=true、next_stage=S11，指向 .phase1-evidence/reviews/S10-final/review.json。核完整receipt SHA、107条source_artifacts和本包两份dispatch hashes。以签收后的当前源码为基线，不恢复成原worker版本。S10已由协调者补修：121项S10/执行器定向、3806项相关目录/19历史条件skip通过，新增25项永久回归；这些集合有重叠不可相加。附修已覆盖执行器组长提前退出后的管道资源生命周期；S11对此路径只读。最终107条源码、1897成员恢复归档和逐文件重建见receipt。
+
+唯一源码/测试/产品文档白名单29条：
+AGENTS.md
+SKILL.md
+deeptutor/agents/chat/agentic_pipeline.py
+deeptutor/knowledge/kb_types.py
+deeptutor/services/rag/pipelines/pageindex/pipeline.py
+deeptutor_cli/README.md
+deeptutor_cli/main.py
+packaging/deeptutor-cli/pyproject.toml
+pyproject.toml
+requirements.txt
+requirements/cli.txt
+requirements/matrix-e2e.txt
+requirements/matrix.txt
+requirements/partners.txt
+requirements/server.txt
+tests/cli/test_provider_cli.py
+tests/phase1/test_p1_44.py
+tests/phase1/test_p1_45.py
+tests/phase1/test_p1_46.py
+tests/test_matrix_requirements.py
+tests/test_packaging_metadata.py
+web/app/(workspace)/subjects/[id]/page.tsx
+web/app/(workspace)/subjects/page.tsx
+web/components/knowledge/CreateKbModal.tsx
+web/components/knowledge/KnowledgeHome.tsx
+web/components/knowledge/KnowledgePage.tsx
+web/lib/subject-results.ts
+web/tests/phase1-42.test.ts
+web/tests/phase1-43.test.ts
+
+原26路径之外明确补充AGENTS.md、requirements/cli.txt、packaging/deeptutor-cli/pyproject.toml，符号权限已同步P44/P45及tasks/stages，不需再问批准。AGENTS只记录当前fork差异；后两个文件只改MCP兼容注释，不动依赖/版本。文件在白名单不表示可改无关功能。
+
+107条当前源码中仅agentic_pipeline.py与pageindex/pipeline.py两条可在P46范围修改，其余105条只读；capture --include并集134条，含尚不存在的6文件。新增为subject-results.ts、phase1-42/43.test.ts、test_p1_44/45/46.py；不新增后端产品功能。共享fixtures、S10导出/租约/删除、错误/schema、outputs鉴权、PathService及索引/沙箱只读。若需要额外路径先给最小失败复现和补充范围，不通过改契约/关测试绕过。
+
+新建 .phase1-evidence/stages/S11/ 独立source/data基线，保留dirty与全部旧receipt/report/log/archive。原5条tracked deletion全部保持缺失；P44若删除3个retired requirements镜像，是明确批准的新删除，快照/归档须如实反映，不恢复旧5条。六真实树完整files/dirs/modes及supplementary起止相等；仅不透明hash，不读settings/memory内容、不新建真实锁，保留auth.lock和9个memory文件。测试只用tmp/HOME或明确fake fetch/provider，不联网安装、不改系统策略、不重启真实服务/重建真实索引、不实际上传/删除/导出真实科目，不提交推送。
+
+二、连续单元：目标、证据、范围、完成条件
+
+P1-42 科目页面真实结果和失败闭环
+目标：任何网络/业务失败均结束对应busy，不显示成功计数/错误下载；ASR/索引/导出文案符合实际。
+范围：两个subjects页面、subject-results.ts、phase1-42.test.ts。只改现有页面，不做新AI批改表单或C10知识点面板。WrongEntry.mastery是C05的number，0/untracked保持；它不是C10聚合mastery=null字段，不要错改。
+实施：少量结果/error helper应实际接入现有create/refresh/upload/delete/attempt/archive/profile/review-pack/audio/detect等action；相关await有catch/finally，非2xx不继续success、清空输入、报0条、刷新假成功。错误优先error.message，兼容旧字符串detail；解析坏JSON/网络错误给安全固定提示，不把HTML/traceback/整段res.text()展示给用户。请求失败或切换科目时不得展示前一科的成功链接。
+上传按operation分支：transcribe显示转写完成、文本去向，不说正在建库；index显示当前documents权威源计数、queued/busy/rebuild状态、material sync与coverage warning，不把documents当chunk/本次上传次数。展示已有服务端字段，不重新推断ready或把coverage未知说成完整。
+当前页面没有导出按钮，现明确授权在已有页面加最小按钮，调用现有GET /subjects/{id}/export并使用真实outputs下载链路。仅2xx且有效url后发起下载/打开，使用既有API_BASE/cookie鉴权方式，不往URL拼密钥或改后端allowlist；失败不开窗口、不保留旧链接。范围文案为“科目资料与学习记录导出”，明确不含聊天历史、不提供导入恢复。
+证据：fake fetch返回真实Response的断网、C02/legacy detail、HTTP非2xx、坏响应、transcribe/index/coverage/degraded、export失败与成功；观察实际action/helper使用的busy/消息/输入/打开下载回调，不能只测JSON parser或源码字符串。现有页面必须调用被测试的action路径；tsc验证组件接线。
+完成：P42行为测试全部执行通过，非2xx不假成功且finally可观察，再继续P43。
+
+P1-43 移除不可用Obsidian创建入口
+目标：用户不再点击固定501创建流程；保留正常文档上传和可用连接选项。
+范围：CreateKbModal、KnowledgeHome、KnowledgePage及phase1-43.test.ts。删除可点击Obsidian选项/入口/callback/过时vault读写文案及其props接线；保留本地文件夹、PageIndex/provider、IMA、LightRAG Server及历史类型识别。后端501接口及用户旧vault/KB只读不删。
+证据：实际可选来源/渲染选项没有Obsidian，保留来源仍可选，旧501说明仍在；Node与tsc无遗留required prop。可用来源集合/交互结果应有行为断言，必要结构检查可以补充，不能以全仓字符串替换作为实现。
+完成：五处前后入口闭合、正常来源不回归，继续P44。
+
+P1-44 伙伴依赖与安装镜像
+目标：默认server/Docker/all不再拉被裁剪IM运行时SDK，保留CLI/server/manim/parse/MCP及其它共享依赖。
+范围：pyproject、root/server/partners/matrix/matrix-e2e requirements及两份现有packaging测试/new P44测试；两个额外CLI依赖文件只改MCP兼容注释。
+实施：root -r改server；移除partners/tutorbot/matrix/matrix-e2e extras及对应retired镜像，all只组合保留extras；检查所有-r递归引用，不留下不存在的文件，不让dev/其它profile绕路拉旧IM。不要按关键词删包：MCP SDK仍保留相同版本约束，websockets等共享API依赖保持；重复声明是否退役须按真实引用区分。过时“PageIndex MCP server自动注入client”文案改成兼容待审查，不新增MCP transport/client。Dockerfile读取root profile，无需无故改镜像脚本。
+证据：tomllib解析extras和all；递归解析所有现存requirements引用图，路径均存在；默认server/all图无退役SDK，保留的基础依赖/版本匹配；有效packaging断言保留，将旧IM正例改为当前负向安装契约。仅静态解析与现有测试，不联网解析/安装升级依赖，不为删镜像删掉有效测试文件。
+完成：P44、test_packaging_metadata、test_matrix_requirements通过，继续P45。
+
+P1-45 CLI裁剪与活跃说明
+目标：保留book.py/partner.py当前删除；CLI help和活跃安装/命令说明不再推荐不存在的命令/extra。
+范围：CLI main/README、根SKILL.md、test_provider_cli及新P45测试；AGENTS只补当前fork差异或最小命令表说明。根SKILL.md在这里是产品CLI文档，不触发无关技能安装/外部服务工作流。
+实施：main已不注册book/partner，保留现有正确裁剪，不恢复旧HEAD代码；保留chat/kb/memory/start及其它有效命令。不修改UPSTREAM历史存档。说明不推荐.[partners]，不把当前fork称为仍支持IM伙伴；AGENTS原上游架构可留存，但当前差异必须明确。
+证据：隔离HOME的真实Typer CLI --help成功、无book/partner；kb/memory/start等仍能注册，provider原有效用例不削弱，导入不触发缺失模块；文件删除与文档检查补充行为证据。不调用真实provider/密钥。
+完成：P45与provider CLI回归通过，继续P46。
+
+P1-46 PageIndex概览能力与真实接线
+目标：PageIndex-only也能走本fork既有rag概览路径，返回retrieval_kind=outline，不宣称query-grounded passage或不存在的MCP工具。
+范围：agentic_pipeline、PageIndex pipeline、kb_types及新P46测试。S07已经修复大部分挂载/提示语；先核实际行为，只改剩余错误和注释，不为凑改动重写已验收resolver/工具参数。
+实施：去掉“PageIndex通过预载MCP，不挂rag”等与实际代码不符的注释、docstring、清单说明；保留REST上传/状态/doc tree summary。不得新增MCP client。无目录/服务异常返回真实无资料或具名错误，不编造命中；保留S07 wire ref、同科ready、全局显式挂载及source_index边界，LlamaIndex正常检索不变。kb_types若无需行为改动就保持。
+证据：真实tool assembly的PageIndex-only和混合global/subject/LlamaIndex fixtures；实际search的正常/缺目录/服务失败结果均明确outline和来源，不含虚构passage；组装prompt无不可调用mcp_pageindex工具名。fake REST/provider可以，但应调用生产接缝而非只搜源字符串。
+完成：P46及S07相关回归保持；五单元全部完成后统一交付，停止等待审查。
+
+三、统一验证与交付
+
+所有命令串行，共用execution.log，保存失败尝试；记录真实argv/cwd/UTC/exit及准确不交错行区间。Python业务收集先用临时HOME launcher。Node和tsc阶段末各一次；有新改动/失败才复跑。不生成逐卡长报告。
+
+Python定向（项目根）：
+.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q -rs tests/phase1/test_p1_44.py tests/phase1/test_p1_45.py tests/phase1/test_p1_46.py tests/test_packaging_metadata.py tests/test_matrix_requirements.py tests/cli/test_provider_cli.py
+相关目录回归（项目根）：
+.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q -rs tests/phase1 tests/services tests/api tests/tools tests/agents/chat tests/agents/question tests/agents/research tests/utils/test_document_extractor.py tests/test_packaging_metadata.py tests/test_matrix_requirements.py tests/cli/test_provider_cli.py
+Node（cwd=web，独立命令）：
+node ./scripts/run-node-tests.mjs
+TypeScript（cwd=web，独立命令）：
+./node_modules/.bin/tsc --noEmit -p .
+Ruff仅本阶段具体Python白名单，记录完整真实argv，不跑无关全仓修复。
+
+新增必需测试无skip/xfail；既有19项条件skip如实列原因（含公开DNS，不全是可选依赖）。不以Node/tsc冒充真实浏览器；最终门依次S13/P50 OS沙箱、S14 HTTP/WS、S15浏览器。本阶段不运行真实部署/供应商；环境缺失给最小blocked_environment证据，不自动安装或升级。
+
+至少三类独立坏对照，在tmp副本同副本正例先通过并核导入/编译位置后，分别取消①action失败/finally门②退役依赖排除门③PageIndex实际挂载/真实能力说明门；必须目标行为断言失败，不是导入/路径/fixture错误。
+
+阶段末一个report.json包含五单元结果、真实命令和限制，一个共享日志、起止source/data、scope/supplementary比较、恢复归档与verify-rebuild。capture include完整134条，107前置中105只读；归档保留S10-final所有仍应存在的成员，仅新增6个授权新文件并按P44明确记录retired镜像删除。已批准删除文件应为missing，不能伪造hash或重新恢复以凑成员数。manifest与实际逐文件hash核对，不只比数量。保留原恢复素材/dirty，旧证据不可覆盖，report/log/closing冻结前缀的行数/字节/完整SHA相符。交付仅verified_local，不自签accepted，不进入S12。

@@ -1,0 +1,103 @@
+仅执行第一阶段 S08「报告输入、目录和执行边界」。P1-31 → P1-32 → P1-33 → P1-34 串行完成，阶段末一次交付；单元通过后直接继续，不逐卡请求批准，不进入 S09 或第二阶段。
+
+工作目录 /home/albert/selflearn/selflearn。优先读本指令、S08_EXPLORATION.md（已探索的文件清单+关键片段）、C11/C01/C02/C04和四张卡。不要重扫全仓、重读历史所有报告。已有依赖 .venv、Pillow、numpy/matplotlib、bwrap 路径可读，不自动安装/升级、改系统策略、提交推送、重启真实服务或访问真实供应商。
+
+一、开工核验与范围
+
+先读 .phase1-evidence/stages/S07/review.json，必须 accepted、goal_met:true、next_stage_authorized:true、next_stage:S08，指向 .phase1-evidence/reviews/S07-final/review.json；核对完整receipt SHA256、84条source_artifacts和本包dispatch hashes。旧S07 changes_requested/worker verified_local是历史，不用其过期源码摘要代替最新合并值。按探索包SHA核对当前S08接缝。
+
+S07-final 已由协调者修复显式失败结果/构造异常安全投影、嵌套来源过滤、explicit unknown状态、legacy/config regenerate预校验；17项Question环境失败也已用测试替身消除。最终244项定向/独立后端检查、3391项相关目录/19历史条件skip、原前端7探针、429项Node、tsc和Ruff均通过。不要回退这些修改。
+
+本阶段唯一白名单为10路径：
+deeptutor/services/pdf/report.py
+deeptutor/services/pdf/report_inputs.py
+deeptutor/services/pdf/report_store.py
+deeptutor/services/pdf/chart_executor.py
+deeptutor/services/pdf/chart_worker.py
+deeptutor/services/pdf/chart_validation.py
+tests/phase1/test_p1_31.py
+tests/phase1/test_p1_32.py
+tests/phase1/test_p1_33.py
+tests/phase1/test_p1_34.py
+
+除report.py外其余9文件当前均为新文件。所有依赖模块/既有测试/共享fixtures/DB/部署settings/计划文件只读。报告API、ReportTool、整篇生成与review编排在S09接入，不提前改入口或实现P35–38；S08交付基础接口及P31输入改动，不能宣称完整报告闭环已经安全可用。旧report.py的裸subprocess helpers属于P35后续替换点，本阶段测试不得拿真实模型代码走它们；不因它们仍存在而绕过新的专用executor。
+
+开工新建 .phase1-evidence/stages/S08/ 唯一source/data baseline。capture --include = 最新84条receipt产物 + 本阶段10路径，共94条（9个新文件尚不存在也列入）；保留所有dirty及5个tracked deletion。真实六树只用snapshot v2做不透明哈希，不解析/复制settings和历史memory；比较三强制树之外还须独立比较supplementary三树完整files/dirs/modes。保留继承auth.lock，不产生真实数据新锁。所有业务测试收集前隔离HOME。
+
+二、四个内部单元
+
+P1-31 报告输入、严格code对象及ODE提示
+目标：普通统计图不被默认ODE污染；任何将进入执行器的表达式/代码对象先通过固定输入契约。
+允许：report.py 的CHART_CODE_PROMPT/_extract_json/纯输入接缝、report_inputs.py、test_p1_31.py；不接通整篇publish或改API/工具。
+数据与实现要求：
+- ode_rhs为空时无默认f、无x**2-y、无“必须遵守ODE”段，按图表spec构造普通绘图提示；有ODE才插入经过验证的原表达式。不能靠prompt要求代替代码验证。
+- 表达式以AST解析：仅x/y、有限实数常量、二元+ - * / **、一元+/-，及sin/cos/exp/log/sqrt/abs这6个名字的一参数直接调用。拒绝bool、NaN/Inf、属性/下标/import/lambda/推导式/未知名/双下划线/关键字参数。不要用宿主eval试算模型或用户表达式；计算量仍归受限worker。
+- 模型图表响应复用已验收parse_model_object/完整对象验证；code必须非空字符串，不接收list/dict/截断JSON/尾随对象，不靠贪婪regex或自动“补半JSON”。沿用生成服务预算/截断边界，不直接返回空dict掩盖失败。
+- 图占位识别有统一纯helper，最多8张，超过明确invalid_input。P35再用同一match替换占位，本阶段为它保留数据，不引入新的图表语言或数学证明系统。
+证据：普通图prompt无默认方程；合法x**2-y/sin(x)-y接受；仅改变一个语法节点的反例逐一拒绝；模型code正确对象正例→类型/空白/半JSON/多对象失败；0/1/8/9图；表达式拒绝发生在调用provider/executor前。
+完成：P31定向通过，纯输入无文件/网络副作用，再进入P32。
+
+P1-32 独立run、状态与完成发布
+目标：每次报告有独立服务端身份与私有目录；失败不覆盖旧completed或暴露正式URL。
+允许：report_store.py、test_p1_32.py；只实现目录/manifest/读取辅助，不调用模型或执行图表。
+固定接口（DATA_CONTRACTS附录A）：
+create_report_run(subject_id, *, reviewed_from=None) -> ReportRun
+publish_report_run(run, *, files, verification_status) -> ReportManifest
+resolve_report_for_review(subject_id, *, report_id=None, legacy_path=None) -> ReportManifest
+ReportRun至少有report_id/subject_id/staging_dir/public_dir；ReportManifest字段与ReportMetadata一致，并保留服务端内部路径与安全公开投影的区分。
+要求：
+- uuid.uuid4().hex作为32位report_id；当前用户/已登记subject；通过S03 confined/strict reader构造路径。private staging=subject/_report_runs/rid；completed=当前用户public outputs/subjects/sid/reports/rid。不能信任传入Path/自定义ID拼目录；重复ID即拒绝，不覆盖。
+- metadata schema_version=1，status仅running/completed/failed/abandoned，created_at非负int、reviewed_from可null、verification_status仅not_requested/passed/failed、files为ReportFile(path相对basename,size,sha256,role=markdown/pdf/chart)，owner_pid可选。未知私有扩展可保留，不能公开宿主目录/诊断。
+- 仅显式publish才产生正式资源；同subject短锁保护发布/互斥，文件复制到本次私有目标再完成rename/commit，普通失败回滚本次产物。检查常规文件/非symlink/路径归属/size/hash，不把外部源或模型指定目的地复制过去。发布清单仅正文MD、真正PDF、经验证PNG，不能整包拷贝脚本/日志/缓存。权威metadata保持私有，公开投影只含契约字段。
+- completed要求not_requested或passed，failed验证不能publish；缺正文/PDF、空文件、hash不符、重复path/未知role/多份主正文或主PDF拒绝；chart角色允许多项且总数不超过8。publish不替代P35对全文/编译完成的质量检查；其输入必须来自服务端已验证文件清单，不接受模型自签。
+- active run登记与finally释放，失败标failed而无URL；确定已结束进程留下的running识别abandoned，不把仅同PID存在误认为本run仍活跃。不要新加DB或全局调度器；对实现的进程内/文件状态边界如实记录。
+- review解析只发现同subject已知completed或受限legacy .md/.pdf；latest不选running/failed/abandoned；不迁移旧文件、不跟链接，不因陌生md在目录中就称已知。返回reviewed_from供S09新revision使用，不修改原件。
+证据：并发两个run独立；强制UUID碰撞拒绝；发布中注入IO失败无半完成目录/正式URL且旧报告hash不变；symlink/跨科/越界/未知角色/坏metadata/失败验证拒绝；hash逐项吻合；legacy合法同科发现且树不变，未知/越界不读；active释放与abandoned分支。
+完成：P32定向通过，状态/files符合ReportMetadata schema，再进入P33。
+
+P1-33 专用受限图表执行器与可信worker
+目标：供P35和P34复用的唯一report-only执行边界；无合格backend时固定503，不能退回宿主执行。
+允许：chart_executor.py、chart_worker.py、test_p1_33.py。依赖BwrapBackend/ExecRequest等只读，不改普通exec/sandbox service/settings/core runner。
+接口：内部ReportExecutionPolicy与ChartExecutionResult（至少exit_code/timed_out/error/stdout/stderr）；async execute_chart_code(code, *, run, expected_png, policy) -> ChartExecutionResult（与DATA_CONTRACTS附录A固定异步签名一致）。模型不提供policy/limits/mounts/env/worker路径。
+关键已探索事实：当前BwrapBackend固定挂载/usr等及/etc、继承进程env；health只看error不看exit_code；_communicate无输出内存上限且超时只杀单进程，ResourceLimits的CPU/内存并未自动强制。直接调用它或SandboxService不能满足C11，不得以level=SYSTEM标签当全部证明。
+要求：
+- 在新chart_executor内复用/窄派生BwrapBackend的组装思路，实现报告专用策略；不扩共享服务。backend必须可证逐任务OS隔离，拒绝APPLICATION/OFF、未证明逐任务最小mounts的sidecar/shared runner；不信任仅同名类或可伪造level字段。
+- 只将当前run workdir作为可写宿主挂载；解释器/其真实managed runtime、必要libs、字体、trusted worker只读。不能挂repo/home/settings/其他科/其他run为可读目录；不能照搬/etc全目录作为最小所需。namespace内/proc、/dev、私有tmpfs的必要可写不等同于增加可写宿主树。
+- 明确--clearenv/等效隔离；env白名单固定，不复制os.environ。PATH/Python隔离参数/字体缓存由服务端指定，缓存限本run，拒绝凭据/代理/PYTHONPATH/sitecustomize影响。argv无shell，用ExecRequest.of_argv或等效一致向量，不让模型拼command。
+- chart_worker是仓库新可信文件，单独只读挂载，不复制到模型可写目录后再信任执行。先设置进程级hard RLIMIT CPU30s、地址空间1536MiB、文件大小界限，再运行模型脚本；子进程继承。worker控制参数仅服务端生成，不由模型脚本提供。不能宣称实现了整进程树累计cgroup配额。
+- 图表墙钟60s，ODE30s；stdout/stderr合计有界10000字符，读取期间就限内存，不能先communicate全部再截断。墙钟超时终止整个执行进程组并reap，处理取消/异常的清理，保持其他run不受影响。
+- 严格综合error、timed_out、exit_code==0；ExecResult.ok忽略非零exit_code，不能单独用它。backend健康测试也看真实退出码/timeout；不存在/不健康固定sandbox_unavailable503，不裸subprocess fallback、自动下载或改系统策略。
+- OS隔离真实验证属于S15/P50门；S08用fake backend与受控进程边界验证策略/限额/失败。可以做无副作用健康探测；缺OS能力时证明503，不拿fake冒充OS隔离成功，不为跑真实模型脚本安装环境。
+证据：只一个当前run宿主可写、trusted worker不可改写、env无测试secret；sidecar/application/off拒绝且不调用宿主执行；nonzero即失败，即使.ok为true；health非0拒绝；超时/取消组清理；输出洪泛有界；worker在执行body前设置hard limits；模型伪造limits/mount/env无效。fake只证明policy，真实OS能力如实记未验收。
+完成：P33定向通过、request/result契约与失败映射可供P34/P35直接调用，再进入P34。
+
+P1-34 当前任务PNG与ODE数值产物验证
+目标：存在文件不等于有效图；旧图、越界图、未验证声明不能发布；ODE通过只称给定五点数值检查。
+允许：chart_validation.py、test_p1_34.py；不编排全文报告、不在宿主import或执行模型_chart.py。
+接口：validate_chart_output(run, expected_png) -> dict（至少relative path/size/hash或明确C02失败）；其它纯helper命名自定但后续P35可复用。
+要求：expected_png是服务端预分配basename chart_N.png（N 1..8），隶属本run；每次重试删除/隔离该次旧产物，不能凭mtime或exists把上次成功图当本次。仅普通非链接新文件，拒绝父/叶链接、另一run/穿越路径。
+Pillow verify并实际解码检查：非空、有效PNG、<=10MiB、<=20百万像素；解压炸弹warning/error均拒绝，读取/验证不能无界。成功返回真实hash/size与相对名，代码exit0无图仍chart_failed。
+ODE检查必须经P33同一trusted worker/executor、验证后的表达式；在隔离环境读取当前脚本的f及声明表达式，使用固定5点(-2.5,1.0),(0,0.5),(1.7,-2),(2.2,2.5),(-0.8,-3)，所有数值有限，最大绝对误差<1e-6才passed。缺f、mismatch、NaN/Inf、坏输出/超时均失败；not_requested仅无ODE。不得宿主eval/import模型、借普通runner兜底。输出解析拒绝不完整/伪造结构，不夸大为解析解或整篇数学已证明。
+证据：有效当前PNG正例→空/损坏/别run/链接/超byte/超像素/解码warning反例；exit0缺图失败；两次attempt不复用旧图；ODE五点合法/不符/非有限/超时，fake落在executor边界，调用实际validation，不仅断言helper曾被调用。
+完成：P34定向通过，然后统一收尾，不继续P35。
+
+三、统一验证与交付
+
+每单元测试一次，有实际变动/失败才追加。全部跨目录pytest在收集前用现有只读S01 launcher初始化临时HOME，默认fake provider，禁止读取真实目录填环境：
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q tests/phase1/test_p1_31.py
+P32/P33/P34使用对应文件。
+
+阶段末合并：
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q -rs tests/phase1/test_p1_31.py tests/phase1/test_p1_32.py tests/phase1/test_p1_33.py tests/phase1/test_p1_34.py
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q -rs tests/phase1 tests/services tests/api tests/tools tests/agents/chat tests/agents/question tests/agents/research tests/utils/test_document_extractor.py
+./.venv/bin/ruff check deeptutor/services/pdf/report.py deeptutor/services/pdf/report_inputs.py deeptutor/services/pdf/report_store.py deeptutor/services/pdf/chart_executor.py deeptutor/services/pdf/chart_worker.py deeptutor/services/pdf/chart_validation.py tests/phase1/test_p1_31.py tests/phase1/test_p1_32.py tests/phase1/test_p1_33.py tests/phase1/test_p1_34.py
+
+本阶段无前端改动，不重复Node/tsc/browser。所有新增必需测试真实执行，无新增skip/xfail；既有19项可选/条件skip按准确原因报告。不要跑当前裸report helper的真实模型脚本来凑evidence。
+
+至少两类独立坏对照，在新tmp副本先正例：①取消非0退出码/类型门→目标断言失败；②取消图片当前run/非链接/大小校验→目标断言失败；可再对无ODE强塞默认方程做反例。确认deeptutor从副本导入，非0必须是目标断言，不是配置/依赖/路径错误，不改变原树或真实数据。
+
+结束capture include94、scope compare只允许10路径；84条当前前置源码均只读，report.py由探索包冻结起点。三强制+三supplementary数据完整起止零变化，保留auth.lock/历史memory/5个删除；旧receipt/证据/探针/dispatch均不覆盖。归档新文件与baseline匹配，至少保留S07-final1869成员（含存在时.next-deeptutor），唯一新tmp子目录verify-rebuild，不缩小归档凑通过。
+
+StageReport列四卡各自目标/测试名/允许范围/完成门/限制，全部真实argv/cwd/UTC时间/exit/日志行号，范围、六树保护、归档与重建、坏对照、失败自修。共用一个串行execution.log。停止修改证据后冻结hash，report不自引用；生成/校验收尾如在截止点后，closing manifest准确记录实际前缀字节/行边界和完整命令，不能把自身header已在prefix内说成整块在外。
+
+一般失败在授权范围内修完；确需白名单外/契约变化/环境缺失才给最小blocked_*及复现。S08只能标verified_local，阶段末停止等协调者独立验收，不自签accepted、不进入S09。

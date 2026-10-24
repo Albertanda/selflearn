@@ -926,6 +926,7 @@ export default function QuizViewer({
                 <FolderPlus size={16} />
               </button>
               <button
+                data-testid="open-followup"
                 onClick={handleOpenFollowup}
                 title={t("Follow-up Chat")}
                 className="ml-1 inline-flex items-center gap-1 rounded-lg border border-[var(--primary)]/60 bg-[var(--primary)]/10 px-2 py-1 text-[12px] font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)]/15"
@@ -1126,6 +1127,7 @@ export default function QuizViewer({
           // room than a concept-style short answer.
           <div>
             <textarea
+              data-testid="quiz-answer-input"
               value={ans.typed}
               onChange={(event) => updateAnswer({ typed: event.target.value })}
               disabled={ans.submitted}
@@ -1222,6 +1224,7 @@ export default function QuizViewer({
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {!ans.submitted ? (
             <button
+              data-testid="quiz-check-answer"
               onClick={handleSubmit}
               disabled={(() => {
                 if (isChoice || isConcept) return !ans.selected;

@@ -81,6 +81,9 @@ export const config = {
   // optimizer's loopback fetch for the source image (e.g. /logo.png) is let
   // through the auth gate by isAuthExempt.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|api/v1/knowledge/(?:create|[^/]+/upload)(?:/|$)).*)",
+    // The exact ASR job collection is a dedicated streaming App Router route
+    // (POST and list GET).  Child job paths (status/cancel/result) are short
+    // requests and intentionally keep the normal backend rewrite + auth gate.
+    "/((?!_next/static|_next/image|favicon.ico|api/v1/knowledge/(?:create|[^/]+/upload)(?:/|$)|api/v1/subjects/[^/]+/asr/jobs$).*)",
   ],
 };

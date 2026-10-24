@@ -8,6 +8,26 @@ sidecar, and the security notes that motivate the default posture.
 For PyPI / source installs, see the main [README.md](../README.md). This
 file is only about running the published image.
 
+## This fork and the upstream image
+
+- The `ghcr.io/hkuds/deeptutor` tag is the **upstream** image. It does not
+  contain this fork's code or S12 fixes; use the source-build
+  `docker-compose.yml` (or build the checkout) when fork behavior matters.
+- Partner features are retired in this fork. `data/partners` may still appear in
+  the one-time migration instructions because deleting a directory that may hold
+  a user's historical data would be data loss; the directory is not a runtime
+  feature here.
+- The `sandbox-runner` in `docker-compose.yml` is the **shared** exec runner
+  (SYSTEM isolation) for ordinary shell tools. Report chart code and ODE checks
+  use a separate report-only executor: it requires a per-run `bwrap` backend
+  whose isolation proof and health check pass, and returns a fixed 503 when no
+  qualified backend exists. The shared runner is not accepted as proof of report
+  isolation, and the report path never falls back to a host subprocess.
+- The report executor's fixed five-point ODE check is a numerical consistency
+  check; resource limits remain process-level RLIMIT rather than a process-tree
+  cgroup. S13/P50 OS gate has passed locally; HTTP/WS and browser gates S14/S15
+  remain pending. Container/deployment behavior has not been exercised.
+
 ---
 
 ## Overview

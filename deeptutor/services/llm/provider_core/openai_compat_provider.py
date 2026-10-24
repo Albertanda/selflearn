@@ -29,6 +29,10 @@ from deeptutor.services.llm.provider_core.openai_responses import (
     convert_tools,
     parse_response_output,
 )
+from deeptutor.services.llm.reasoning_controls import (
+    is_provider_default,
+    responses_reasoning_fields,
+)
 from deeptutor.services.llm.reasoning_params import (
     build_openai_compatible_reasoning_kwargs,
 )
@@ -317,6 +321,8 @@ class OpenAICompatProvider(LLMProvider):
                 binding=getattr(spec, "name", None),
                 model=model_name,
                 reasoning_effort=reasoning_effort,
+                max_tokens=max_tokens,
+                protocol=getattr(getattr(self, "generation", None), "reasoning_protocol", None),
             )
         )
 
@@ -339,7 +345,11 @@ class OpenAICompatProvider(LLMProvider):
                 return False
 
         model_name = (model or self.default_model).lower()
-        wants_reasoning = bool(reasoning_effort and reasoning_effort.lower() != "none")
+        wants_reasoning = bool(
+            reasoning_effort
+            and reasoning_effort.lower() != "none"
+            and not is_provider_default(reasoning_effort)
+        )
         wants_responses = wants_reasoning or any(
             token in model_name for token in ("gpt-5", "o1", "o3", "o4")
         )
@@ -441,8 +451,14 @@ class OpenAICompatProvider(LLMProvider):
 
         if self._supports_temperature(model_name, reasoning_effort):
             body["temperature"] = temperature
-        if reasoning_effort and reasoning_effort.lower() != "none":
-            body["reasoning"] = {"effort": reasoning_effort}
+        reasoning_fields = responses_reasoning_fields(
+            provider=(self._spec.name if self._spec is not None else self._provider_name),
+            model=model_name,
+            effort=reasoning_effort,
+            protocol=getattr(getattr(self, "generation", None), "reasoning_protocol", None),
+        )
+        if reasoning_fields:
+            body.update(reasoning_fields)
             body["include"] = ["reasoning.encrypted_content"]
         if tools:
             body["tools"] = convert_tools(tools)

@@ -5,6 +5,8 @@ export type LLMOptionsStatus = "loading" | "ready" | "error";
 
 export interface LLMOptionsState {
   options: LLMOption[];
+  hiddenOptions: LLMOption[];
+  hasUsableModels: boolean;
   activeDefault: LLMSelection | null;
   status: LLMOptionsStatus;
 }
@@ -16,6 +18,8 @@ export type LLMOptionsAction =
 
 export const INITIAL_LLM_OPTIONS_STATE: LLMOptionsState = {
   options: [],
+  hiddenOptions: [],
+  hasUsableModels: false,
   activeDefault: null,
   status: "loading",
 };
@@ -35,14 +39,20 @@ export function reduceLLMOptionsState(
   switch (action.type) {
     case "refresh-started":
       return action.background ? state : { ...state, status: "loading" };
-    case "refresh-succeeded":
+    case "refresh-succeeded": {
+      const hiddenOptions = action.payload.hidden_options ?? [];
       return {
         options: action.payload.options,
+        hiddenOptions,
+        hasUsableModels:
+          action.payload.has_usable_models ??
+          (action.payload.options.length > 0 || hiddenOptions.length > 0),
         activeDefault: action.payload.active,
         status: "ready",
       };
+    }
     case "refresh-failed":
-      return state.options.length > 0
+      return state.options.length > 0 || state.hiddenOptions.length > 0
         ? { ...state, status: "ready" }
         : { ...state, status: "error" };
   }

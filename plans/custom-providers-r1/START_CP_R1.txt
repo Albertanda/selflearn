@@ -1,0 +1,21 @@
+执行 CP-R1 整个阶段：自定义供应商管理、名称/图标贯通、Agnes 迁移、vLLM 恢复及验收。
+
+工作目录：/home/albert/selflearn/selflearn
+任务包：plans/custom-providers-r1/
+依次读 README.md、CONTRACTS.md、TASKS.json、ACCEPTANCE.md、EXPLORATION.md。SOURCE_INDEX.json 给已探索文件 hash，关键片段已附；一致时直接在接缝实施，变化只补读差异，不重新全仓 orientation。前置为 .phase1-evidence/reviews/MM-R3-20261024/ 的已验收补修，不能 reset/clean 或覆盖历史证据。
+
+八张卡是一整个阶段，按依赖连续完成，不逐卡询问是否继续。CP-02 与 CP-03 可独立推进，统一完成后验收。遇正常实现选择自行处理；真正外部条件阻塞时先完成不受影响部分、如实列证据，不反复重做计划。
+
+纠正已确认的根因：源码和运行中的 8001/3782 都仍返回 Custom (OpenAI API)、Custom (Anthropic API)，只是英文混排且没有命名/图标管理入口。不是两层菜单封死自定义；不要删 binding 校验，更不要把任意显示名当新协议。
+
+实现要点：
+1. 七个已有模型服务下拉框末尾固定“自定义供应商配置…”。采用 catalog.custom_providers 可选定义 + profile.custom_provider_id，技术 binding 复用现有 custom/custom_anthropic/custom_chat 等，按 C2 服务白名单，不实现新协议。
+2. 可创建、重新选择、重命名、改内置图标/emoji；取消无副作用，保存走现有 revision/锁。名称、图标、请求协议、连接凭据必须分离。UI 哨兵不能落盘。
+3. 名称/图标由后端统一摘要贯通设置、默认候选、主聊天和题目跟进，普通用户仅收到已授权摘要。保留全部 MM-R3 协调者补修、模型稳定 ID、隐藏规则和默认引用。
+4. 先完成全部源码、迁移工具 dry-run/fixture 和隔离验收。之后执行用户已明确授权的真实 Agnes 配置迁移，不再逐卡请求许可：精确匹配现有 Agnes profile，保留 profile/model ID、URL/key/headers/参数，binding=vllm 改 custom、name=Agnes、关联新定义；默认 DeepSeek 不变。保留真实本地 vllm；若没有干净 vllm 配置，建一个无 URL/key/model 的非默认空槽。
+5. 用当前本地管理 API expected_revision PUT 实施迁移，服务器锁内写入；不以单独 CLI 的线程锁冒充跨进程锁，不直接手写真实 JSON，不禁用密钥遮罩保护。原凭据只在内存按精确同源/profile 显式转交，不落 shell/日志/fixture。409 有界重查，未知并发不强写。
+6. 用户允许今后 LLM 测试使用 agnes-3.0-flash。增加显式 live smoke 和 AGENTS 测试说明，本阶段至多 3 次推理、max_tokens≤64、仅合成输入、无默认供应商回退。批量自动化仍用本地替身；真实外部失败单列，不伪报成功，不调用其它付费厂商。
+
+先建新的 .phase1-evidence/custom-providers/CP-R1-<唯一run>/。T0 到场→T1 隔离验收六树不变→T2 授权迁移只有 model_catalog.json 白名单语义改变。真实学习数据、历史、索引、其它配置和密钥保持，不改 S14 历史例外。不自动终止用户当前真实服务；需要重启加载代码时明确说明，浏览器验收使用一次性源码副本。
+
+Python 必须通过 scripts/run_tests_isolated.py，浏览器复用现有 S15 runner、已安装 Chromium 与本地 MODEL_SERVER。按 ACCEPTANCE.md 实际验证创建/取消/改名图标/目录手填/两种协议/普通用户权限/默认与并发/迁移幂等，并回归 MM-R3、MD-R2。统一交付完整 report、门逐项证据、真实配置迁移去密钥差异和 live_smoke.json、可重建源码。最终 accepted=false 留协调者复验。不要进入学科 UI、知识库、第二阶段功能。

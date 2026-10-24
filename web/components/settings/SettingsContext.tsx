@@ -25,8 +25,22 @@ import {
 import { useAppShell } from "@/context/AppShellContext";
 import { apiFetch, apiUrl } from "@/lib/api";
 import { invalidateLLMOptionsCache } from "@/lib/llm-options";
+import { DEFAULT_MODEL_SERVICES, revisionAfterDefaultPatch } from "@/lib/default-models";
 import { setModelReasoningEffort } from "@/lib/reasoning-effort";
+import {
+  reasoningControlsKey,
+  type ReasoningControls,
+} from "@/lib/reasoning-controls";
 import { setTheme as applyThemePreference } from "@/lib/theme";
+import type {
+  ParameterOverrides,
+  ProviderMetadata,
+} from "@/lib/model-metadata";
+import type {
+  CustomProviderCapabilities,
+  CustomProviderDefinition,
+  ProviderIconSpec,
+} from "@/lib/custom-providers";
 
 // ─── Domain types ─────────────────────────────────────────────────────────
 
@@ -51,6 +65,17 @@ export type CatalogModel = {
   context_window?: string;
   context_window_source?: string;
   context_window_detected_at?: string;
+  /** Provider/endpoint capability facts and their provenance. */
+  provider_metadata?: ProviderMetadata;
+  /** User-editable default output budget; never the provider maximum itself. */
+  max_tokens?: string;
+  /** Input-only limit, shown separately from total context. */
+  max_input_tokens?: string;
+  /** true means the user explicitly overrode the automatic value. */
+  parameter_overrides?: ParameterOverrides;
+  // Display preference only; missing means visible and is never migrated.
+  // Hiding keeps the model id, parameters, grants, and existing sessions.
+  visible_in_picker?: boolean;
   reasoning_effort?: string;
   codex_supported_reasoning_levels?: string[];
   // Voice (TTS): free-form provider/model-specific voice string, e.g.
@@ -87,10 +112,13 @@ export type CatalogProfile = {
   read_only?: boolean;
   binding?: string;
   provider?: string;
+  custom_provider_id?: string;
   base_url: string;
   api_key: string;
   api_version: string;
   extra_headers?: Record<string, string> | string;
+  /** Optional complete directory URL; never a chat URL and never persisted as base_url. */
+  model_directory_url?: string;
   proxy?: string;
   max_results?: number;
   models: CatalogModel[];
@@ -102,8 +130,24 @@ export type CatalogService = {
   profiles: CatalogProfile[];
 };
 
+/** Local editor position. Never written through until an explicit default
+ *  action or the ordinary Save/Apply of real configuration changes. */
+export type EditingSelection = {
+  profileId: string | null;
+  modelId: string | null;
+};
+
+export type DefaultModelReference = {
+  profile_id: string;
+  model_id?: string | null;
+};
+
+export type DefaultModelReferenceMap = Partial<Record<ServiceName, DefaultModelReference | null>>;
+
 export type Catalog = {
   version: number;
+  /** Optional named provider definitions; missing means none. */
+  custom_providers?: CustomProviderDefinition[];
   services: {
     llm: CatalogService;
     embedding: CatalogService;
@@ -216,6 +260,9 @@ type SettingsPayload = {
   ui: UiSettings;
   catalog?: Catalog;
   providers?: Record<ServiceName, ProviderOption[]>;
+  catalog_revision?: string;
+  reasoning_controls?: Record<string, ReasoningControls>;
+  custom_provider_capabilities?: CustomProviderCapabilities;
 };
 
 const DIAGNOSTICS_RESULTS_KEY = "deeptutor.settings.diagnosticsResults.v1";
@@ -362,6 +409,59 @@ export function getActiveModel(
   );
 }
 
+/** Resolve the local editor target without consulting or mutating defaults. */
+export function resolveEditingSelection(
+  catalog: Catalog,
+  serviceName: ServiceName,
+  selection?: Partial<EditingSelection> | null,
+): {
+  profile: CatalogProfile | null;
+  model: CatalogModel | null;
+  profileId: string | null;
+  modelId: string | null;
+} {
+  const service = catalog.services[serviceName];
+  const preferredProfileId = selection?.profileId ?? null;
+  const profile =
+    service.profiles.find((item) => item.id === preferredProfileId) ??
+    service.profiles.find((item) => item.id === service.active_profile_id) ??
+    service.profiles[0] ??
+    null;
+  if (!profile) {
+    return { profile: null, model: null, profileId: null, modelId: null };
+  }
+  const preferredModelId = selection?.modelId ?? null;
+  const activeModelId =
+    profile.id === service.active_profile_id ? service.active_model_id : null;
+  const model =
+    profile.models.find((item) => item.id === preferredModelId) ??
+    profile.models.find((item) => item.id === activeModelId) ??
+    profile.models[0] ??
+    null;
+  return {
+    profile,
+    model,
+    profileId: profile.id,
+    modelId: model?.id ?? null,
+  };
+}
+
+export function getEditingProfile(
+  catalog: Catalog,
+  serviceName: ServiceName,
+  selection?: Partial<EditingSelection> | null,
+): CatalogProfile | null {
+  return resolveEditingSelection(catalog, serviceName, selection).profile;
+}
+
+export function getEditingModel(
+  catalog: Catalog,
+  serviceName: ServiceName,
+  selection?: Partial<EditingSelection> | null,
+): CatalogModel | null {
+  return resolveEditingSelection(catalog, serviceName, selection).model;
+}
+
 export function serviceConfigured(
   catalog: Catalog,
   serviceName: ServiceName,
@@ -452,6 +552,11 @@ type SettingsContextValue = {
   // State
   catalog: Catalog;
   draft: Catalog;
+  /** Opaque revision of the saved catalog, used for lock-safe writes. */
+  catalogRevision: string | null;
+  editingSelections: Partial<Record<ServiceName, EditingSelection>>;
+  reasoningControls: Record<string, ReasoningControls>;
+  customProviderCapabilities: CustomProviderCapabilities | null;
   status: SystemStatus | null;
   providers: Record<ServiceName, ProviderOption[]>;
   catalogEditable: boolean | null;
@@ -480,10 +585,12 @@ type SettingsContextValue = {
 
   // Catalog mutation
   mutateCatalog: (mutator: (next: Catalog) => void) => void;
+  selectEditingProfile: (service: ServiceName, profileId: string) => void;
+  selectEditingModel: (service: ServiceName, modelId: string) => void;
   addProfile: (service: ServiceName) => void;
-  removeActiveProfile: (service: ServiceName) => void;
+  removeEditingProfile: (service: ServiceName) => void;
   addModel: (service: ServiceName) => void;
-  removeActiveModel: (service: ServiceName) => void;
+  removeEditingModel: (service: ServiceName) => void;
   updateProfileField: (
     service: ServiceName,
     field: keyof CatalogProfile,
@@ -500,6 +607,9 @@ type SettingsContextValue = {
     value: boolean,
   ) => void;
   updateContextWindowField: (value: string) => void;
+  updateLlmBudgetField: (value: string) => void;
+  updateEmbeddingDimensionField: (value: string) => void;
+  updateEmbeddingSendDimensions: (value: boolean) => void;
   updateReasoningEffort: (value: string) => void;
   llmContextDetection: LlmContextWindowDetection | null;
   applyDetectedContextWindow: () => void;
@@ -509,6 +619,12 @@ type SettingsContextValue = {
   applying: boolean;
   saveCatalog: () => Promise<void>;
   applyCatalog: () => Promise<void>;
+  /** Merge only active references returned by the default-models PATCH. */
+  applySavedDefaultReferences: (
+    defaults: DefaultModelReferenceMap,
+    revision: string,
+    baseRevision: string,
+  ) => void;
 
   // Sub-page extension hooks. Sub-routes (e.g. /settings/memory) that own
   // state outside the catalog register a "dirty + save" pair so the global
@@ -568,6 +684,17 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     useState<UiSettings["response_language"]>("en");
   const [catalog, setCatalog] = useState<Catalog>(defaultCatalog());
   const [draft, setDraft] = useState<Catalog>(defaultCatalog());
+  const [catalogRevision, setCatalogRevision] = useState<string | null>(null);
+  const [editingSelections, setEditingSelections] = useState<
+    Partial<Record<ServiceName, EditingSelection>>
+  >({});
+  const editingSelectionsRef = useRef(editingSelections);
+  editingSelectionsRef.current = editingSelections;
+  const [reasoningControls, setReasoningControls] = useState<
+    Record<string, ReasoningControls>
+  >({});
+  const [customProviderCapabilities, setCustomProviderCapabilities] =
+    useState<CustomProviderCapabilities | null>(null);
   const [catalogEditable, setCatalogEditable] = useState<boolean | null>(null);
   const [providers, setProviders] = useState<
     Record<ServiceName, ProviderOption[]>
@@ -647,6 +774,20 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       if (payload.catalog) {
         setCatalog(payload.catalog);
         setDraft(cloneCatalog(payload.catalog));
+        setCatalogRevision(payload.catalog_revision ?? null);
+        const loadedCatalog = payload.catalog;
+        // Pin the initial editor targets too. Otherwise an editor that has
+        // never switched tabs would still follow a newly saved default.
+        setEditingSelections((current) => Object.fromEntries(
+          DEFAULT_MODEL_SERVICES.map((service) => {
+            const selected = resolveEditingSelection(loadedCatalog, service, current[service]);
+            return [service, { profileId: selected.profileId, modelId: selected.modelId }];
+          }),
+        ));
+        setReasoningControls(payload.reasoning_controls ?? {});
+        setCustomProviderCapabilities(
+          payload.custom_provider_capabilities ?? null,
+        );
         setCatalogEditable(true);
       } else {
         setCatalogEditable(false);
@@ -787,11 +928,42 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     [providers.embedding],
   );
 
+  const selectEditingProfile = useCallback(
+    (service: ServiceName, profileId: string) => {
+      setEditingSelections((current) => ({
+        ...current,
+        [service]: { profileId, modelId: null },
+      }));
+    },
+    [],
+  );
+
+  const selectEditingModel = useCallback(
+    (service: ServiceName, modelId: string) => {
+      setEditingSelections((current) => {
+        const selected = resolveEditingSelection(
+          draft,
+          service,
+          current[service],
+        );
+        return {
+          ...current,
+          [service]: { profileId: selected.profileId, modelId },
+        };
+      });
+    },
+    [draft],
+  );
+
   const addProfile = useCallback(
     (service: ServiceName) => {
+      const profileId = `${service}-profile-${Date.now()}`;
+      const modelId = `${service}-model-${Date.now()}`;
+      const wasEmpty =
+        draft.services[service].profiles.length === 0 &&
+        !draft.services[service].active_profile_id;
       mutateCatalog((next) => {
         const target = next.services[service];
-        const profileId = `${service}-profile-${Date.now()}`;
         const defaultBinding = service === "search" ? undefined : "openai";
         const defaultProvider = service === "search" ? "brave" : undefined;
         const providerKey =
@@ -814,7 +986,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
           models: [],
         };
         if (service !== "search") {
-          const modelId = `${service}-model-${Date.now()}`;
           const modelName = nextModelName([], language);
           profile.models.push({
             id: modelId,
@@ -835,45 +1006,89 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
                 }
               : {}),
           });
-          target.active_model_id = modelId;
         }
         target.profiles.push(profile);
-        target.active_profile_id = profileId;
-      });
-    },
-    [embeddingDefaultDim, language, mutateCatalog, providers],
-  );
-
-  const removeActiveProfile = useCallback(
-    (service: ServiceName) => {
-      mutateCatalog((next) => {
-        const target = next.services[service];
-        target.profiles = target.profiles.filter(
-          (profile) => profile.id !== target.active_profile_id,
-        );
-        target.active_profile_id = target.profiles[0]?.id ?? null;
-        if (service !== "search") {
-          target.active_model_id = target.profiles[0]?.models?.[0]?.id ?? null;
+        // Only the first configuration of an empty service initialises the
+        // persisted default. Later additions are local editor selections.
+        if (wasEmpty) {
+          target.active_profile_id = profileId;
+          if (service !== "search") target.active_model_id = modelId;
         }
       });
+      setEditingSelections((current) => ({
+        ...current,
+        [service]: {
+          profileId,
+          modelId: service === "search" ? null : modelId,
+        },
+      }));
+      if (wasEmpty) {
+        setToast(
+          t(
+            "This is the first configuration for this service, so its first model is the initial saved default. Review and save the draft to apply it.",
+          ),
+        );
+      }
     },
-    [mutateCatalog],
+    [draft, embeddingDefaultDim, language, mutateCatalog, providers, setToast, t],
+  );
+
+  const removeEditingProfile = useCallback(
+    (service: ServiceName) => {
+      const selected = resolveEditingSelection(
+        draft,
+        service,
+        editingSelectionsRef.current[service],
+      );
+      const profile = selected.profile;
+      if (!profile) return;
+      if (draft.services[service].active_profile_id === profile.id) {
+        setToast(
+          t(
+            "This is the saved default connection. Choose another default before deleting it.",
+          ),
+        );
+        return;
+      }
+      const remaining = draft.services[service].profiles.filter(
+        (item) => item.id !== profile.id,
+      );
+      mutateCatalog((next) => {
+        next.services[service].profiles = remaining;
+      });
+      const nextProfile = remaining[0] ?? null;
+      setEditingSelections((current) => ({
+        ...current,
+        [service]: nextProfile
+          ? {
+              profileId: nextProfile.id,
+              modelId: nextProfile.models[0]?.id ?? null,
+            }
+          : { profileId: null, modelId: null },
+      }));
+    },
+    [draft, mutateCatalog, setToast, t],
   );
 
   const addModel = useCallback(
     (service: ServiceName) => {
       if (service === "search") return;
+      const selected = resolveEditingSelection(
+        draft,
+        service,
+        editingSelectionsRef.current[service],
+      );
+      if (!selected.profile) return;
+      const profileId = selected.profile.id;
+      const modelId = `${service}-model-${Date.now()}`;
       mutateCatalog((next) => {
-        const target = next.services[service];
-        const profile =
-          target.profiles.find(
-            (item) => item.id === target.active_profile_id,
-          ) ?? null;
+        const profile = next.services[service].profiles.find(
+          (item) => item.id === profileId,
+        );
         if (!profile) return;
         const providerOption = (providers[service] || []).find(
           (p) => p.value === profile.binding,
         );
-        const modelId = `${service}-model-${Date.now()}`;
         const modelName = nextModelName(profile.models, language);
         profile.models.push({
           id: modelId,
@@ -894,35 +1109,63 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
               }
             : {}),
         });
-        target.active_model_id = modelId;
       });
+      setEditingSelections((current) => ({
+        ...current,
+        [service]: { profileId, modelId },
+      }));
     },
-    [embeddingDefaultDim, language, mutateCatalog, providers],
+    [draft, embeddingDefaultDim, language, mutateCatalog, providers],
   );
 
-  const removeActiveModel = useCallback(
+  const removeEditingModel = useCallback(
     (service: ServiceName) => {
       if (service === "search") return;
-      mutateCatalog((next) => {
-        const target = next.services[service];
-        const profile =
-          target.profiles.find(
-            (item) => item.id === target.active_profile_id,
-          ) ?? null;
-        if (!profile) return;
-        profile.models = profile.models.filter(
-          (item) => item.id !== target.active_model_id,
+      const selected = resolveEditingSelection(
+        draft,
+        service,
+        editingSelectionsRef.current[service],
+      );
+      const profile = selected.profile;
+      const model = selected.model;
+      if (!profile || !model) return;
+      if (
+        draft.services[service].active_profile_id === profile.id &&
+        draft.services[service].active_model_id === model.id
+      ) {
+        setToast(
+          t(
+            "This is the saved default model. Choose another default before deleting it.",
+          ),
         );
-        target.active_model_id = profile.models[0]?.id ?? null;
+        return;
+      }
+      const remaining = profile.models.filter((item) => item.id !== model.id);
+      mutateCatalog((next) => {
+        const target = next.services[service].profiles.find(
+          (item) => item.id === profile.id,
+        );
+        if (target) target.models = remaining;
       });
+      setEditingSelections((current) => ({
+        ...current,
+        [service]: {
+          profileId: profile.id,
+          modelId: remaining[0]?.id ?? null,
+        },
+      }));
     },
-    [mutateCatalog],
+    [draft, mutateCatalog, setToast, t],
   );
 
   const updateProfileField = useCallback(
     (service: ServiceName, field: keyof CatalogProfile, value: string) => {
       mutateCatalog((next) => {
-        const profile = getActiveProfile(next, service);
+        const profile = resolveEditingSelection(
+          next,
+          service,
+          editingSelectionsRef.current[service],
+        ).profile;
         if (!profile) return;
         (profile[field] as string | undefined) = value;
       });
@@ -934,7 +1177,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     (service: ServiceName, field: keyof CatalogModel, value: string) => {
       if (service === "search") return;
       mutateCatalog((next) => {
-        const model = getActiveModel(next, service);
+        const model = resolveEditingSelection(
+          next,
+          service,
+          editingSelectionsRef.current[service],
+        ).model;
         if (!model) return;
         (model[field] as string | undefined) = value;
       });
@@ -946,7 +1193,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     (service: ServiceName, field: keyof CatalogModel, value: boolean) => {
       if (service === "search") return;
       mutateCatalog((next) => {
-        const model = getActiveModel(next, service);
+        const model = resolveEditingSelection(
+          next,
+          service,
+          editingSelectionsRef.current[service],
+        ).model;
         if (!model) return;
         (model[field] as boolean | undefined) = value;
       });
@@ -958,8 +1209,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     (value: string) => {
       const normalized = value.replace(/[^\d]/g, "");
       mutateCatalog((next) => {
-        const model = getActiveModel(next, "llm");
+        const model = resolveEditingSelection(
+          next,
+          "llm",
+          editingSelectionsRef.current.llm,
+        ).model;
         if (!model) return;
+        model.parameter_overrides = {
+          ...(model.parameter_overrides ?? {}),
+          context_window: true,
+        };
         if (normalized) {
           model.context_window = normalized;
           model.context_window_source = "manual";
@@ -974,10 +1233,75 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     [mutateCatalog],
   );
 
+  const updateLlmBudgetField = useCallback(
+    (value: string) => {
+      const normalized = value.replace(/[^\d]/g, "");
+      mutateCatalog((next) => {
+        const model = resolveEditingSelection(
+          next,
+          "llm",
+          editingSelectionsRef.current.llm,
+        ).model;
+        if (!model) return;
+        model.parameter_overrides = {
+          ...(model.parameter_overrides ?? {}),
+          max_tokens: true,
+        };
+        if (normalized) model.max_tokens = normalized;
+        else delete model.max_tokens;
+      });
+    },
+    [mutateCatalog],
+  );
+
+  const updateEmbeddingDimensionField = useCallback(
+    (value: string) => {
+      const normalized = value.replace(/[^\d]/g, "");
+      mutateCatalog((next) => {
+        const model = resolveEditingSelection(
+          next,
+          "embedding",
+          editingSelectionsRef.current.embedding,
+        ).model;
+        if (!model) return;
+        model.parameter_overrides = {
+          ...(model.parameter_overrides ?? {}),
+          dimension: true,
+        };
+        if (normalized) model.dimension = normalized;
+        else delete model.dimension;
+      });
+    },
+    [mutateCatalog],
+  );
+
+  const updateEmbeddingSendDimensions = useCallback(
+    (value: boolean) => {
+      mutateCatalog((next) => {
+        const model = resolveEditingSelection(
+          next,
+          "embedding",
+          editingSelectionsRef.current.embedding,
+        ).model;
+        if (!model) return;
+        model.parameter_overrides = {
+          ...(model.parameter_overrides ?? {}),
+          send_dimensions: true,
+        };
+        model.send_dimensions = value;
+      });
+    },
+    [mutateCatalog],
+  );
+
   const updateReasoningEffort = useCallback(
     (value: string) => {
       mutateCatalog((next) => {
-        const model = getActiveModel(next, "llm");
+        const model = resolveEditingSelection(
+          next,
+          "llm",
+          editingSelectionsRef.current.llm,
+        ).model;
         if (!model) return;
         setModelReasoningEffort(model, value);
       });
@@ -988,14 +1312,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const applyDetectedContextWindow = useCallback(() => {
     if (!llmContextDetection) return;
     mutateCatalog((next) => {
-      const target = next.services.llm;
-      if (
-        target.active_profile_id !== llmContextDetection.profileId ||
-        target.active_model_id !== llmContextDetection.modelId
-      ) {
-        return;
-      }
-      const model = getActiveModel(next, "llm");
+      const profile = next.services.llm.profiles.find(
+        (item) => item.id === llmContextDetection.profileId,
+      );
+      const model = profile?.models.find(
+        (item) => item.id === llmContextDetection.modelId,
+      );
       if (!model) return;
       model.context_window = String(llmContextDetection.contextWindow);
       model.context_window_source = llmContextDetection.source;
@@ -1016,18 +1338,45 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       const response = await apiFetch(apiUrl("/api/v1/settings/catalog"), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ catalog: draft }),
+        body: JSON.stringify({
+          catalog: draft,
+          ...(catalogRevision ? { expected_revision: catalogRevision } : {}),
+        }),
       });
-      const payload = await response.json();
+      const payload = (await response.json().catch(() => ({}))) as {
+        catalog?: Catalog;
+        revision?: string;
+        detail?: string | { message?: string; code?: string };
+      };
+      if (!response.ok || !payload.catalog) {
+        const detail =
+          typeof payload.detail === "string"
+            ? payload.detail
+            : payload.detail?.message;
+        throw new Error(
+          detail || t("Could not save the draft (HTTP {{status}}).", {
+            status: response.status,
+          }),
+        );
+      }
       setCatalog(payload.catalog);
       setDraft(cloneCatalog(payload.catalog));
+      setCatalogRevision(payload.revision ?? null);
       // The model list the chat composer shows is derived from this catalog.
       invalidateLLMOptionsCache();
       setToast(t("Draft saved"));
+    } catch (error) {
+      // Keep the dirty draft and the catalog visible so the user can fix the
+      // error without losing unsaved candidate selections.
+      setToast(
+        error instanceof Error
+          ? error.message
+          : t("Could not save the draft."),
+      );
     } finally {
       setSaving(false);
     }
-  }, [catalogEditable, draft, t]);
+  }, [catalogEditable, catalogRevision, draft, t]);
 
   const applyCatalog = useCallback(async () => {
     setApplying(true);
@@ -1045,45 +1394,102 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         const response = await apiFetch(apiUrl("/api/v1/settings/apply"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ catalog: draft }),
+          body: JSON.stringify({
+            catalog: draft,
+            ...(catalogRevision ? { expected_revision: catalogRevision } : {}),
+          }),
         });
-        const payload = await response.json();
+        const payload = (await response.json().catch(() => ({}))) as {
+          catalog?: Catalog;
+          revision?: string;
+          detail?: string | { message?: string; code?: string };
+        };
+        if (!response.ok || !payload.catalog) {
+          const detail =
+            typeof payload.detail === "string"
+              ? payload.detail
+              : payload.detail?.message;
+          throw new Error(
+            detail || t("Could not apply changes (HTTP {{status}}).", {
+              status: response.status,
+            }),
+          );
+        }
         setCatalog(payload.catalog);
         setDraft(cloneCatalog(payload.catalog));
+        setCatalogRevision(payload.revision ?? null);
         invalidateLLMOptionsCache();
         const statusResponse = await apiFetch(apiUrl("/api/v1/system/status"));
-        setStatus((await statusResponse.json()) as SystemStatus);
+        if (statusResponse.ok) {
+          setStatus((await statusResponse.json()) as SystemStatus);
+        }
       }
       setToast(t("All changes saved"));
+    } catch (error) {
+      setToast(
+        error instanceof Error
+          ? error.message
+          : t("Could not apply changes."),
+      );
     } finally {
       setApplying(false);
     }
-  }, [catalogEditable, draft, t]);
+  }, [catalogEditable, catalogRevision, draft, t]);
+
+  const applySavedDefaultReferences = useCallback(
+    (defaults: DefaultModelReferenceMap, revision: string, baseRevision: string) => {
+      const mergeReferences = (catalogValue: Catalog): Catalog => {
+        const next = cloneCatalog(catalogValue);
+        for (const service of Object.keys(defaults) as ServiceName[]) {
+          const reference = defaults[service];
+          if (!reference) continue;
+          next.services[service].active_profile_id = reference.profile_id;
+          if (service !== "search") {
+            next.services[service].active_model_id =
+              reference.model_id ?? null;
+          }
+        }
+        return next;
+      };
+      setCatalog((current) => mergeReferences(current));
+      setDraft((current) => mergeReferences(current));
+      setCatalogRevision((current) =>
+        revisionAfterDefaultPatch(current, baseRevision, revision),
+      );
+      invalidateLLMOptionsCache();
+    },
+    [],
+  );
 
   // ── Diagnostics ─────────────────────────────────────────────────────────
-  // Reset capability snapshot when switching embedding profile/model so a
-  // stale "Detected: Xd" hint doesn't bleed across profiles.
+  // Reset capability snapshots when the *editor* target changes. Browsing a
+  // different profile must not borrow another profile's diagnostic result.
+  const llmEditing = resolveEditingSelection(
+    draft,
+    "llm",
+    editingSelections.llm,
+  );
+  const embeddingEditing = resolveEditingSelection(
+    draft,
+    "embedding",
+    editingSelections.embedding,
+  );
   useEffect(() => {
     setEmbeddingCapabilities(null);
-  }, [
-    draft.services.embedding.active_profile_id,
-    draft.services.embedding.active_model_id,
-  ]);
+  }, [embeddingEditing.profileId, embeddingEditing.modelId]);
 
-  const llmActiveProfileId = draft.services.llm.active_profile_id;
-  const llmActiveModelId = draft.services.llm.active_model_id;
   useEffect(() => {
     setLlmContextDetection((current) => {
       if (!current) return null;
       if (
-        current.profileId === llmActiveProfileId &&
-        current.modelId === llmActiveModelId
+        current.profileId === llmEditing.profileId &&
+        current.modelId === llmEditing.modelId
       ) {
         return current;
       }
       return null;
     });
-  }, [llmActiveProfileId, llmActiveModelId]);
+  }, [llmEditing.profileId, llmEditing.modelId]);
 
   const runDetailedTest = useCallback(
     async (service: ServiceName) => {
@@ -1094,10 +1500,20 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       }
       setLogs(t("Preparing {{service}} diagnostics...", { service }) + "\n");
       setTestRunning(service);
-      const target = draft.services[service];
-      const runProfileId = target.active_profile_id ?? null;
-      const runModelId =
-        service === "search" ? null : (target.active_model_id ?? null);
+      const selected = resolveEditingSelection(
+        draft,
+        service,
+        editingSelectionsRef.current[service],
+      );
+      const runProfileId = selected.profileId;
+      const runModelId = service === "search" ? null : selected.modelId;
+      const diagnosticCatalog = cloneCatalog(draft);
+      if (runProfileId) {
+        diagnosticCatalog.services[service].active_profile_id = runProfileId;
+        if (service !== "search") {
+          diagnosticCatalog.services[service].active_model_id = runModelId;
+        }
+      }
       setDiagnosticsResults((current) => {
         const next = { ...current };
         delete next[service];
@@ -1111,7 +1527,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ catalog: draft }),
+            body: JSON.stringify({ catalog: diagnosticCatalog }),
           },
         );
         const payload = (await response.json()) as {
@@ -1172,8 +1588,25 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
             });
           }
           if (entry.catalog) {
-            setCatalog(entry.catalog);
-            setDraft(cloneCatalog(entry.catalog));
+            // Diagnostic runs target the local editor selection. Their
+            // returned catalog is a draft update, never an implicit default
+            // change: restore every active reference from the local draft.
+            const mergeWithoutDefaults = (current: Catalog): Catalog => {
+              const merged = cloneCatalog(entry.catalog as Catalog);
+              for (const serviceName of Object.keys(
+                merged.services,
+              ) as ServiceName[]) {
+                merged.services[serviceName].active_profile_id =
+                  current.services[serviceName].active_profile_id;
+                if (serviceName !== "search") {
+                  merged.services[serviceName].active_model_id =
+                    current.services[serviceName].active_model_id;
+                }
+              }
+              return merged;
+            };
+            setCatalog(mergeWithoutDefaults);
+            setDraft(mergeWithoutDefaults);
           }
           if (entry.type === "completed" || entry.type === "failed") {
             source.close();
@@ -1286,6 +1719,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     () => ({
       catalog,
       draft,
+      catalogRevision,
+      editingSelections,
+      reasoningControls,
+      customProviderCapabilities,
       status,
       providers,
       catalogEditable,
@@ -1308,14 +1745,19 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       updateCodeBlockShowLineNumbers,
       updateCodeBlockWrapLongLines,
       mutateCatalog,
+      selectEditingProfile,
+      selectEditingModel,
       addProfile,
-      removeActiveProfile,
+      removeEditingProfile,
       addModel,
-      removeActiveModel,
+      removeEditingModel,
       updateProfileField,
       updateModelField,
       updateModelBoolField,
       updateContextWindowField,
+      updateLlmBudgetField,
+      updateEmbeddingDimensionField,
+      updateEmbeddingSendDimensions,
       updateReasoningEffort,
       llmContextDetection,
       applyDetectedContextWindow,
@@ -1323,6 +1765,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       applying,
       saveCatalog,
       applyCatalog,
+      applySavedDefaultReferences,
       registerExtension,
       logs,
       testRunning,
@@ -1341,15 +1784,20 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       addProfile,
       applyDetectedContextWindow,
       applyCatalog,
+      applySavedDefaultReferences,
       applying,
       catalog,
       catalogEditable,
+      catalogRevision,
+      editingSelections,
       codeBlockShowLineNumbers,
       codeBlockTheme,
       codeBlockWrapLongLines,
       diagnosticsResults,
       draft,
       embeddingCapabilities,
+      reasoningControls,
+      customProviderCapabilities,
       embeddingDefaultDim,
       hasUnsavedChanges,
       language,
@@ -1359,11 +1807,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       mutateCatalog,
       providers,
       registerExtension,
-      removeActiveModel,
-      removeActiveProfile,
+      removeEditingModel,
+      removeEditingProfile,
       runDetailedTest,
       saveCatalog,
       saving,
+      selectEditingModel,
+      selectEditingProfile,
       settingsError,
       loadSettings,
       settingsLoading,
@@ -1380,6 +1830,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       updateCodeBlockTheme,
       updateCodeBlockWrapLongLines,
       updateContextWindowField,
+      updateLlmBudgetField,
+      updateEmbeddingDimensionField,
+      updateEmbeddingSendDimensions,
       updateReasoningEffort,
       updateLanguage,
       updateResponseLanguage,

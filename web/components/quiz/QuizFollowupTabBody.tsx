@@ -20,6 +20,7 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
 } from "react";
 import { Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -59,6 +60,7 @@ export default function QuizFollowupTabBody({
   const threadEndRef = useRef<HTMLDivElement | null>(null);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const shouldFollowRef = useRef(true);
+  const [hydrationAttempt, setHydrationAttempt] = useState(0);
 
   // Pin-to-bottom autoscroll: direct ``scrollTop = scrollHeight`` in
   // layout phase, no smooth animation. ``scrollIntoView`` with
@@ -92,10 +94,12 @@ export default function QuizFollowupTabBody({
     if (!followupSessionId) return;
     if (thread.messages.length > 0 || thread.sessionId) return;
     let cancelled = false;
+    controller.updateThread(context.questionKey, (prev) => ({ ...prev, error: null }));
     const run = async () => {
       try {
         const detail = await getSession(followupSessionId);
-        if (cancelled || !detail) return;
+        if (cancelled) return;
+        if (!detail) throw new Error("Session unavailable");
         const hydrated = (detail.messages ?? []).map((m) => ({
           role: m.role,
           content: m.content || "",
@@ -105,9 +109,14 @@ export default function QuizFollowupTabBody({
           context.questionKey,
           followupSessionId,
           hydrated,
+          detail.preferences,
         );
       } catch {
-        /* best-effort — leave the thread empty so the user can re-ask */
+        if (!cancelled) {
+          controller.updateThread(context.questionKey, (prev) => ({
+            ...prev, error: t("Failed to load session"),
+          }));
+        }
       }
     };
     void run();
@@ -120,6 +129,8 @@ export default function QuizFollowupTabBody({
     controller,
     thread.messages.length,
     thread.sessionId,
+    hydrationAttempt,
+    t,
   ]);
 
   const visibleMessages = thread.messages.filter((m) => m.role !== "system");
@@ -278,7 +289,12 @@ export default function QuizFollowupTabBody({
             )}
             {thread.error && (
               <div className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700 dark:border-red-950/50 dark:bg-red-950/20 dark:text-red-300">
-                {thread.error}
+                <span>{thread.error}</span>
+                {context.followupSessionId && !thread.sessionId && (
+                  <button type="button" data-testid="followup-history-retry" className="ml-2 underline" onClick={() => setHydrationAttempt((attempt) => attempt + 1)}>
+                    {t("Retry")}
+                  </button>
+                )}
               </div>
             )}
             <div ref={threadEndRef} />

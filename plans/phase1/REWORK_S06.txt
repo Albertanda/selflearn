@@ -1,0 +1,95 @@
+在 /home/albert/selflearn/selflearn 对第一阶段 S06 做一次合并返修。只执行本轮 R1 → R2 → R3 → R4 → R5 → R6，全部完成后一次交付；不逐单元请求批准，不进入 S07，不做第二阶段功能。
+
+一、审查结论与起点
+
+2026-10-16 独立复跑：原合并137项通过，相关目录2940 passed/18历史skip，11路径Ruff通过，worker归档1853/1853独立重建通过。原报告的4源码/21证据hash、38条命令及S05-final的46只读源码/29证据核验匹配，四条最终坏对照有效。以上证明原有测试和证据基本真实，不代表行为完成。
+
+协调者独立18方法（含子场景）复现18处目标断言失败，零harness错误；3个合法正向方法通过。问题是：资产根软链接仍读到外部图片；旧ImageNode路径绕过字节/格式门且无相同超时与完整响应检查；失败描述不扣额度；真实factory隐藏重试/去图降级被误算成OCR；候选配置异常逃逸；元数据损坏被覆盖、元数据提交失败后新版本仍ready；新run早期事件和成功元数据串旧coverage；ready后注册表与真实科目HTTP丢coverage；PDF小像素图静默漏统计。本轮协调者未修改生产或既有测试，仅新增审查证据和派发文档。
+
+先读 .phase1-evidence/stages/S06/review.json，核验receipt_sha256，再读所指 changes_requested receipt。本轮59条source_artifacts是当前工作区基准（S01–S06合并并补入本轮须改的manager接缝），不是业务签收；不得恢复成S05或S06开工前hash。核验本指令、S06_REWORK_EXPLORATION.md及独立探针的hash。探索包是“已探索的文件清单+关键片段”，hash吻合就复用定位，只补读待改符号和必要差异，不重做全仓orientation、不复述全部项目/57卡。
+
+原 START_S06.txt/C09仍提供业务规范，本指令补齐实际完成门与最小范围。S06阶段总范围已同步为15路径；本轮只允许下面14条，不含未改且无故障证据的document_extractor.py：
+- deeptutor/services/rag/pipelines/llamaindex/image_description.py
+- deeptutor/services/rag/pipelines/llamaindex/document_loader.py
+- deeptutor/services/rag/pipelines/llamaindex/pipeline.py
+- deeptutor/knowledge/initializer.py
+- deeptutor/knowledge/progress_tracker.py
+- deeptutor/utils/document_images.py
+- tests/phase1/test_p1_26.py
+- tests/phase1/test_p1_27.py
+- tests/phase1/test_p1_28.py
+- tests/services/rag/test_llamaindex_document_loader.py
+- deeptutor/services/llm/factory.py（新增最小的逐调用严格图像策略；保持其他调用默认行为）
+- deeptutor/knowledge/manager.py（仅coverage的稳定保留/读取，不重写manager状态机）
+- deeptutor/subjects/uploads.py（仅read_kb_status的安全coverage投影，不改上传事务/预留）
+- deeptutor/subjects/material_manifest.py（仅project_status的安全coverage投影，不改来源/ready判定）
+
+后四条是协调者因真实factory/完成状态链路缺口明确补充的必要接缝，不需要再请求扩范围。59条当前产物中其余45条只读，document_extractor.py也只读。不得改旧receipt、报告、探针、归档、共享fixture、依赖、实际settings、前端、index_versioning/storage协议或其他阶段功能。
+
+新的证据与一个返修report/tar写 .phase1-evidence/stages/S06/rework01/；原 .phase1-evidence/stages/S06/report.json 等保持字节不变，阶段execution.log只允许追加。不写accepted或协调者review.json。保持S05 ContextVar稳定dispatcher及注册锁、600s/5s默认、同KB活线程门禁/取消清理、源指纹门禁和S04输出校验。
+
+二、返修单元
+
+R1：统一受约束的图片读取与有效性检查
+目标：文本描述和multimodal ImageNode都只能读取受约束的真实图片，不能把“保留旧路径”当作绕过C09门禁的例外。
+证据：独立test_symlinked_parser_asset_root_is_never_read；test_multimodal_path_uses_the_same_single_image_gates的1199、4MiB+1、坏PNG三个子场景。当前symlink根已把外部bytes传入factory，三种非法图片都被算作images_indexed=1。
+允许范围：image_description.py的安全读取/资产标识辅助、document_loader.py的资产枚举/两分支读取、test_p1_26.py/test_p1_27.py；旧loader测试仅更新对应fixture/替身，不删有效断言。
+处理：在任何is_dir/os.walk/realpath/读字节之前检查原始asset root及路径组件；拒绝根/父组件/叶软链接，不跟随到外部再把realpath当新信任根。公共门统一执行lstat/常规文件、1200..4MiB、限量读取和真实格式验证，然后才编码/模型/embedding。拒绝的可观察图片具名skip；无法安全枚举的根只报告未验证，不枚举外部来凑计数。保留有效ImageNode向量和默认文本Document流程。尽量复用受限读取结果，不另建SDK/缓存/并行批处理。
+完成：上述负例全部无模型/embedding请求、外部树摘要不变；合法1200和4MiB边界仍成功。永久测试补根/父/叶链接和两条正常路径。现有S01隔离、parser选择/to_thread保持。
+
+R2：真正有界的识别额度、候选配置与模型请求
+目标：失败不能形成无界全图调用；每候选只有一次真正的图像请求，不能以去掉图片后的回答冒充图像描述。
+证据：test_failed_descriptions_still_consume_the_image_attempt_budget当前13图发13请求；byte_attempt_budget当前发4×4MiB；real_factory_does_not_promote_an_imageless_fallback_to_ocr当前wire=[True,False]仍返回PHANTOM描述；real_factory_respects_one_wire_attempt_per_candidate当前同候选发两次；dedicated_model_remains_usable_when_main_resolution_fails直接抛错；multimodal_description_has_the_same_timeout_bound超时失控；multimodal_string_wrapper_does_not_hide_truncation把length响应当成功ImageNode。
+允许范围：image_description.py、document_loader.py、factory.py的complete_response最小逐调用策略，test_p1_26.py/test_p1_27.py及必要旧loader替身适配。不能改provider_core、SDK或配置schema，不能修改其他调用者默认降级策略。
+处理：先受理再计费，每来源最多12个受理图/12MiB，失败也消耗本次额度；同一资产去重只扣一次，同图main→dedicated属于同一次图受理。超过额度的余图计budget，不调用模型。单候选禁用factory默认transient重试及strip_image_parts降级；可给complete_response新增向后兼容的逐调用选项，默认值保持原行为，索引图片显式严格。只传allow_image_fallback=False进现有kwargs会和factory显式实参冲突，必须处理真正的调用接缝；不能全局伪造supports_vision=True。auto允许main图请求失败后一次dedicated图请求；两个dedicated策略绝不回main。main配置不可解析但dedicated可用仍能选后者；没有候选返回具名vision_unavailable，取消向上传播。两条图像路径均有输出预算、超时，并在丢finish_reason前用validate_subject_response判空/截断；length正文和空截断不得入索引。
+完成：上述探针通过；永久测试必须穿过真实factory + 真实LLMProvider重试层，以离线provider/transport替身观察wire是否携图及次数。不能只mock factory.complete_response后断言它被调用一次。合法主模型/独立vision、正常ImageNode均保持。可顺带删除仅为识别monkeypatch而存在的_ORIGINALS/_live多路检测，统一替身安装接缝；不为清理重构其他业务。
+
+R3：严格元数据合并与普通失败的发布边界
+目标：已有元数据损坏时不覆盖，索引worker结束不等于整次初始化已成功发布；元数据提交失败不得使新版本被读接口选为ready。
+证据：test_corrupt_metadata_is_not_silently_replaced_by_coverage_merge当前把坏JSON当{}覆写；test_failed_metadata_commit_does_not_publish_a_new_version当前process_documents抛StorageIOError，但find_matching_version已选version-2/ready=true。
+允许范围：initializer.py的元数据读取/合并与初始化提交、pipeline.py的本次初始化发布/撤销、test_p1_27.py。json_store/file_io/index_versioning/storage只读复用，不重写版本协议。
+处理：复用S03严格对象读取/路径检查、S02原子写，既有坏JSON/null/数组/非有限数字/软链接/IO错误保持类型与cause，不当作缺失或空对象。已有未知字段保留。把必需coverage/元数据合并纳入本次普通异常提交边界，安排安全提交顺序及可验证undo；只在必需步骤完成后让该新版本成为可读成功版本。必须失败时，只撤销本次实际拥有且worker已结束的新attempt及其元数据变更，不能删除旧成功版本/别KB或仍活线程的目录。仅删除meta.json不够：无signature的读路径可能仍把有docstore的新目录视为ready。不得靠吞掉写异常/报告success来规避失败，也不得保留已发布version-2只把task标error。普通异常原子性即可，不新增跨目录crash原子或全局调度系统。
+完成：真实临时版本目录中注入索引后metadata写失败、发布点写后抛错，旧成功版本文件及旧metadata字节保持；有signature及无signature的读解析均不能选失败新版本。合法成功只发布一次；零节点/取消/活worker门禁仍通过。保留旧last_ready/当前源门禁，不在此改上传规则。
+
+R4：清理新run生命周期中的旧coverage
+目标：从第一条进度开始就属于本次run；未测量不等于“沿用上次测量”或伪造全零完整覆盖。
+证据：test_a_new_run_resets_coverage_before_its_first_progress_event当前第一条消息含旧计数；test_success_without_coverage_never_preserves_old_metadata_coverage当前新的成功run未给coverage，metadata却仍保留上次的警告和计数。原test_initializer_second_run仅看最终.progress，漏看这两处。
+允许范围：initializer.py的reset/合并、progress_tracker.py的run记忆、test_p1_27.py。
+处理：reset置于process_documents第一条进度、文件枚举和任何可能失败的前置操作之前；不能只依赖task_id变化（CLI可为None）。新成功run没有coverage时，清除新成功metadata/稳定状态中的旧coverage/warning，表示未验证，不能造0计数。失败新run应保留历史成功metadata供旧版本使用，但当前任务/事件不能将其冒充本次coverage。同run后续COMPLETED仍保留真实本次结果；必要的嵌套对象复制防止发布后被原对象改写。
+完成：连续两次/同task_id/None/不同task_id、第二次空源早失败、第二次成功无coverage及成功有新coverage的首尾事件/metadata一致；新增永久断言覆盖原测试盲区。
+
+R5：完成状态和真实科目HTTP中的安全覆盖投影
+目标：用户重新打开已ready的科库仍能看到真实计数和固定降级警告；不把内部日志或瞬时事件当作公开完成结果。
+证据：test_ready_keeps_coverage_in_registry_and_real_subject_http含两个目标失败。合法材料副本与legacy ready的正向条件已成立；manager.update_kb_status(ready)删progress使注册表无coverage，read_kb_status/project_status的白名单/重建又使真实GET无coverage。原测试只验processing注册表，以及完成后的.progress/事件，未验最终注册表/HTTP。
+允许范围：manager.py的coverage持久字段、progress_tracker.py的保存、uploads.py仅read_kb_status、material_manifest.py仅project_status、initializer.py/CLI必要透传、test_p1_27.py。
+固定外层契约：image_coverage为C09五字段对象；image_coverage_warning为安全固定提示或null；未测量时coverage缺失/null，不假造完整零覆盖。ready仍保持原UI稳定资源语义，不恢复旧completed横幅。可把二字段作为kb_config条目稳定字段保留，再由严格只读status接缝显式投影到科目GET及其共用列表投影；原status/progress/ready计算不变。记住所属run/task，不能将旧版本或失败任务的值归给新成功任务。
+处理：five-field整数严格排除bool/负数/非有限/未知原因，seen=indexed+skipped；parser_no_assets按源数，其他skip按图数，因此sum(skip_reasons)不必等于images_skipped。读取持久数据时仍做投影白名单和安全校验；warning从有效计数推导或选固定文案，绝不信任存储中的任意字符串。不得把raw progress、异常或32KiB虚构敏感标记回显。GET不写盘、不迁移、不新建manager、不做全量hash。只加这些字段，不重写manager/来源manifest/状态机。
+完成：真实科目HTTP在processing/ready/error的计数与本次记录一致；ready后重建manager/服务对象再GET仍在；两同名科目和global隔离；未知字段/坏计数/巨大warning不泄漏。坏coverage不得伪装完整覆盖，可受控返回storage_corrupt或明确未验证，测试需证明。保留S05所有状态/安全/原始count回归。
+
+R6：PDF已有像素门的跳过统计
+目标：保留既有64×64像素启发式与reading特殊预算，但所有确已观察到的被拒绝图都有统计，不能静默消失。
+证据：test_pdf_small_pixel_image_still_has_a_named_skip当前确有xref/图片却所有skip计数为0。worker承认该限制，但“未计入跳过”不符合本卡统计要求。
+允许范围：document_images.py的extract_pdf_images与test_p1_28.py。document_extractor.py只读，不重写聊天/reading消费者。
+处理：小像素图按现有budget原因计skip，重复xref只计一次，保留page map和重复位置，不新增五枚举外公开原因。不是要求取消像素门或把小图全送模型。
+完成：小像素、字节小图、同xref跨页/重复、正常PDF图的collection计数与文字摘要准确；原DOCX/PPTX/PDF、12/13、16/17、4MiB、12MiB、OOXML关系和reading回归保持。
+
+三、验证与交付门
+
+独立探针只读原样运行，不能改测试期待、探针bytes或调用路径来迎合实现：
+./.venv/bin/python .phase1-evidence/reviews/S06/probe_s06.py
+先留同一命令18处失败的返修基线，修复后18方法全部通过；把对应断言加入允许的永久tests/phase1/test_p1_26/27/28.py，不只让外部探针通过。单元完成即做定向测试，继续下一单元，不逐卡交接。
+
+阶段末合并一次：
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q tests/phase1/test_p1_26.py tests/phase1/test_p1_27.py tests/phase1/test_p1_28.py tests/services/rag/test_llamaindex_document_loader.py tests/utils/test_document_extractor.py
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q tests/phase1 tests/services tests/api tests/utils/test_document_extractor.py
+./.venv/bin/ruff check deeptutor/services/rag/pipelines/llamaindex/image_description.py deeptutor/services/rag/pipelines/llamaindex/document_loader.py deeptutor/services/rag/pipelines/llamaindex/pipeline.py deeptutor/knowledge/initializer.py deeptutor/knowledge/progress_tracker.py deeptutor/utils/document_images.py deeptutor/services/llm/factory.py deeptutor/knowledge/manager.py deeptutor/subjects/uploads.py deeptutor/subjects/material_manifest.py tests/phase1/test_p1_26.py tests/phase1/test_p1_27.py tests/phase1/test_p1_28.py tests/services/rag/test_llamaindex_document_loader.py
+
+复用S01临时HOME wrapper，所有业务import/收集前隔离。factory真实重试层测试只用离线provider/transport，不连接外网；helpers只读，不新增共享fixture/skip。旧18skip保留；新必需场景不能靠skip/假backend声称完成。没有前端改动，不重跑node/浏览器；真实供应商/最终环境验收仍按后续阶段。
+
+坏对照在新建临时副本中做两类即可：①允许factory去图降级或隐藏重试，应使wire/返回值断言失败；②恢复ready丢coverage或metadata失败仍发布，应使真实HTTP/版本解析断言失败。先证明同副本合法路径通过；非0必须来自目标断言，不是导入、凭证、abstract method或工作目录错误。生产原树和旧证据不做临时回退。原阶段四条坏对照不覆盖这些缺口，不能拿原结果代替新验证。
+
+开始前用v2 snapshot留唯一source/data基线，include为最新receipt59条；结束只允许本轮14路径差异，45只读hash不变。三强制树和三supplementary完整files/dirs/modes起止相同；历史memory trace和认证auth.lock保持、不解析，不新增.deeptutor.lock。真实配置/密钥不读、不打印，不安装/升级，不启动服务或真实重建，不提交推送。
+
+共享日志串行追加，记录实际argv/cwd/时间/退出码和精确行号，commands按日志时间排序。保留所有失败尝试，不能用外层exit0掩盖内层失败。report.artifacts列全部实际修改源码（含tracked，不限新建4文件）及必要证据hash；原report/探针/receipt/归档hash保留。生成唯一返修source tar和sidecar，使用最终capture作baseline，在唯一新临时子目录verify-rebuild；归档保留既有完整产物/已删状态，不缩小内容凑通过。
+
+一份rework01/report.json满足StageReport，列R1–R6目标/允许范围/实际测试名/完成门，六树保护、scope、45只读、归档、坏对照、失败自修和真实限制。常规实现/测试失败自己修好；上述额外接缝已明确授权，不再为它们报blocked_scope。确需其余范围/契约/环境变更才给最小blocked_*。全部门通过只标verified_local，一次汇报后停止，不自签accepted，不进入S07。

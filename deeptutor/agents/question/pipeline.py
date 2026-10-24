@@ -354,6 +354,19 @@ class QuizPair:
 # ---------------------------------------------------------------------------
 
 
+def _context_subject_id(context: UnifiedContext) -> str | None:
+    """The turn's validated subject, read verbatim from the runtime metadata.
+
+    Same source and same rule as the chat pipeline: the model contributes
+    nothing to the scope, and ``None``/``""`` both mean "no subject".
+    """
+    raw = (context.metadata or {}).get("subject_id")
+    if isinstance(raw, str):
+        value = raw.strip()
+        return value or None
+    return None
+
+
 class QuestionPipeline:
     """One-shot orchestrator: instantiate per turn, call :meth:`run` once."""
 
@@ -404,6 +417,9 @@ class QuestionPipeline:
         self.binding = getattr(self.llm_config, "binding", None) or "openai"
         self.model = getattr(self.llm_config, "model", None)
         self.reasoning_effort = getattr(self.llm_config, "reasoning_effort", None)
+        self.reasoning_protocol = getattr(
+            self.llm_config, "reasoning_protocol", None
+        )
         self.client_config = LLMClientConfig(
             binding=self.binding,
             model=self.model,
@@ -412,6 +428,7 @@ class QuestionPipeline:
             api_version=getattr(self.llm_config, "api_version", None),
             extra_headers=getattr(self.llm_config, "extra_headers", None) or None,
             reasoning_effort=self.reasoning_effort,
+            reasoning_protocol=getattr(self, "reasoning_protocol", None),
         )
 
         self.registry = get_tool_registry()
@@ -1025,6 +1042,7 @@ class QuestionPipeline:
                 max_tokens=self.tool_summarizer_max_tokens,
                 binding=self.binding,
                 reasoning_effort=self.reasoning_effort,
+                reasoning_protocol=getattr(self, "reasoning_protocol", None),
             ),
         }
         kwargs["stream_options"] = {"include_usage": True}
@@ -1542,9 +1560,23 @@ class QuestionPipeline:
         if turn_id:
             task_dir = get_path_service().get_task_workspace(FEATURE, turn_id)
         if tool_name == "rag":
-            kwargs.setdefault("mode", "hybrid")
+            # The scope of a retrieval is server-owned here too (C08): the
+            # model's own carriers are dropped first, then this consumer's
+            # validated bindings are written unconditionally. The mounted set is
+            # always the *actual* one — `[]` included, never ``None`` — so an
+            # empty mount cannot fall back to any global library. `kb_name` stays
+            # the single library this capability bound; the model cannot pick
+            # another one.
+            from deeptutor.subjects import kb_scope as _kb_scope
+
+            for key in _kb_scope.SCOPE_KWARGS:
+                kwargs.pop(key, None)
+            mounted = [str(ref) for ref in (context.knowledge_bases or []) if str(ref).strip()]
+            kwargs["_subject_id"] = _context_subject_id(context)
+            kwargs["_mounted_refs"] = mounted
             if self.kb_name:
-                kwargs.setdefault("kb_name", self.kb_name)
+                kwargs["kb_name"] = self.kb_name
+            kwargs.setdefault("mode", "hybrid")
         elif tool_name == "code_execution":
             from deeptutor.services.sandbox import Mount
 
@@ -1626,6 +1658,7 @@ class QuestionPipeline:
             max_tokens=max_tokens,
             binding=self.binding,
             reasoning_effort=self.reasoning_effort,
+            reasoning_protocol=getattr(self, "reasoning_protocol", None),
         )
 
     async def _run_labeled_step(

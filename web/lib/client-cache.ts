@@ -9,6 +9,8 @@ const clientCache = new Map<string, CacheEntry<unknown>>();
 interface CacheOptions {
   ttlMs?: number;
   force?: boolean;
+  /** Optional resource-local generation guard for a completing loader. */
+  guard?: () => boolean;
 }
 
 export async function withClientCache<T>(
@@ -35,6 +37,13 @@ export async function withClientCache<T>(
 
   const promise = loader()
     .then((value) => {
+      // A save may invalidate this resource while the request is in flight.
+      // The late response must not repopulate the old cache entry.
+      if (options.guard && !options.guard()) {
+        const current = clientCache.get(key) as CacheEntry<T> | undefined;
+        if (current?.promise === promise) clientCache.delete(key);
+        return value;
+      }
       clientCache.set(key, {
         data: value,
         expiresAt: Date.now() + ttlMs,

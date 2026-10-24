@@ -1,0 +1,92 @@
+工作目录：/home/albert/selflearn/selflearn
+授权阶段：S04（P1-05 → P1-06 → P1-07 → P1-08 → P1-15 → P1-56）。日期：2026-10-13。
+
+现在直接实现本阶段、测试、自修和汇总，不再先交orientation分析或询问下一张卡。六张卡是同一阶段的编码单元，不是六次人工交接；完成后只停一次等待审查，不进入S05或第二阶段功能。
+
+一、前置与探索包
+
+先读取本文件和 plans/phase1/S04_EXPLORATION.md。附包给出已探索文件清单、当前SHA256、符号/行号、原样关键片段、已确认故障及前置接口。hash未变时复用片段直接编码，只为正在实现的符号定向补读缺少的上下文；不要重读全仓库、HANDOVER历史正文、57张卡或另写全项目计划。
+再读取 STAGE_WORKFLOW.md、stages/S04.md、六张卡的目标/范围/完成条件和DATA_CONTRACTS.md的C01–C06、C14；schemas.json只需相关Grade/Detection/Error/StageReport定义。FRAMEWORK/EXECUTION_GUIDE/AGENTS的已探索范围和有效约束在附包中给出；必要时仅补读有关段。
+
+核验 .phase1-evidence/stages/S03/review.json 指向的S03-final accepted receipt及其hash，再核其source_artifacts；这个最新receipt合并S01/S02/S03当前27个产物hash，优先于历史receipt。S03初次changes_requested和worker的rework01 report仍留作历史，不是当前状态。S03-final中协调者已修的线程fork锁、null校验、IO错误、输入校验和新增测试必须保留，不恢复worker提交时旧hash。
+若当前源与最新签收不符，查最小差异并报告准确的blocked_dependency/并发改动；不得reset或覆盖文件恢复旧版本。本阶段新增grading.py、subject_route.py和六份测试目前不存在，这是计划内新建，不是缺依赖。
+
+二、允许范围
+
+仅可写以下12个源码/测试路径；在共同文件中也只改本卡目标符号和必要接线，不能顺手修改上传、索引、报告、聊天、导出、自动画像或删除政策：
+deeptutor/subjects/grading.py
+deeptutor/subjects/wrong_book.py
+deeptutor/subjects/exam_detection.py
+deeptutor/subjects/exam_points.py
+deeptutor/api/subject_route.py
+deeptutor/api/routers/subjects.py
+tests/phase1/test_p1_05.py
+tests/phase1/test_p1_06.py
+tests/phase1/test_p1_07.py
+tests/phase1/test_p1_08.py
+tests/phase1/test_p1_15.py
+tests/phase1/test_p1_56.py
+
+证据只写 .phase1-evidence/stages/S04/，使用一个report.json及append-only execution.log。plans/**、reviews/**、S00–S03证据和其余生产/测试文件本阶段只读；不修改契约、共享fixture、errors/model_output/generation/json_store/store。依赖接口已可用；真需越界才提出最小blocked_scope，不先增新卡。
+不提交/推送，不安装/升级依赖，不启动实际服务或重建实际索引，不读取密钥正文/使用真实provider，不写后再还原真实数据。全部业务与故障注入在tmp隔离根。
+
+三、六个单元的目标、实施边界和完成证据
+
+P1-05：只建grading模块和测试。
+目标：完整合法verdict/feedback才能产生GradeResult，故障不能合成wrong。
+复用parse_model_object和complete_subject_text；禁止再写regex JSON解析或尾逗号修复。verdict必须字符串，strip/lower后只接受correct/partial/wrong；feedback必须字符串，缺失、对象、null均失败，保留旧500字符反馈上限，不增加未经约定的非空限制。cfg读取/调用在同一个可诊断边界，真实LLM错误保持cause；供P1-56安全投影，不能把str(exc)拼进feedback。prompt保留题目、学生作答及参考答案，配置/预算/重试策略不变。
+证据：三种成功、大小写空白、feedback长度；合法基准分别缺字段/错类型/未知枚举/多JSON候选；通过真实generation路径验证provider、空响应、非空截断、推理预算耗尽均失败且不变wrong。不得仅mock grading返回值证明generation已接通。
+
+P1-06：只改check_answer/_ai_grade接线及wrong_book单次graded-attempt辅助函数。
+目标：评级成功后一次业务提交只写一次权威集合；任何评级/存储失败不污染学情。
+LLM调用在锁外先完成。提交函数在一个subject transaction里严格读取原始集合、按现有trim后精确题目匹配、找/建题、append真bool attempt、重算掌握度、只写一次wrong_book.json；不要把load()的派生读视图写回所有旧题。沿用MASTERY_PRECISION/classify、字段/时间策略、参考答案与未知字段；feedback不覆盖answer/analysis，不写学生答案或provider诊断作为参考答案。
+新correct不建entry/不写wrong_book文件，返回旧verdict/feedback/correct/entry加saved=false、entry=null；已有题无论correct/partial/wrong均仅append一次、saved=true；新partial/wrong一次创建并append，partial按既有false计。保留精确匹配，不加相似题、自动KP关联/画像或重试。
+证据：真实HTTP非2xx与对应C02 code，失败前后bytes/目录状态不变；新correct无新增文件/entry；新wrong一次write与一个attempt；已有题正确提升掌握度，partial为False；并发同题N次只有一个entry和N个attempt；注入提交失败保持旧bytes且不留下半条目。最关键原子性/并发断言做一个有效坏对照。
+
+P1-07：只改detect_points/_parse_points、检测prompt及测试。
+目标：合法零点与模型失败分开；整轮候选证据为原文直接引用。
+复用严格单对象解析和generation，不返回{points:[],error:str(exc)}。顶层必须有points数组；[]成功；所有候选先验证对象、必需content/evidence/kp字符串、content/evidence trim非空、level严格explicit/emphasis（历史manual inferred存储读取继续兼容）。不字符串强制转换，不跳过坏候选或自动修错level。
+直接引用只允许空白归一化后匹配原转写，不能改标点/词语/用语义相似替代。不在原文的evidence使整轮invalid_model_output。按C06负向原话短语排除候选，warnings记录数量；排除前也先验证该候选的schema和引用，不用负向过滤隐藏非法候选。不做完整语义分类器。修正不逐字匹配的prompt示例并递增实际prompt版本；返回版本与实际使用prompt一致。
+证据：[]、缺points、顶层/项/字段错类型、坏JSON/多候选JSON、错误level、不存在引用、中文空白差异、多个负向候选排除计数；后段非法候选导致整轮失败，非部分成功；provider/预算/截断上抛而不是空成功。
+
+P1-08：只改detect_exam_points及exam_points新增/调整批量upsert。
+目标：整轮先验证，再同一subject锁里一次写；重复检测复用条目。
+term省略或空采用subject.term，显式非空term使用调用值，source沿用现有接口。confirmed=true仅auto_confirm=true或经过P1-07验证的explicit，emphasis默认false；不得把所有点确认。
+整批upsert在一个事务内读取/验证原始集合，以当前subject + term + 空白归一化content/evidence去重，包含同一批内与已有集合的重复；不跨科/跨学期，不用相似度。复用旧id/created_at/未知字段；已有确认不能因再次检测emphasis而自动撤销，explicit/auto_confirm可提升确认。未涉及的旧记录不重写其字段，不自动关联KP。
+stored返回本轮去重后保存或复用的条目，detected=len(stored)，不是仅新增条目数；[]和完全无变化允许不写，发生变更的一轮只提交一次集合。响应严格保留version/detected/stored/raw并加warnings（{code,message,count}，count可选），raw为既有模型正文，不能混入思考/provider错误。模型故障非2xx；整批坏项/写失败保持旧文件。
+证据：explicit/emphasis/auto_confirm正反例、默认/显式term、同科重复与同批重复、不同科/term隔离、旧id/未知字段/确认保留、合法零点、整轮多候选一次write；坏后半项/提交故障无部分落盘；HTTP code与bytes同时断言。
+
+P1-15：只改patch_subject和测试，不改store或新增name更新接口。
+目标：未提交保留，明确空字符串清空，空PATCH不写。
+附包已有独立实测：当前FastAPI把显式""也转换为Form(None)，只判断参数is not None无法实现清空。因此结合原始request.form()的字段是否出现与合法字符串值区分省略/空；保留原FastAPI参数校验，不通过绕开422解决。只把实际提供的description/term传给store.update_subject；无提供字段直接返回当前subject，不调用更新，不写index。
+证据必须经HTTP form实际发送：仅description、仅term、显式description=""、term=""、空PATCH，以及multipart空字段；对保留字段值和index bytes都检查，不能只调用Python函数传""。非法/未知id由P1-56给400/404。
+
+P1-56：只建subject_route APIRoute wrapper、router route_class及_require_subject，和测试。
+目标：当前全部subject路由的具名存储/领域/LLM异常通过C02固定安全出口；全局路由不变。
+包装get_route_handler，把SubjectStorageError/SubjectOperationError和LLM异常用map_subject_exception/to_http_payload映射；未知内部异常internal_error。服务端保留cause/诊断，对外不拼异常文字、宿主路径、原输入或provider内容。_require_subject先校验合法slug，再严格当前用户注册表查询，未知用SubjectNotFoundError；不要改slug或fallback管理员路径。
+原生RequestValidationError及认证401/403/WWW-Authenticate headers原样保留，不能一律当internal_error，也不能只catch endpoint而漏掉依赖中的存储异常。已有HTTPException不按detail文字猜分类；若有明确领域/LLM cause可安全映射（认证与422优先保留），其他历史HTTPException保留框架行为，由相应后续卡改造其业务策略，不越界重写全部route body。
+证据：坏registry/list、坏profile/get+update、非法id400/未知404、真实预算异常502（不能只构造error dict）、非空截断、原Form缺字段422、auth401/403及headers、32KiB虚构输入/异常标记不出现在完整JSON响应，global router无影响；tmp用户解析失败不读管理员文件。新P1-06/P1-08业务失败完整响应满足ErrorResponse schema。
+
+四、实际测试与证据
+
+先按v2工具capture/protect-data保存S04起点；--include包含S03-final的27个已验收产物与本阶段12条路径（新文件尚不存在仍列），不要修改旧baseline/tar。官方compare-data只覆盖强制三树，另比较supplementary_roots的files/dirs/mode完整记录；历史S01 memory trace保留，不解析。
+复用p1_runtime/p1_route_client/p1_providers；这些夹具必须显式申请并在应用导入/调用之前有效，DEEPTUTOR_HOME在跨目录收集前指向tmp。p1_subjects的键是展示标签，API/路径用其SubjectPaths.subject_id；marker KB目录不是已注册的索引就绪证明。FakeLLMClient.complete_response提供真实TutorResponse，可设置text/finish_reason/usage；测试不会使用真实cfg/key。
+
+每单元完成立即运行以下对应命令，普通失败在阶段内自修再复测，继续下一单元：
+./.venv/bin/python -m pytest -q tests/phase1/test_p1_05.py
+./.venv/bin/python -m pytest -q tests/phase1/test_p1_06.py
+./.venv/bin/python -m pytest -q tests/phase1/test_p1_07.py
+./.venv/bin/python -m pytest -q tests/phase1/test_p1_08.py
+./.venv/bin/python -m pytest -q tests/phase1/test_p1_15.py
+./.venv/bin/python -m pytest -q tests/phase1/test_p1_56.py
+
+阶段末一次相关回归：
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q tests/phase1 tests/api tests/services/test_file_io.py tests/services/test_codebuddy_credentials.py tests/services/rag/test_llamaindex_document_loader.py
+./.venv/bin/ruff check deeptutor/subjects/grading.py deeptutor/subjects/wrong_book.py deeptutor/subjects/exam_detection.py deeptutor/subjects/exam_points.py deeptutor/api/subject_route.py deeptutor/api/routers/subjects.py tests/phase1/test_p1_05.py tests/phase1/test_p1_06.py tests/phase1/test_p1_07.py tests/phase1/test_p1_08.py tests/phase1/test_p1_15.py tests/phase1/test_p1_56.py
+
+未修改前端不额外跑node/tsc/browser；全仓库/真实环境验收仍归后续阶段。相关回归通过后只在有新修改或失败时重复受影响检查，不机械每卡重跑目录。
+execution.log实际命令运行时追加argv/cwd/UTC时间/原始stdout+stderr/exit，commands[]精确引用行段；保留开发失败和后续通过，禁止事后echo成功或占位命令。可在S04证据目录新建标准库runlog，不能调用会往S03旧日志追加的runlog。
+负例从已证明合法的基准只改变目标字段/故障点；并发、原子提交、错误保密用有效坏对照。测试检查磁盘字节、文件有无、attempt数/条目id/写次数及完整HTTP JSON，不只检查mock被调用。
+阶段末capture/protect-data、compare（--allow精确12路径）、完整三树+supplementary比较；一份最终source tar/sidecar并在唯一tmp中verify-rebuild。report.json按StageReport写六项card_results、实际命令/日志、源码hash、scope/data/归档结果及真实限制。当前27个签收路径中wrong_book/exam_points允许按本阶段目标修改，其余只读hash保持。
+
+完成条件：六单元上述必证行为成立，相关回归与Ruff通过；只有12路径变更，前人dirty及只读基础保留，真实六树无新变化，恢复归档通过。交付verified_local，不自签accepted。只报告本阶段实际剩余问题/环境限制，不重复项目全景。不自动执行S05。

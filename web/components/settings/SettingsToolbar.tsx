@@ -71,6 +71,7 @@ export function SettingsToolbar() {
           {t("Tour")}
         </button>
         <button
+          data-testid="save-draft"
           onClick={saveCatalog}
           disabled={saving || !hasUnsavedChanges}
           className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)]/50 px-3 py-1.5 text-[12px] font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--border)] hover:text-[var(--foreground)] disabled:opacity-40"
@@ -83,9 +84,13 @@ export function SettingsToolbar() {
           {t("Save Draft")}
         </button>
         <button
+          data-testid="apply-catalog"
           data-tour="tour-actions"
           onClick={applyCatalog}
           disabled={applying}
+          title={t(
+            "Save all draft changes and make them active. This does not change the saved default models.",
+          )}
           className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--foreground)] px-3 py-1.5 text-[12px] font-medium text-[var(--background)] transition-opacity hover:opacity-80 disabled:opacity-40"
         >
           {applying ? (

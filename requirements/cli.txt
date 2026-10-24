@@ -45,6 +45,9 @@ llama-index-vector-stores-faiss>=0.4.0,<1.0.0
 faiss-cpu>=1.8.0,<2.0.0
 PyMuPDF>=1.26.0
 numpy>=1.24.0,<3.0.0
+# M7 chart reports: matplotlib code is generated per chart placeholder and run
+# in a subprocess, so chart reports cannot render without it.
+matplotlib>=3.8.0,<4.0.0
 arxiv>=2.0.0
 
 # --- Document text extraction (chat attachments) + office-skill authoring libs ---
@@ -64,7 +67,7 @@ typer>=0.9.0
 rich>=13.0.0
 prompt_toolkit>=3.0.36
 
-# --- MCP client (deferred tools; built-in PageIndex MCP server) ---
-# Core, not partners-only: the connection manager injects the built-in
-# pageindex server whenever a PageIndex API key is configured (issue #792).
+# --- MCP SDK (compatibility pending review) ---
+# Kept because shared MCP modules still import it. This fork's PageIndex
+# overview uses the existing RAG outline pipeline, not an auto-injected client.
 mcp>=1.26.0,<2.0.0

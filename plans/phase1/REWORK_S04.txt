@@ -1,0 +1,74 @@
+工作目录：/home/albert/selflearn/selflearn
+授权：S04合并返修 R1–R5（2026-10-13）。不进入S05，不做第二阶段功能。
+
+S04主体实现与298项定向、2560项相关目录/18历史skip、Ruff及1833项归档均通过，证据hash/35条命令也吻合；但独立14个方法含子场景复现28处失败。因此当前changes_requested。P1-05/P1-06/P1-15的已有有效修复保留，不能重写整个阶段或恢复S03旧版本。
+
+一、先核状态，再直接返修
+
+读取本文件及 plans/phase1/S04_REWORK_EXPLORATION.md，核验 .phase1-evidence/stages/S04/review.json 指向的changes_requested receipt及hash，核其中37个source_artifacts。该表含S01–S03当前基础与S04已交源码；它是本轮起点，不代表S04已验收。code_changes_by_coordinator=[]，本轮协调者未改生产/原有测试。
+先复用新探索包的当前片段/行号/hash；不要重新orientation读全仓库、HANDOVER历史正文或57卡，也不要继续依赖已过时的首次S04探索包定位。只有待修符号缺少上下文或hash变化时定向补读。START_S04中的原业务契约与保护规则继续有效，本文件明确收窄此次返修范围并解释失败边界。
+
+此次只允许改六条源码/测试路径：
+deeptutor/subjects/exam_detection.py
+deeptutor/subjects/exam_points.py
+deeptutor/api/subject_route.py
+tests/phase1/test_p1_07.py
+tests/phase1/test_p1_08.py
+tests/phase1/test_p1_56.py
+
+仅改下面R1–R5目标及必要内部接线。grading.py/wrong_book.py/routers/subjects.py、P1-05/06/15测试和共享json_store/store/errors/model_output/generation/fixture只读；既有批改、同题原子提交、PATCH行为必须保留。不修改DATA_CONTRACTS/schemas/plans/reviews旧文件，不删除有效断言、不新增skip/xfail。
+证据写 .phase1-evidence/stages/S04/rework01/，命令真实追加到S04 execution.log。初次report/source/data/tar、协调者receipt/probe均只读。无需为每个R建交接/长报告/归档。
+
+二、五个修复单元
+
+R1：严格检测候选边界（P1-07/P1-08）
+目标：模型候选符合C06；内部批量入口不能接受缺字段、空引用或错枚举后部分保存。
+证据/现状：exam_detection._candidate和exam_points._detected_candidate把level strip/lower，"EXPLICIT"、" Explicit "、"emphasis\n"被接受；test_p1_07的normalisation正例甚至认可此行为。模型HTTP因此返回200并写考点。upsert还用get默认值接受缺evidence、空白evidence、缺kp和kp=null，后半非法项也能整批落盘。
+范围：上述两个候选验证函数及其测试；不改manual add_point/add_many兼容策略，不改grading verdict归一化。
+处理：检测level只接受原样字符串"explicit"/"emphasis"；不要strip/lower修错level。这是现有C06/START的严格枚举，不是新增契约。content/evidence/kp都必须实际存在且为str；content/evidence trim非空，kp允许合法空字符串。内部upsert整批先验证，失败不得写。新模型非法→ModelOutputError/502/invalid_model_output；内部调用参数非法→InvalidInputError/400/invalid_input；不得借storage_corrupt拒绝调用参数。
+完成证据：合法两枚举及kp=""正例；level大写/首尾空白/LF、缺evidence/空串/空白、缺kp/null/对象/数字各单字段负例；HTTP非法模型502+code且原文件bytes不变；内部批次[合法,坏后项]400且旧bytes/条目数/写次数保持，不能只断言helper没调用。修正冲突的normalisation断言，保留合法枚举正例与其他拒绝测试。
+
+R2：同批重复的确认策略不能依赖排列（P1-08）
+目标：去重后仍吸收本轮所有有效候选的确认依据；磁盘与返回视图一致。
+证据/现状：upsert的if key in seen:continue早于confirmed提升；同key候选先emphasis后explicit，结果一条未确认。新增条目、复用旧条目和真实HTTP均复现，反序却确认，违背validated explicit确认策略。
+范围：upsert_detected批内合并/确认/最终stored构建及test_p1_08。
+处理：按已有key合并所有候选的确认需求（任一validated explicit或auto_confirm=true则确认），再与旧confirmed合并，不能撤销原true。不要因去重丢弃晚到的确认依据。返回stored应在本轮最终状态确定后构造，避免先复制旧false随后只改磁盘。复用旧id/created_at/未知字段及既有旧level策略，不扩成相似度、全树修复或KP关联。
+完成证据：新增/旧未确认/旧已确认条目 × [emphasis,explicit]及反序；两种排列同样confirmed=true，len(stored)=detected=1、磁盘状态与响应一致；旧id/时间/未知字段不变；改变的一轮一次write，无变化的一轮零write；实际HTTP场景及一次提交失败保持旧bytes。保留原并发/幂等断言。
+
+R3：复用旧考点时也必须保证身份与响应契约（P1-08/C01）
+目标：坏元数据不能变成200成功，不能在A科请求返回声称属于B科的条目。
+证据/现状：_validate未验subject_id，_stored_view复制已有值只为缺键设默认。A科文件中匹配记录subject_id=null/7/"bad/id"/B科id，或level="unexpected"，均返回200；前四者身份不合法/不一致，前几者及坏level也违反ExamStored schema。这是返回元数据错误，不是已证实读取了B科物理文件。
+范围：exam_points._validate/_stored_view及upsert对其接线（只做本阶段实际使用字段必要校验）、test_p1_08。
+处理：已有subject_id缺键的合法legacy仍可在只读返回视图补当前sid；键存在则必须合法且与当前科目身份一致，null/错类型/越界slug/别科id报StorageCorruptError。实际返回的level若存在须符合ExamStored枚举；缺键可取既有inferred默认、历史inferred正常。不要把坏值改成当前科目或inferred后覆盖，不跳过坏记录继续保存，不迁移真实数据。供现有查询/批量调用的校验方式可自主选最小实现，不擅改其他数据策略。
+完成证据：先证明合法原记录可HTTP复用，再每次只改一个元字段；错误500/storage_corrupt，整份文件bytes不变、没有前半候选留下；覆盖subject_id缺键/合法当前sid、null/数字/坏slug/别科，level缺键/inferred/错误枚举。合法返回通过DetectionResponse schema且所有stored.subject_id为请求科目；其他科目bytes完全不变。保留未知字段/时间和manual历史兼容。
+
+R4：HTTPException的明确业务cause也走C02，并保留服务端诊断（P1-56）
+目标：旧route已包装的具名LLM/存储错误仍有安全业务响应；客户端无私有文本，服务端有可追溯cause。
+证据/现状：SubjectRoute一律re-raise HTTPException。真实review-pack路由把LLMEmptyResponseError.message作为HTTP502 detail并raise from原异常；独立HTTP实测直接回显虚构私有文本/宿主路径。包装的timeout错误被固定成外层502而非504，StorageIO也可被外层502盖掉。对于裸具名错误，日志目前仅写code/方法/URL/class，丢掉真正cause/reason诊断。
+范围：只改subject_route.py边界和test_p1_56；不用改review/report路由body，不重做报告功能。
+处理：RequestValidationError及原生/auth HTTP401/403/422优先原样保留，保持WWW-Authenticate等headers。其他HTTPException若有明确的SubjectOperationError/SubjectStorageError/LLM或已识别timeout cause，用现有mapper映射该原因并返回固定detail+error及正确status。无明确业务cause的普通历史HTTPException继续保留，不靠detail/class名字猜、不将任意ValueError/未知RuntimeError误判provider。最小可处理当前直接__cause__；不为本阶段建立通用异常图框架。
+裸具名错误和已包装cause均留服务端可观察的原始cause/trace或受控诊断；不要仅打印类名冒称保留cause。可通过LogRecord/日志额外字段/异常信息实现，不让任何内部诊断进入JSON响应，不新增全局handler。
+完成证据：真正review-pack endpoint的LLMEmptyResponseError注入→502/empty_model_output，完整JSON不含虚构key/路径；包装的ModelOutputError/provider/timeout/storage分别按mapper状态和code，timeout504/storage500；业务异常在endpoint或dependency里均覆盖。401/403/422（即便带cause）及无业务cause普通HTTPException形状/headers保留。捕获日志证明原始cause/reason仍可追踪，而响应仅固定安全信息。global router行为不变。
+
+R5：收紧被错误实现或宽松比较掩盖的测试（P1-07/P1-08/P1-56）
+目标：测试真实约束任务承诺，不为错误行为留宽泛通行条件。
+证据/现状：test_p1_08:491把term允许为subject_id或2026春，:688合法未注册科目接受400或404；独立正例证明当前正常行为其实正确，但旧断言拦不住回归。P07归一化正例与严格枚举冲突；HTTP cause/同批晚到explicit/坏复用元数据未覆盖。
+范围：test_p1_07/08/56；仅修冲突/过宽期望并添加上述有效场景，不删其他有效断言。
+处理与完成：默认term精确等于fixture的subject.term（2026春），合法未注册科目精确404+subject_not_found+无模型调用/无新树；跨科HTTP检查另一科bytes保持。R1–R4用例移植进允许测试，独立probe只运行、不修改。合法base先过、负例只改目标字段，不能用另一个缺字段挡住目标缺陷。不要把普通框架错误全改格式来凑测试。
+
+三、证据与收尾
+
+开工在rework01保存新的source/data起点，--include复用receipt全部37产物；不要重生成旧文件。返修按R1→R2→R3→R4→R5串行，每单元定向通过直接继续，不逐单元请求批准。
+runlog在S04 evidence内使用，不向reviews或旧S03日志写；执行中追加实际argv/cwd/UTC时间/stdout+stderr/exit，commands引用准确行段。不要并行向同一日志写嵌套记录；开发失败原样保留，区分expected bad control与真实失败。
+
+必要测试：
+./.venv/bin/python -m pytest -q tests/phase1/test_p1_07.py tests/phase1/test_p1_08.py tests/phase1/test_p1_56.py
+./.venv/bin/python .phase1-evidence/reviews/S04/probe_s04.py
+./.venv/bin/python -m pytest -q tests/phase1/test_p1_05.py tests/phase1/test_p1_06.py tests/phase1/test_p1_07.py tests/phase1/test_p1_08.py tests/phase1/test_p1_15.py tests/phase1/test_p1_56.py
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q tests/phase1 tests/services tests/api
+./.venv/bin/ruff check deeptutor/subjects/grading.py deeptutor/subjects/wrong_book.py deeptutor/subjects/exam_detection.py deeptutor/subjects/exam_points.py deeptutor/api/subject_route.py deeptutor/api/routers/subjects.py tests/phase1/test_p1_05.py tests/phase1/test_p1_06.py tests/phase1/test_p1_07.py tests/phase1/test_p1_08.py tests/phase1/test_p1_15.py tests/phase1/test_p1_56.py
+
+阶段末只一次相关回归/Ruff；新改动或失败再复跑受影响检查，不机械每R重跑目录。默认tmp bootstrap与网络guard保持，不启动真实服务、不调用真实模型、不读密钥正文、不提交或升级依赖。无前端变化不跑node/tsc/browser。
+结束capture/protect-data，source compare --allow仅六条返修路径；三强制树+三supplementary完整记录与返修开始、初次S04提交开始均无变化；真实data下不得产生锁文件，历史memory trace不删不解析。37产物中其余31个路径只读hash保持，HEAD不变。
+一次最终source tar/sidecar，唯一tmp内verify-rebuild；report.json写到rework01，按StageReport包含R1–R5 finding_results及原六card_results、真实测试/命令/日志、source hash、scope/data/归档、仍延期限制。初次报告字节不改，不自签accepted。
+完成条件：R1–R5所有必证行为通过，独立probe14方法及其子场景全过，原六单元回归/相关目录/Ruff通过，只有六条允许路径变化，真实六树及只读基础保持，归档可恢复。交付verified_local后停止，等待协调者整体复核，不进入S05。

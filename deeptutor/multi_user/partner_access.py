@@ -15,8 +15,6 @@ consults it. This module is the read-side counterpart of ``skill_access``.
 
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import HTTPException
 
 from .context import get_current_user
@@ -47,37 +45,9 @@ def assert_partner_allowed(partner_id: str, user_id: str | None = None) -> None:
         raise HTTPException(status_code=403, detail="Partner is not assigned to you")
 
 
-# Identity-only card fields a consumer needs (partner list page, connect modal).
-# Deliberately excludes channels / llm_selection / tool config so a non-admin
-# only ever sees a partner's face, never its wiring.
-_CARD_FIELDS = (
-    "partner_id",
-    "name",
-    "description",
-    "emoji",
-    "color",
-    "avatar",
-    "language",
-    "running",
-)
-
-
-def _project_card(partner: dict[str, Any]) -> dict[str, Any]:
-    card = {field: partner.get(field) for field in _CARD_FIELDS}
-    card["partner_id"] = str(partner.get("partner_id") or "")
-    return card
-
-
-def visible_partner_cards() -> list[dict[str, Any]]:
-    """Partners the current user may consult: all for an admin, or just the
-    assigned subset for a non-admin. Returns identity-only card dicts."""
-    from deeptutor.services.partners import get_partner_manager
-
-    everything = get_partner_manager().list_partners()
-    user = get_current_user()
-    if user.is_admin:
-        return [_project_card(item) for item in everything]
-    allowed = assigned_partner_ids(user.id)
-    return [
-        _project_card(item) for item in everything if str(item.get("partner_id") or "") in allowed
-    ]
+# NOTE: upstream also exposed ``visible_partner_cards()`` here (plus the
+# ``_CARD_FIELDS`` / ``_project_card`` helpers it needed). Partners were removed
+# by the M0 fork trim along with ``deeptutor.services.partners``, so the function
+# could only ever raise ``ModuleNotFoundError`` — and it had no callers. The
+# grant helpers above stay: they read the grant store and are still used by the
+# memory snapshot adapters.

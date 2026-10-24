@@ -1,11 +1,43 @@
 """Shared LLM response data models."""
 
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass, field
 import logging
 
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
+
+#: Terminal reasons that mean "the provider stopped because output hit a cap",
+#: i.e. the response is incomplete rather than finished. One table: the agent
+#: loop, the research pipeline and the streaming callers all read this.
+#: Ported from upstream v1.6.10, where a generation cut off at its token budget
+#: used to surface as an undiagnosable parse error instead of saying so.
+TRUNCATED_FINISH_REASONS = frozenset({"length", "max_tokens", "max_output_tokens"})
+
+
+def finish_was_truncated(reason: str | None) -> bool:
+    """Return whether a provider ended generation because output hit a cap."""
+    return str(reason or "").strip().lower() in TRUNCATED_FINISH_REASONS
+
+
+@dataclass
+class StreamOutcome:
+    """How a streamed call ended, for callers that only see text chunks.
+
+    :func:`deeptutor.services.llm.factory.stream` yields strings, so a caller
+    parsing the result could not tell a complete response from one the provider
+    cut off at ``max_tokens``. Fill one of these in and the stream records the
+    provider's finish reason and usage, so the caller can tell the difference.
+    """
+
+    finish_reason: str = ""
+    usage: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def truncated(self) -> bool:
+        """Whether the provider stopped at an output cap."""
+        return finish_was_truncated(self.finish_reason)
 
 
 class TutorResponse(BaseModel):
@@ -47,6 +79,9 @@ __all__ = [
     "AsyncStreamGenerator",
     "LLMResponse",
     "StreamChunk",
+    "StreamOutcome",
+    "TRUNCATED_FINISH_REASONS",
     "TutorResponse",
     "TutorStreamChunk",
+    "finish_was_truncated",
 ]

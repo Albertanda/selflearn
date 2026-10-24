@@ -1,0 +1,30 @@
+{
+  "status": "planning_package_validated",
+  "card_count": 57,
+  "stage_count": 16,
+  "execution_policy": "stage-based-2.0",
+  "contract_sections": 14,
+  "dependency_layers": 16,
+  "schema_definitions": 34,
+  "valid_examples_accepted": 21,
+  "invalid_examples_rejected": 23,
+  "checks": [
+    "DAG/topological order",
+    "required card fields",
+    "file whitelist alignment",
+    "contract references",
+    "JSON Schema",
+    "positive/negative examples",
+    "relative links",
+    "non-ignored documentation path",
+    "formatting",
+    "critical gate dependencies",
+    "stage coverage and dependency order",
+    "stage scope unions"
+  ],
+  "business_repairs_executed_by_this_validator": false,
+  "implementation_tests_run_by_this_validator": false,
+  "limitations": [
+    "This validates the plan, not application behavior or completed repair evidence."
+  ]
+}

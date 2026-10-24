@@ -1,0 +1,315 @@
+{
+  "stage": "MM-R3",
+  "schema_version": 1,
+  "working_directory": "/home/albert/selflearn/selflearn",
+  "execution": "One stage, dependency-ordered units, no per-card user confirmation. Brace paths indicate the listed files, not permission to edit unrelated files.",
+  "contracts": "CONTRACTS.md",
+  "acceptance": "ACCEPTANCE.md",
+  "exploration": "EXPLORATION.md",
+  "dispatch_order": [
+    "M3-00",
+    "M3-01",
+    "M3-02",
+    "M3-03",
+    "M3-04",
+    "M3-05",
+    "M3-06",
+    "M3-07",
+    "M3-08",
+    "M3-09"
+  ],
+  "tasks": [
+    {
+      "id": "M3-00",
+      "title": "到达基线和已知接缝复用",
+      "depends_on": [],
+      "goal": "核对MD-R2协调者最终review，按预探索hash进入实施；建立新证据根并保留原工作区。",
+      "allowed_changes": [
+        ".phase1-evidence/model-management/MM-R3-<new-run>/**",
+        "plans/model-management-r3/EXECUTION.md（新文件）"
+      ],
+      "evidence": [
+        "MD-R2 review accepted_local及source hash匹配，差异仅定向补读。",
+        "真实六树只做opaque hash；源码包含未跟踪前置修复，不复制catalog/key。"
+      ],
+      "done_when": [
+        "有arrival/source/data和run_id；不reset/clean，不覆盖旧证据。"
+      ]
+    },
+    {
+      "id": "M3-01",
+      "title": "单一思考能力策略和元数据契约",
+      "depends_on": [
+        "M3-00"
+      ],
+      "goal": "按C3建立后端唯一能力表/解析器，接通DeepSeek effort字段与LLM options；前端读取同一结果。",
+      "allowed_changes": [
+        "deeptutor/services/llm/reasoning_controls.py（可新增）",
+        "deeptutor/services/llm/reasoning_controls.json（可新增官方规则）",
+        "deeptutor/services/model_discovery/{types.py,metadata.py,compatibility.py,cache.py,service.py}",
+        "deeptutor/services/model_selection/llm.py",
+        "deeptutor/multi_user/model_access.py（仅已授权摘要）",
+        "deeptutor/api/routers/settings.py（参数校验/选项摘要）",
+        "web/lib/model-metadata.ts",
+        "web/lib/llm-options.ts",
+        "web/components/settings/SettingsContext.tsx（类型）",
+        "tests/services/model_discovery/**",
+        "tests/services/model_selection/**",
+        "tests/api/test_model_discovery.py",
+        "web/tests/reasoning-controls.test.ts（可新增）"
+      ],
+      "evidence": [
+        "DeepSeek low/high/max和default_level经解析→缓存→导入→保存→options round-trip；缺字段旧cache可重查。",
+        "精确provider/model/wire匹配，不因显示名或网关别名套原厂能力；普通用户/hidden只含授权安全字段。",
+        "同一能力在设置和聊天一致；未知、binary、预算、不可关闭型号都有反例。"
+      ],
+      "done_when": [
+        "API和TS共享schema，旧catalog可读；不直接扩大原params任意JSON白名单。",
+        "主流已知多档模型有完整档位，unknown不冒充支持。"
+      ]
+    },
+    {
+      "id": "M3-02",
+      "title": "原生档位、别名和各协议wire映射",
+      "depends_on": [
+        "M3-01"
+      ],
+      "goal": "落实C4的纯映射与实际formatter，修minimal当关闭、Flash漏识别、Qwen吞effort和Claude只开adaptive等问题。",
+      "allowed_changes": [
+        "deeptutor/services/llm/reasoning_controls.py",
+        "deeptutor/services/llm/reasoning_params.py",
+        "deeptutor/services/llm/provider_core/**（仅reasoning相关）",
+        "deeptutor/services/llm/factory.py（reasoning参数接缝）",
+        "deeptutor/services/llm/config.py",
+        "deeptutor/services/llm/types.py",
+        "deeptutor/core/agentic/client.py（只需reasoning透传）",
+        "deeptutor/services/llm/cloud_provider.py（reasoning fallback）",
+        "deeptutor/services/llm/executors.py（reasoning SDK路径）",
+        "tests/services/llm/**（相关reasoning tests）",
+        "tests/core/test_agentic_client_provider_kwargs.py"
+      ],
+      "evidence": [
+        "DeepSeek minimal/medium/xhigh/ultra分别low/high/high/max，none/off使用正确开关，provider_default不注入项目默认。",
+        "阿里同厂商Qwen与DeepSeek采用不同字段，精确旧Pro二档边界；Qwen budget/effort不冲突。",
+        "Claude adaptive+effort与旧budget模式正确，max_tokens约束明确；Gemini兼容wire按官方规则；OpenAI/托管不乱发unsupported。",
+        "捕获实际HTTP/SDK/stream/core构造，不能仅测返回dict或UI选项。"
+      ],
+      "done_when": [
+        "所有发送值在选中模型声明的wire集合内；保留MD-R2输出预算和凭据边界。",
+        "旧配置不批量迁移，不新增推理协议/真实调用。"
+      ]
+    },
+    {
+      "id": "M3-03",
+      "title": "单轮强度覆盖与会话/重新生成",
+      "depends_on": [
+        "M3-01",
+        "M3-02"
+      ],
+      "goal": "按C5为聊天/题目跟进增加正式reasoning_override字段及授权后校验、scoped生效、请求快照与会话恢复。",
+      "allowed_changes": [
+        "web/lib/unified-ws.ts",
+        "web/context/UnifiedChatContext.tsx",
+        "deeptutor/runtime/request_contracts.py",
+        "deeptutor/api/routers/unified_ws.py",
+        "deeptutor/api/routers/chat.py（如存在同消费者）",
+        "deeptutor/services/session/turn_runtime.py",
+        "deeptutor/services/model_selection/runtime.py",
+        "deeptutor/services/config/provider_runtime.py（只需scoped配置）",
+        "deeptutor/services/llm/config.py",
+        "deeptutor/agents/chat/agentic_pipeline.py（reasoning接缝）",
+        "tests/api/test_unified_ws_turn_runtime.py",
+        "tests/services/session/**（相关覆盖/regen）",
+        "tests/runtime/**（公开契约）",
+        "tests/services/model_selection/**",
+        "web/tests/reasoning-controls.test.ts"
+      ],
+      "evidence": [
+        "省略/inherit/provider_default/effort区分；错字段/非法值/越权模型先于真实调用拒绝。",
+        "并发两个会话与两个profile互不影响；切模型不串max/low，刷新与重连可恢复。",
+        "regen沿用原snapshot，显式override才改变；不在全局catalog或共享client上写当前选择。"
+      ],
+      "done_when": [
+        "实际主聊天和题目跟进都可发送已验证覆盖；不绕过config extra=forbid。",
+        "旧客户端无新字段行为兼容，历史不重写。"
+      ]
+    },
+    {
+      "id": "M3-04",
+      "title": "两层供应商/连接与模型选择",
+      "depends_on": [
+        "M3-00"
+      ],
+      "goal": "按C2实现实际两步选择而非只给平铺列表加标题；共享主聊天和题目跟进。",
+      "allowed_changes": [
+        "web/components/chat/home/ModelSelector.tsx",
+        "web/lib/llm-options.ts",
+        "web/lib/model-picker-groups.ts（可新增纯函数）",
+        "web/components/chat/home/ChatComposer.tsx（必要传参）",
+        "web/components/quiz/FollowupChatComposer.tsx",
+        "web/tests/model-picker-groups.test.ts（可新增）",
+        "web/tests/model-labels.test.ts",
+        "web/tests/model-visibility.test.ts",
+        "web/locales/{en,zh}/app.json"
+      ],
+      "evidence": [
+        "原厂DeepSeek/阿里同名Flash分属不同第一层；同供应商不同profile不合并key或ID。",
+        "第一层选连接不调用onChange，第二层才选模型；按钮始终有来源，tooltip有调用ID。",
+        "跨连接搜索有来源，Esc/返回/键盘/触屏、隐藏当前项/默认项、错误刷新可用。",
+        "普通用户group仅来自授权options，不取admin catalog。"
+      ],
+      "done_when": [
+        "两个composer复用行为一致；选中稳定引用、active/history与授权事实不变。"
+      ]
+    },
+    {
+      "id": "M3-05",
+      "title": "聊天强度控件和模型默认强度",
+      "depends_on": [
+        "M3-01",
+        "M3-03",
+        "M3-04"
+      ],
+      "goal": "聊天输入区增加强度控件，设置页用同一后端能力设置模型默认；明确继承、厂商默认和关闭。",
+      "allowed_changes": [
+        "web/components/chat/home/ReasoningSelector.tsx（可新增）",
+        "web/components/chat/home/ChatComposer.tsx",
+        "web/components/quiz/FollowupChatComposer.tsx",
+        "web/components/quiz/QuizFollowupTabBody.tsx（必要传参）",
+        "web/components/settings/ServiceConfigEditor.tsx",
+        "web/components/settings/SettingsContext.tsx",
+        "web/lib/reasoning-effort.ts",
+        "web/context/UnifiedChatContext.tsx（状态接缝）",
+        "web/locales/{en,zh}/app.json",
+        "web/tests/reasoning-effort.test.ts",
+        "web/tests/reasoning-controls.test.ts"
+      ],
+      "evidence": [
+        "原厂Flash/Pro可选low/high/max，不再仅minimal/high；Native三档完整，budget三档标注为预设。",
+        "inherit/provider_default/off区分，选择映射别名时显示实际档位；不能关闭者不提供off。",
+        "切换模型恢复各自状态；旧不支持存值显示并可重置，不默默提高用量。",
+        "保存模型默认只影响后续继承者，不改正在运行的turn或其它配置。"
+      ],
+      "done_when": [
+        "UI选择能在M3-03/02实际请求中被观测；无能力模型给清楚提示，不造档位。"
+      ]
+    },
+    {
+      "id": "M3-06",
+      "title": "默认引用API与并发保存保护",
+      "depends_on": [
+        "M3-00"
+      ],
+      "goal": "按C6新增管理员默认引用GET/PATCH，复用catalog原update锁内事务，仅修改真实默认引用和运行时缓存。",
+      "allowed_changes": [
+        "deeptutor/api/routers/settings.py",
+        "deeptutor/services/config/model_catalog.py（锁内update与revision接缝）",
+        "deeptutor/services/model_selection/llm.py（默认摘要）",
+        "deeptutor/services/config/provider_runtime.py（必要默认摘要）",
+        "tests/api/test_default_models.py（可新增）",
+        "tests/services/config/test_default_models.py（可新增）",
+        "tests/api/test_model_visibility.py"
+      ],
+      "evidence": [
+        "合法引用更新仅active字段改变；key/模型参数/未知字段/顺序字节语义保留。",
+        "普通用户403、未知service/跨profile/已删除引用错误、revision冲突409、幂等。",
+        "与普通Save/Apply携带revision的并发请求受同一锁保护，不仅路由先比hash再裸写。",
+        "LLM后续默认调用改变，已启动turn保持snapshot；embedding不触发API/索引重建。"
+      ],
+      "done_when": [
+        "不建第二份默认值存储；没有真实catalog演示写入；既有托管只读边界不变。"
+      ]
+    },
+    {
+      "id": "M3-07",
+      "title": "默认模型页与本地编辑选择分离",
+      "depends_on": [
+        "M3-06"
+      ],
+      "goal": "实现默认模型页和保存动作；所有配置编辑定位改用本地editing_selection，避免误改持久active字段。",
+      "allowed_changes": [
+        "web/app/(utility)/settings/default-models/page.tsx（可新增）",
+        "web/components/settings/DefaultModelsEditor.tsx（可新增）",
+        "web/components/settings/ServiceConfigEditor.tsx",
+        "web/components/settings/SettingsContext.tsx",
+        "web/components/settings/useModelDiscovery.ts（连接定位）",
+        "web/lib/default-models.ts（可新增）",
+        "web/lib/llm-options.ts（失效接缝）",
+        "web/tests/default-models.test.ts（可新增）",
+        "web/tests/model-metadata*.test.ts",
+        "web/locales/{en,zh}/app.json"
+      ],
+      "evidence": [
+        "浏览不同profile/model、测试连接、添加后续模型、查询/预览/重命名不会改已有默认。",
+        "默认页可选项来自saved，未保存新模型提示先保存；取消不改、失败保留、PATCH不提交其它dirty参数。",
+        "首次空服务初始化与删除默认的替代需明确；managed、embedding、诊断归属与late response不串。",
+        "成功后只合并active引用到draft，不丢其它页面未保存编辑，旧Save/Apply仍能保存实际更改。"
+      ],
+      "done_when": [
+        "默认变化是独立可见操作，编辑行为与默认彻底分离；原工作流不回归。"
+      ]
+    },
+    {
+      "id": "M3-08",
+      "title": "导航、中文名称与应用语义",
+      "depends_on": [
+        "M3-07"
+      ],
+      "goal": "默认模型固定为模型设置首项，统一大语言模型中文名称并保留应用按钮的清楚说明。",
+      "allowed_changes": [
+        "web/lib/settings-nav.ts",
+        "web/app/(utility)/settings/models/page.tsx（必要）",
+        "web/components/settings/SettingsMain.tsx",
+        "web/components/settings/SettingsSectionGrid.tsx（必要）",
+        "web/components/settings/ServiceConfigEditor.tsx（标题）",
+        "web/components/settings/shared.tsx（必要显示）",
+        "web/locales/{en,zh}/app.json",
+        "web/tests/settings-nav.test.ts（可新增或扩展）",
+        "web/tests/default-models.test.ts"
+      ],
+      "evidence": [
+        "中文导航/模型hub/面包屑默认项在第一、LLM显示大语言模型（LLM）。",
+        "应用仍在，文案说明保存并生效；真正默认设置明确按钮，普通用户无管理员修改入口。"
+      ],
+      "done_when": [
+        "中英文parity、路由/导航/权限断言通过，不做整站UI重构。"
+      ]
+    },
+    {
+      "id": "M3-09",
+      "title": "全阶段浏览器/协议回归与交付",
+      "depends_on": [
+        "M3-02",
+        "M3-03",
+        "M3-04",
+        "M3-05",
+        "M3-06",
+        "M3-07",
+        "M3-08"
+      ],
+      "goal": "按ACCEPTANCE统一验收三项用户行为以及MD-R2/嵌入修复回归，提交可重建证据。",
+      "allowed_changes": [
+        "tests/api/test_default_models.py",
+        "tests/services/llm/**（相应新回归）",
+        "tests/services/model_selection/**",
+        "web/tests/model-*.test.ts",
+        "web/tests/default-models.test.ts",
+        "web/tests/reasoning*.test.ts",
+        "web/e2e/model-management-r3.spec.ts（可新增）",
+        "web/playwright.model-management-r3.config.ts（可新增wrapper）",
+        "web/playwright.phase1.config.ts（仅隔离MODEL_SERVER fixtures）",
+        ".phase1-evidence/model-management/MM-R3-<new-run>/**",
+        "plans/model-management-r3/EXECUTION.md"
+      ],
+      "evidence": [
+        "浏览器实际两层选择和至少一次主聊天/题目跟进发送，捕获供应商来源、调用ID与wire effort。",
+        "默认页修改/取消/冲突、编辑不改默认、多服务保留和普通用户权限都有证据。",
+        "完整Python/Node、tsc/Ruff/ESLint/i18n、现有MD-R2与新增浏览器交互通过；六树不变。"
+      ],
+      "done_when": [
+        "报告区分mock与live，硬门未过不自签accepted。",
+        "整阶段统一回复，不逐卡停工、不扩展科目/知识库/其它服务。"
+      ]
+    }
+  ]
+}

@@ -2539,7 +2539,26 @@ export function AssistantActivity({
    *  vertically centers against an adjacent avatar). */
   headerClassName?: string;
 }) {
-  const hasTrace = useMemo(() => hasRenderableCallTrace(events), [events]);
+  const { t } = useTranslation();
+  // RAG's seed retrieval emits a turn-level SOURCES envelope without a call
+  // id. TraceFlow groups by call id, so these sources need their own footer.
+  const turnSources = useMemo(() => {
+    const unique = new Map<string, string>();
+    for (const event of events) {
+      const metadata = getTraceMeta(event);
+      if (event.type !== "sources" || metadata.call_id) continue;
+      for (const source of Array.isArray(metadata.sources) ? metadata.sources : []) {
+        if (!source || typeof source !== "object") continue;
+        const title = typeof source.title === "string" ? source.title
+          : typeof source.source === "string" ? source.source : "";
+        if (!title.trim()) continue;
+        const key = `${String(source.kb_ref ?? "")}\0${String(source.source ?? title)}\0${title}`;
+        unique.set(key, title);
+      }
+    }
+    return [...unique].map(([key, title]) => ({key, title}));
+  }, [events]);
+  const hasTrace = useMemo(() => hasRenderableCallTrace(events) || turnSources.length > 0, [events, turnSources]);
   const hasFinalContent = Boolean(content && content.trim().length > 0);
   const finalPhase = useMemo(
     () => isFinalAnswerPhase(events, Boolean(isStreaming), hasFinalContent),
@@ -2582,6 +2601,13 @@ export function AssistantActivity({
                 body comes from this block's outer ``mb-3`` in both states. */}
             <div className="ml-[11px] border-l border-[var(--border)]/45 pl-[13px] pt-2 [&>div]:mb-0">
               <TraceFlow events={events} isStreaming={isStreaming} />
+              {turnSources.length > 0 && (
+                <div className="mt-2 text-xs text-[var(--muted-foreground)]">
+                  {t("Sources")}: {turnSources.map(({key, title}, index) => (
+                    <span key={key}>{index > 0 ? " · " : ""}{title}</span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

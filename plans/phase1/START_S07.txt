@@ -1,0 +1,93 @@
+仅执行第一阶段 S07「科目聊天与知识库作用域」。按 P1-20 → P1-21 → P1-22 → P1-23 → P1-24 → P1-25 串行完成六个编码单元，阶段末一次交付。单元通过后直接继续，不逐卡询问、不拆六次人工会话。不要进入 S08 或第二阶段功能。
+
+工作目录 /home/albert/selflearn/selflearn；复用现有 .venv、web/node_modules，不安装升级、不提交推送、不重启实际服务、不访问真实供应商、不重建真实索引。
+
+一、只读开工核验
+
+1. 读取 .phase1-evidence/stages/S06/review.json，必须 accepted、goal_met:true、next_stage_authorized:true、next_stage:S07；对其 receipt 路径核对完整 SHA256。最新 receipt 应为 .phase1-evidence/reviews/S06-final/review.json，不继续使用旧 S06 changes_requested 或 worker verified_local 作为当前许可。
+2. 核对最新 receipt 的 59 条 source_artifacts、旧 evidence_hashes、dispatch_document_hashes，及本包列出的 S07 当前接缝 SHA256。source_artifacts 是 S01–S06 合并当前值，不要逐个套用旧阶段过期 hash。工作树已有 dirty 和五个 tracked deletion 必须保留；不能 reset/stash/checkout 清空。
+3. 优先读本指令、S07_EXPLORATION.md（已探索的文件清单+关键片段）、C08/C01/C02/C06/C13 与六张卡。无需重读所有源码、审计长文或历史报告。探索包指出的函数可直接开工，只为实际实现打开相邻上下文；发现实质矛盾再定向探索。
+4. 新建 .phase1-evidence/stages/S07/ 的唯一 source/data baseline。capture --include 是最新 59 条 + 本阶段 18 路径并集，共 77 条（未存在的新文件也列入）；任何已有快照、归档、report/receipt 不覆盖。protect-data 必须不透明哈希真实六树，不解析 settings/历史 memory trace。前三强制树之外，独立比对 supplementary 三树 files/dirs/modes；保留既有 auth.lock，不产生新的真实项目锁。
+5. S06-final 已直接修好普通异常元数据回滚、超时/取消目录生命周期、旧 coverage 清空、父目录链接拒绝、统计守恒与深拷贝。不要重构或回退这些代码。保留 S05 ContextVar heartbeat、并发回调注册、600s stall/5s poll、活 worker 门禁、S03 严格 JSON/中文合法标识、S04 固定错误投影等前置保证。
+
+二、本阶段唯一白名单（18 路径）
+
+P20：deeptutor/subjects/kb_scope.py；tests/phase1/test_p1_20.py。
+P21：deeptutor/services/session/turn_runtime.py；deeptutor/runtime/request_contracts.py；deeptutor/api/routers/unified_ws.py；tests/phase1/test_p1_21.py；tests/api/test_unified_ws_turn_runtime.py。
+P22：deeptutor/services/session/turn_runtime.py；tests/phase1/test_p1_22.py。
+P23：deeptutor/tools/rag_tool.py；deeptutor/agents/chat/agentic_pipeline.py；tests/phase1/test_p1_23.py。
+P24：deeptutor/tools/builtin/__init__.py；deeptutor/agents/chat/agentic_pipeline.py；tests/phase1/test_p1_24.py。
+P25：web/app/(workspace)/home/[[...sessionId]]/page.tsx；web/components/chat/home/SubjectSelector.tsx；web/context/UnifiedChatContext.tsx；web/lib/subject-scope.ts；web/tests/phase1-25.test.ts。
+
+只改对应符号与目标。P21 新补授权仅为两个 unified WS 拒绝分支的科目错误投影及其回归，不重写协议/其他错误路径。依赖库、store/manifest/uploads、multi_user、session store、DB、AGENTS/卡/契约/计划文件及现有其他测试均只读。允许在新测试验证既有行为，不能删除有效断言、放宽契约、加 skip/xfail 或靠改 fixture 凑通过。确需额外范围时列最小 blocked_scope，不自行扩展。
+
+三、固定数据契约及实现判据
+
+P1-20：唯一资源解析器（低依赖基础单元）
+目标：A/B/global 同名 KB 被准确、授权地解析到不同服务端目录。
+接口固定：encode_subject_kb_ref(subject_id, kb_name) -> str；resolve_kb_ref(kb_ref, *, expected_subject_id, mounted_refs=None, require_ready=True) -> ResolvedSubjectKb。资源至少含 kb_ref/name/base_dir/subject_id/read_only/provider；base_dir 是服务端内部 Path，不进入模型 schema、公开消息或来源 metadata。
+subject wire 为 subject:kb:<sid>:<name>；不更改磁盘 KB 名。两段不能含冒号或路径穿越/非法控制符；沿用已有 S03 中文及标识规则，不能简单改为 ASCII 或用 lower/strip 改写合法资源身份。URL 各段单独编码。
+显式 subject ref 必须匹配 expected_subject_id，属于当前用户且 subject/KB 确实存在；越科 403(scope_forbidden)、缺库 404(kb_not_found)、非 ready 409(kb_not_ready)。按 ErrorCode 固定映射，负例不回显恶意输入。
+只读路径用 uploads.kb_base_path/kb_paths(create=False) 与 json_store.confined；store.subject_kb_base_dir() 会 mkdir，不能用来解析。subject ready 应与 S05 material_manifest.project_status 的源/索引有效状态一致，不只相信 registry.status=ready；可在新模块组装同一只读投影，不从 API 路由倒灌业务依赖。读解析不创建 KB、manager、锁、配置迁移，不全量 hash 文档。require_ready=False 只跳 readiness，不跳授权/存在/路径检查。
+全局显式 admin:kb:/user:kb: 沿用原 multi_user 授权与审计语义。无科目的既有非挂载全局调用可维持原 resolver；有 mounted_refs 时裸名只在本轮挂载集合唯一匹配才接受，0 匹配拒绝、>1 invalid_input，不猜 subject/global，不用默认别名兜底。显式 wire 也应受本轮挂载集合约束；mounted_refs=None 与 [] 意义不同。
+证据：同名 A/B/global、中文 roundtrip、当前用户隔离、parent/leaf symlink/穿越/类型错误、未登记目录、缺库、stale/error/rebuilding/伪 ready、裸名 0/1/多匹配、无默认 fallback；合法正例先通过，负例仅改变目标条件；解析前后完整临时树无写入。
+完成：test_p1_20 的真实 resolver/临时目录行为断言通过；进入 P21。
+
+P1-21：会话三态及原始轮次快照
+目标：省略沿用本 session，null/空字符串明确清空，合法非空值设置；新 session 默认 null；不能用 a or b。显式顶层/config 同时存在时按 C08 原输入比较，两个不同值拒绝 invalid_input，不以 truthy 吞 null 或用规范化掩盖冲突。非法类型/非法值必须拒绝。
+用现有 update_session_preferences 保存 resolved subject_id，不加 DB 列/改 session store API。校验存在/当前用户授权/两位置冲突，必须在 create_turn、保存用户 message、更新偏好之前完成；新 session 的 ensure_session 本身不算 create_turn，但不能留下伪用户轮次。
+payload、running metadata、request_snapshot 保存 resolved 值（含 null）；_run_turn 使用已校验快照，不再自行 or 解析出另一 scope。retry/regenerate 按原请求 snapshot，不用当前偏好替换；历史 scope 被删时 subject_not_found，必须在删除旧 assistant、更新偏好、创建新 turn 前拒绝。原快照已有明确 null 时不能继承后来选择的科目。旧历史无 scope 按无科目处理，不猜其他科。
+unified_ws.py 的 start_turn/regenerate 拒绝捕获 SubjectOperationError/SubjectStorageError 并按现有 C01 mapper 产生终止拒绝 envelope，metadata.error 包含 code/message/retryable；保留 session_id/空 turn_id/seq/rejected 等协议字段，不把真实错误变 str(exc) 泄漏。普通历史 RuntimeError 兼容分支保留；错误后连接可继续发送，busy 解除。异步 _run_turn 新的 scope 错误也用已有 C01 安全映射；不重写其他 capability 错误架构。
+证据：省略/null/""/值、冲突/类型、跨用户/未知 subject、两会话隔离、清空恢复；拒绝前后 turn/message/assistant/preferences 均无非法写入；原 snapshot A/None 与偏好 B 的 retry/regenerate；原科被删除拒绝。SQLite 及 fake PocketBase store 走同一 runtime；真实 TestClient WS 非法请求后合法请求能继续，结构化错误无输入/路径泄漏。
+完成：test_p1_21、test_regenerate 与现有 unified WS 测试通过；进入 P22。
+
+P1-22：实际挂载及学期摘要
+目标：UnifiedContext.knowledge_bases 是「本轮显式合法全局 refs + 当前科目全部 ready subject refs」，稳定去重；scope 只说明挂载，不修改用户源或重建索引。不能因为空科目/空挂载自动补一个默认全局库。显式全局无权/不存在应拒绝，不悄悄丢掉后 fallback。
+使用 P20 同一解析/ready 标准；当前科某库非 ready 则不挂成功列表，同时以有界 warning 含 kb_ref/status 告知用户，并放 running metadata/上下文使后续可核验；只 log 不算告知。所有 ready 库都挂入，不只第一个。普通状态缺失不当 ready，storage_corrupt/io 按固定安全错误表达，不能当作空科继续声称完整。
+从 store.get_subject 拿当前 term，term 非空时显式 exam_points.term_summary(subject_id, term=term)；term 为空不调用默认“全学期+本学期标题”摘要，省略该块并说明未设置学期。不修改 exam_points.py。知识点/错题/profile 注入仍属当前科，不串科。subject context_tokens 保持真实。
+证据：A/B/global 同名临时库、多个 ready+stale/error/unknown、registry 假 ready、选择/清空/切换/无默认库、term 为空及两学期只含当前期标记。断言真实 UnifiedContext 与已发警告，不能只测 list helper。
+完成：test_p1_22 及真实 runtime 上下文链通过；进入 P23。
+
+P1-23：RAG 执行端强制作用域
+目标：从模型工具调用到真实 rag_search/RAGService.search，服务只收到 canonical name、服务端 base_dir、正确 provider。
+agentic_pipeline._execute_tool_call 对 rag/kb_files 的所有 scope 参数无条件从 context 覆盖：移除模型 kb_base_dir、_subject_id、expected_subject_id、mounted/internal refs/provider 等可影响解析的伪造值，再写入可信 scope；空科目也显式覆盖，不能 setdefault。模型 schema 仅暴露 query/kb_name（wire enum），additionalProperties=false；安全门仍在执行端，不以模型遵守 schema 为前提。
+rag_search 使用同一 P20 resolver。保留可信 Python 调用的兼容入口，但模型不可用显式 base_dir 绕过；测试必须穿过真实 pipeline→builtin→rag_search 接缝，不能只单测 resolver。已解析资源重命名为 service 所需 name，不能把 subject wire 当磁盘库名。不在检索失败后重试到全局同名库。保留无科目全局原有授权。
+来源携带 kb_ref、subject_id，保留 kb_name、file/source/page/chunk 等真实 parser provenance；从服务端覆盖 scope 字段，不能被 result.sources 中的伪造 kb_ref/subject_id 再覆盖。公开结果不带 base_dir、宿主缓存绝对路径、provider 密钥；有值必须安全投影，不能以“已有字段”为由把新内部字段散出。
+证据：三个同名标记查到各自目录，模型伪造 base/scope/provider 被拒/覆盖，未挂载/越科/未ready/查询失败均不回落全局；确切调用 service 参数、返回引用完整且互不混淆。无需真实 LLM/embedding，fake 安在 provider/service 边界，执行链保持真实。
+完成：test_p1_23 与既有 test_rag_tool 通过；进入 P24。
+
+P1-24：清单、工具枚举和来源一致
+目标：rag、kb_files、prompt manifest 都使用同一资源与挂载身份；显示友好名称同时保留 wire id。RAGTool._rag_sources、KbFilesTool、_collect/_prepare_kb_manifests 和工具枚举是本卡修改点，不重写所有 builtin。
+kb_files 仅列当前已授权 ready 库，不能因名字相同列出别科/global 文件；server source_index 的附件 ID 与 kb_ref 分开，read_source 只读既有附件索引，不增 arbitrary path 参数或新全文 KB 阅读工具。旧全局清单行为与已有 read_source 安全门保持。
+现有 PageIndex 已有 REST outline，但 _rag_kbs 排除它且 prompt 虚称 MCP：在现有 agentic_pipeline 允许符号内接回既有 rag outline 路径并如实说明 retrieval_kind=outline 的限制，不引入 MCP transport/外部服务。文件清单避免重复描述 PageIndex 的既有断言仍保留；可分开“可检索集合”和“通用 manifest 集合”。PageIndex doc map 也须走同一 scope，不回旧 global resolver。后续 S14 的全面裁剪与宣传不提前执行。
+证据：同名库文件清单只含当前科，schema enum=实际可调用 wire refs、prompt标签/引用同一身份；sources 无伪造 scope；已知附件可读、未知 ID/路径伪装不可读；PageIndex-only turn 有可调用既有 outline 且无虚构 MCP。保留 test_kb_files_tool 与 test_kb_manifest_note。
+完成：test_p1_24 与旧工具/manifest 回归通过；进入 P25。
+
+P1-25：前端恢复、清空和能力参数合并
+目标：SubjectSelector 可选“无科目”；每个 session 从 preferences 恢复 subject；hydration 完成前禁止 handleSend 及交互发送；切换会话先清掉旧 scope，过期异步响应不得覆盖新会话；新 session 无科目。
+状态放进现有 UnifiedChatContext 的 session/reducer/load 流程，必要的字段/动作只在本文件内增加，不另加 DB/API。web/lib/subject-scope.ts 提供纯 helper（命名自定，类型与三态语义按 C08）；UI 必须实际调用 helper，不能只写一份不被使用的测试实现。
+先构造 Quiz/Visualize/Research 的能力 config，最后合并 subject_id，保留能力字段；清空发明确 null（顶层和兼容 config 一致），保留属性存在性，不能 truthy 判断。retry/edit/replay 从原 MessageRequestSnapshot 恢复含 null 的 scope，不能选中了 B 就改写 A 轮次。被删科目须可见错误，并允许用户显式清空恢复，不静默换别科或自动重发旧问题。
+证据：纯函数实际运行的恢复/清空/两会话切换/过期加载/初始加载 gate/能力 config 合并/replay 含 null 场景；新测试由现有 run-node-tests.mjs 编译实际运行；tsc 全通过。仅做源码正则或只断言按钮文案不算行为完成。现有组件范围不能支撑的浏览器联调如实记限制，S15 才做真实浏览器总验收，不能把本阶段 node/tsc 说成浏览器通过。
+完成：node tests+tsc 通过，本阶段六单元进入统一收尾。
+
+四、统一测试、范围、数据与证据
+
+每个单元定向验证一次，有实际变动/失败才追加；跨目录一律在收集前隔离 HOME。复用只读 launcher：
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q tests/phase1/test_p1_20.py
+其余 P21–24 用对应路径；P21 加 tests/services/session/test_regenerate.py tests/api/test_unified_ws_turn_runtime.py；P23/P24 加相应原工具/manifest 用例。
+
+阶段末合并一次：
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q tests/phase1/test_p1_20.py tests/phase1/test_p1_21.py tests/phase1/test_p1_22.py tests/phase1/test_p1_23.py tests/phase1/test_p1_24.py tests/services/session/test_regenerate.py tests/api/test_unified_ws_turn_runtime.py tests/tools/test_rag_tool.py tests/tools/test_kb_files_tool.py tests/agents/chat/test_kb_manifest_note.py
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q tests/phase1 tests/services tests/api tests/tools tests/agents/chat tests/utils/test_document_extractor.py
+./.venv/bin/ruff check deeptutor/subjects/kb_scope.py deeptutor/services/session/turn_runtime.py deeptutor/runtime/request_contracts.py deeptutor/api/routers/unified_ws.py deeptutor/tools/rag_tool.py deeptutor/agents/chat/agentic_pipeline.py deeptutor/tools/builtin/__init__.py tests/phase1/test_p1_20.py tests/phase1/test_p1_21.py tests/phase1/test_p1_22.py tests/phase1/test_p1_23.py tests/phase1/test_p1_24.py tests/api/test_unified_ws_turn_runtime.py
+cd web && node ./scripts/run-node-tests.mjs
+cd web && ./node_modules/.bin/tsc --noEmit -p .
+(cd web 每条独立 cwd，不连续沿用。不要自动安装缺失依赖；当前 node 与 tsc 已存在。)
+
+高风险至少三组独立坏对照，仅在新 tmp 源码副本：①恢复 global-only resolver/丢弃服务器 scope→同名真实执行断言失败；②恢复 or 三态/当前 preference 重放→null清空与原轮次快照断言失败；③只信 registry.ready→源/索引 stale 挂载断言失败。每组先在同一副本证明合法正例通过；记录 deeptutor.__file__ 确实在副本，防 editable install 指回原树。非0必须是目标断言失败，不是导入/配置/路径错误，不能外层 exit0 隐藏内层异常。前端 null/config 合并也至少保存明确反例。不要为了复测复制真实配置/数据或修改原树。
+
+结束 source compare 仅允许 18 路径、59 条前置 receipt 产物只读（S07 与它们无生产重叠）；真实六树起止完整零变化，五个 inherited 删除保留。最终 capture include77，archive 与其一一对应，并是 S06-final 1857 成员的严格超集（新增合法源码/测试可增加，不得缩小归档；.next-deeptutor 如 baseline 存在则保留）。在唯一新 tmp 子目录 verify-rebuild，不能复用旧目录或覆盖旧 tar/sidecar。
+
+StageReport 按 plans/phase1/schemas.json：六卡各列目标/测试名/完成证据/结果，全部真实 argv/cwd/时间/退出码/日志起止行，source/evidence哈希、完整scope compare、六树数据、归档与重建、坏对照、失败自修和残余限制。共用一个 execution.log，串行写；每个失败尝试保留。先结束所有可变证据写入，再计算 artifacts 哈希、最后生成 report；不要重演 S06 报告冻结哈希后又覆写 readonly_check。report 本身不进入自身 artifacts，避免自引用。允许一份短汇总，不每卡长报告，不改 coordinator receipt。
+
+一般失败在授权范围内自修直至通过。未通过的必需场景不能当限制绕过；越范围/契约/环境缺失给最小 blocked_* 与复现证据。全部完成仅标 verified_local，阶段末停止，等待协调者独立验收；不得自签 accepted，不进入 S08。

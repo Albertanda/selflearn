@@ -1,0 +1,447 @@
+{
+  "schema_version": 1,
+  "note": "Small, explicit documentation supplement. Values are only used for the exact model/alias, region and mode listed; an empty value stays unknown. Checked 2026-10-23/24 (Asia/Shanghai).",
+  "entries": [
+    {
+      "provider": "deepseek",
+      "models": [
+        "deepseek-flash"
+      ],
+      "regions": [
+        "any"
+      ],
+      "modes": [
+        "any"
+      ],
+      "source_url": "https://api-docs.deepseek.com/api/list-models/",
+      "checked_at": "2026-10-23T00:00:00Z",
+      "parameters": {
+        "context_window": 1048576,
+        "max_output_tokens": 393216,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "output_modalities": [
+          "text"
+        ]
+      },
+      "json_paths": {
+        "context_window": "data[].context_window",
+        "max_output_tokens": "data[].max_output_tokens",
+        "input_modalities": "data[].input_modalities",
+        "output_modalities": "data[].output_modalities"
+      }
+    },
+    {
+      "provider": "deepseek",
+      "models": [
+        "deepseek-v4-pro"
+      ],
+      "regions": [
+        "any"
+      ],
+      "modes": [
+        "any"
+      ],
+      "source_url": "https://api-docs.deepseek.com/api/list-models/",
+      "checked_at": "2026-10-23T00:00:00Z",
+      "parameters": {
+        "context_window": 1048576,
+        "max_output_tokens": 393216,
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "text"
+        ]
+      },
+      "json_paths": {
+        "context_window": "data[].context_window",
+        "max_output_tokens": "data[].max_output_tokens",
+        "input_modalities": "data[].input_modalities",
+        "output_modalities": "data[].output_modalities"
+      }
+    },
+    {
+      "provider": "dashscope",
+      "models": [
+        "qwen-plus"
+      ],
+      "regions": [
+        "any"
+      ],
+      "modes": [
+        "any"
+      ],
+      "source_url": "https://help.aliyun.com/zh/model-studio/qwen-plus",
+      "checked_at": "2026-10-24T00:00:00Z",
+      "parameters": {
+        "context_window": 1000000,
+        "max_input_tokens": 995904,
+        "max_output_tokens": 32768,
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "text"
+        ]
+      },
+      "json_paths": {
+        "context_window": "上下文限制/上下文长度",
+        "max_input_tokens": "上下文限制/最大输入长度（思考模式下）",
+        "max_output_tokens": "上下文限制/最大输出长度",
+        "input_modalities": "模型能力/输入模态",
+        "output_modalities": "模型能力/输出模态"
+      }
+    },
+    {
+      "provider": "dashscope",
+      "models": [
+        "text-embedding-v3"
+      ],
+      "regions": [
+        "any"
+      ],
+      "modes": [
+        "any"
+      ],
+      "source_url": "https://help.aliyun.com/zh/model-studio/embedding-interfaces-compatible-with-openai",
+      "checked_at": "2026-10-24T00:00:00Z",
+      "parameters": {
+        "default_dimensions": 1024,
+        "supported_dimensions": [
+          1024,
+          768,
+          512,
+          256,
+          128,
+          64
+        ],
+        "supports_dimensions_parameter": true
+      },
+      "json_paths": {
+        "default_dimensions": "支持的模型/text-embedding-v3/向量维度（默认）",
+        "supported_dimensions": "支持的模型/text-embedding-v3/向量维度",
+        "supports_dimensions_parameter": "模型调用/调用示例/dimensions（仅 v3/v4 支持）"
+      }
+    },
+    {
+      "provider": "dashscope",
+      "models": [
+        "text-embedding-v4"
+      ],
+      "regions": [
+        "any"
+      ],
+      "modes": [
+        "any"
+      ],
+      "source_url": "https://help.aliyun.com/zh/model-studio/embedding-interfaces-compatible-with-openai",
+      "checked_at": "2026-10-24T00:00:00Z",
+      "parameters": {
+        "default_dimensions": 1024,
+        "supported_dimensions": [
+          2048,
+          1536,
+          1024,
+          768,
+          512,
+          256,
+          128,
+          64
+        ],
+        "supports_dimensions_parameter": true
+      },
+      "json_paths": {
+        "default_dimensions": "支持的模型/text-embedding-v4/向量维度（默认）",
+        "supported_dimensions": "支持的模型/text-embedding-v4/向量维度",
+        "supports_dimensions_parameter": "模型调用/调用示例/dimensions（仅 v3/v4 支持）"
+      }
+    },
+    {
+      "provider": "dashscope",
+      "models": [
+        "text-embedding-v2",
+        "text-embedding-v1"
+      ],
+      "regions": [
+        "any"
+      ],
+      "modes": [
+        "any"
+      ],
+      "source_url": "https://help.aliyun.com/zh/model-studio/embedding-interfaces-compatible-with-openai",
+      "checked_at": "2026-10-24T00:00:00Z",
+      "parameters": {
+        "default_dimensions": 1536,
+        "supports_dimensions_parameter": false
+      },
+      "json_paths": {
+        "default_dimensions": "支持的模型/text-embedding-v1|v2/向量维度",
+        "supports_dimensions_parameter": "模型调用/调用示例/dimensions（仅 v3/v4 支持）"
+      }
+    },
+    {
+      "provider": "dashscope",
+      "models": [
+        "qwen3.7-text-embedding"
+      ],
+      "regions": [
+        "any"
+      ],
+      "modes": [
+        "any"
+      ],
+      "source_url": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api",
+      "checked_at": "2026-10-24T00:00:00Z",
+      "parameters": {
+        "default_dimensions": 1024,
+        "supported_dimensions": [
+          2560,
+          2048,
+          1536,
+          1024,
+          768,
+          512,
+          256
+        ],
+        "supports_dimensions_parameter": true
+      },
+      "json_paths": {
+        "default_dimensions": "模型概览/qwen3.7-text-embedding/向量维度（默认）",
+        "supported_dimensions": "模型概览/qwen3.7-text-embedding/向量维度",
+        "supports_dimensions_parameter": "请求参数/dimension/支持的模型"
+      }
+    },
+    {
+      "provider": "dashscope",
+      "models": [
+        "qwen3.7-text-embedding-flash"
+      ],
+      "regions": [
+        "any"
+      ],
+      "modes": [
+        "any"
+      ],
+      "source_url": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api",
+      "checked_at": "2026-10-24T00:00:00Z",
+      "parameters": {
+        "default_dimensions": 1024,
+        "supported_dimensions": [
+          1024,
+          768,
+          512,
+          256
+        ],
+        "supports_dimensions_parameter": true
+      },
+      "json_paths": {
+        "default_dimensions": "模型概览/qwen3.7-text-embedding-flash/向量维度（默认）",
+        "supported_dimensions": "模型概览/qwen3.7-text-embedding-flash/向量维度",
+        "supports_dimensions_parameter": "请求参数/dimension/支持的模型"
+      }
+    },
+    {
+      "provider": "dashscope",
+      "models": [
+        "qwen3-vl-embedding"
+      ],
+      "regions": [
+        "any"
+      ],
+      "modes": [
+        "any"
+      ],
+      "source_url": "https://help.aliyun.com/zh/model-studio/multimodal-embedding-api-reference",
+      "checked_at": "2026-10-24T00:00:00Z",
+      "parameters": {
+        "default_dimensions": 2560,
+        "supported_dimensions": [
+          2560,
+          2048,
+          1536,
+          1024,
+          768,
+          512,
+          256
+        ],
+        "supports_dimensions_parameter": true
+      },
+      "json_paths": {
+        "default_dimensions": "模型概览/qwen3-vl-embedding/向量维度（默认）",
+        "supported_dimensions": "模型概览/qwen3-vl-embedding/向量维度",
+        "supports_dimensions_parameter": "请求参数/dimension/支持的模型"
+      }
+    },
+    {
+      "provider": "dashscope",
+      "models": [
+        "qwen2.5-vl-embedding"
+      ],
+      "regions": [
+        "any"
+      ],
+      "modes": [
+        "any"
+      ],
+      "source_url": "https://help.aliyun.com/zh/model-studio/multimodal-embedding-api-reference",
+      "checked_at": "2026-10-24T00:00:00Z",
+      "parameters": {
+        "default_dimensions": 1024,
+        "supported_dimensions": [
+          2048,
+          1024,
+          768,
+          512
+        ],
+        "supports_dimensions_parameter": true
+      },
+      "json_paths": {
+        "default_dimensions": "模型概览/qwen2.5-vl-embedding/向量维度（默认）",
+        "supported_dimensions": "模型概览/qwen2.5-vl-embedding/向量维度",
+        "supports_dimensions_parameter": "请求参数/dimension/支持的模型"
+      }
+    },
+    {
+      "provider": "dashscope",
+      "models": [
+        "tongyi-embedding-vision-plus-2026-03-06"
+      ],
+      "regions": [
+        "any"
+      ],
+      "modes": [
+        "any"
+      ],
+      "source_url": "https://help.aliyun.com/zh/model-studio/multimodal-embedding-api-reference",
+      "checked_at": "2026-10-24T00:00:00Z",
+      "parameters": {
+        "default_dimensions": 1152,
+        "supported_dimensions": [
+          1152,
+          1024,
+          512,
+          256,
+          128,
+          64
+        ],
+        "supports_dimensions_parameter": true
+      },
+      "json_paths": {
+        "default_dimensions": "模型概览/tongyi-embedding-vision-plus-2026-03-06/向量维度（默认）",
+        "supported_dimensions": "模型概览/tongyi-embedding-vision-plus-2026-03-06/向量维度",
+        "supports_dimensions_parameter": "请求参数/dimension/支持的模型"
+      }
+    },
+    {
+      "provider": "dashscope",
+      "models": [
+        "tongyi-embedding-vision-flash-2026-03-06"
+      ],
+      "regions": [
+        "any"
+      ],
+      "modes": [
+        "any"
+      ],
+      "source_url": "https://help.aliyun.com/zh/model-studio/multimodal-embedding-api-reference",
+      "checked_at": "2026-10-24T00:00:00Z",
+      "parameters": {
+        "default_dimensions": 768,
+        "supported_dimensions": [
+          768,
+          512,
+          256,
+          128,
+          64
+        ],
+        "supports_dimensions_parameter": true
+      },
+      "json_paths": {
+        "default_dimensions": "模型概览/tongyi-embedding-vision-flash-2026-03-06/向量维度（默认）",
+        "supported_dimensions": "模型概览/tongyi-embedding-vision-flash-2026-03-06/向量维度",
+        "supports_dimensions_parameter": "请求参数/dimension/支持的模型"
+      }
+    },
+    {
+      "provider": "dashscope",
+      "models": [
+        "tongyi-embedding-vision-plus"
+      ],
+      "regions": [
+        "any"
+      ],
+      "modes": [
+        "any"
+      ],
+      "source_url": "https://help.aliyun.com/zh/model-studio/multimodal-embedding-api-reference",
+      "checked_at": "2026-10-24T00:00:00Z",
+      "parameters": {
+        "default_dimensions": 1152,
+        "supported_dimensions": [
+          1152
+        ],
+        "supports_dimensions_parameter": false
+      },
+      "json_paths": {
+        "default_dimensions": "模型概览/tongyi-embedding-vision-plus/向量维度（默认）",
+        "supported_dimensions": "模型概览/tongyi-embedding-vision-plus/向量维度",
+        "supports_dimensions_parameter": "请求参数/dimension/支持的模型"
+      }
+    },
+    {
+      "provider": "dashscope",
+      "models": [
+        "tongyi-embedding-vision-flash"
+      ],
+      "regions": [
+        "any"
+      ],
+      "modes": [
+        "any"
+      ],
+      "source_url": "https://help.aliyun.com/zh/model-studio/multimodal-embedding-api-reference",
+      "checked_at": "2026-10-24T00:00:00Z",
+      "parameters": {
+        "default_dimensions": 768,
+        "supported_dimensions": [
+          768
+        ],
+        "supports_dimensions_parameter": false
+      },
+      "json_paths": {
+        "default_dimensions": "模型概览/tongyi-embedding-vision-flash/向量维度（默认）",
+        "supported_dimensions": "模型概览/tongyi-embedding-vision-flash/向量维度",
+        "supports_dimensions_parameter": "请求参数/dimension/支持的模型"
+      }
+    },
+    {
+      "provider": "dashscope",
+      "models": [
+        "multimodal-embedding-v1"
+      ],
+      "regions": [
+        "any"
+      ],
+      "modes": [
+        "any"
+      ],
+      "source_url": "https://help.aliyun.com/zh/model-studio/multimodal-embedding-api-reference",
+      "checked_at": "2026-10-24T00:00:00Z",
+      "parameters": {
+        "default_dimensions": 1024,
+        "supported_dimensions": [
+          1024
+        ],
+        "supports_dimensions_parameter": false
+      },
+      "json_paths": {
+        "default_dimensions": "模型概览/multimodal-embedding-v1/向量维度（默认）",
+        "supported_dimensions": "模型概览/multimodal-embedding-v1/向量维度",
+        "supports_dimensions_parameter": "请求参数/dimension/支持的模型"
+      }
+    }
+  ]
+}

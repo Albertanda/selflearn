@@ -1,0 +1,343 @@
+{
+  "date": "2026-10-24",
+  "root": "/home/albert/selflearn/selflearn",
+  "files": [
+    {
+      "path": "web/components/chat/home/ModelSelector.tsx",
+      "sha256": "521258aa74be93783777f25074ed10fbf768c3ddacf90246c1c837f3ee3a5771",
+      "anchor": "export default",
+      "start_line": 119,
+      "end_line": 133,
+      "note": "目前flat options；第一层按profile_id，不能用model厂牌前缀分组。"
+    },
+    {
+      "path": "web/components/chat/home/ModelSelector.tsx",
+      "sha256": "521258aa74be93783777f25074ed10fbf768c3ddacf90246c1c837f3ee3a5771",
+      "anchor": "const selectedLabel",
+      "start_line": 207,
+      "end_line": 221,
+      "note": "当前显示别名已修；新按钮必须同时有服务来源。"
+    },
+    {
+      "path": "web/lib/llm-options.ts",
+      "sha256": "81ee1577d1dcc1b90c1e779b0440fbe6dcc104fe7e939dc72a660e755d0eff3e",
+      "anchor": "export interface LLMOption",
+      "start_line": 7,
+      "end_line": 21,
+      "note": "安全options缺思考能力；新增字段不能越过授权。"
+    },
+    {
+      "path": "web/hooks/useLLMOptions.ts",
+      "sha256": "dbebf2f954e9ae99d59905447d87d0623a355a5c3e5ed9978f3acf2a26ba3a23",
+      "anchor": "export function useLLMOptions",
+      "start_line": 17,
+      "end_line": 31,
+      "note": "single-flight和迟到响应防护应保留。"
+    },
+    {
+      "path": "web/lib/reasoning-effort.ts",
+      "sha256": "d40ebf1f5243b674aee499c47dbbd12d1d211eac566c892fd628fe1864073222",
+      "anchor": "const BINARY_THINKING_PROVIDERS",
+      "start_line": 35,
+      "end_line": 49,
+      "note": "现有静态表是binary且漏Flash；应改消费后端统一能力。"
+    },
+    {
+      "path": "web/lib/reasoning-effort.ts",
+      "sha256": "d40ebf1f5243b674aee499c47dbbd12d1d211eac566c892fd628fe1864073222",
+      "anchor": "return options([\"minimal\", \"high\"]",
+      "start_line": 142,
+      "end_line": 156,
+      "note": "确认的旧二档入口，不止改下拉文案。"
+    },
+    {
+      "path": "deeptutor/services/llm/reasoning_params.py",
+      "sha256": "2d50bdb359a34906320c903aec576c3e0e5e0abe95dd3c8b3a9c1988c2f36846",
+      "anchor": "semantic_effort != \"minimal\"",
+      "start_line": 139,
+      "end_line": 153,
+      "note": "现有minimal误当关闭；映射和开关分开。"
+    },
+    {
+      "path": "deeptutor/services/provider_registry.py",
+      "sha256": "403d54a602c4cbff47e5caec34e0e7d2b216183a1517ba178eb8590d84964d7a",
+      "anchor": "name=\"deepseek\"",
+      "start_line": 320,
+      "end_line": 334,
+      "note": "reasoning pattern也漏deepseek-flash；不要新增另一套歧义判定。"
+    },
+    {
+      "path": "deeptutor/services/model_discovery/metadata.py",
+      "sha256": "ccdc4f6997efaae7ae6d9b089b28317fc432a27da658e76ddfa6082069f2c190",
+      "anchor": "def deepseek_parameters",
+      "start_line": 314,
+      "end_line": 328,
+      "note": "候选目前只解析限制/模态，未取effort对象。"
+    },
+    {
+      "path": "deeptutor/services/model_discovery/types.py",
+      "sha256": "a96919d82afff7fce7d6a39910bf39c0da5fb35a8f8a102b6a69357e2b4e43f9",
+      "anchor": "class DiscoveredModel",
+      "start_line": 367,
+      "end_line": 381,
+      "note": "增加能力摘要需要to_dict/cache/parser同改。"
+    },
+    {
+      "path": "deeptutor/services/model_discovery/cache.py",
+      "sha256": "392f91a76564c515af4fc65f07f93e2132423eecdcdc43fd781be6cd60ff6f40",
+      "anchor": "CACHE_SCHEMA_VERSION",
+      "start_line": 33,
+      "end_line": 47,
+      "note": "协调者已升3以刷新嵌入资料；新字段需考虑cache升级。"
+    },
+    {
+      "path": "deeptutor/services/model_selection/llm.py",
+      "sha256": "f60ff82ec24da6a9240d1774c91c0b0f3148f5d15e8855d19b40e538752bd26d",
+      "anchor": "\"model_name\":",
+      "start_line": 90,
+      "end_line": 104,
+      "note": "后端显示名称已经正确；添加reasoning_controls必须脱敏。"
+    },
+    {
+      "path": "deeptutor/multi_user/model_access.py",
+      "sha256": "88d13a223317c4703d397b952cede28119dbc9f3b3bf6c5150472e205f594575",
+      "anchor": "def allowed_llm_options",
+      "start_line": 119,
+      "end_line": 133,
+      "note": "普通用户授权路径独立，不能只修admin。"
+    },
+    {
+      "path": "deeptutor/services/llm/provider_core/anthropic_provider.py",
+      "sha256": "e8b966cb167e1e7da63505e374044174787282830fdf7960726f3b0026461d94",
+      "anchor": "effort_based =",
+      "start_line": 388,
+      "end_line": 402,
+      "note": "新旧thinking模式已区分但强度未完整透传；修改限reasoning接缝。"
+    },
+    {
+      "path": "deeptutor/services/llm/provider_core/openai_compat_provider.py",
+      "sha256": "f621b2459a5833e3b7592a62bdc8b2a6a8028e9ef5cf8100dca4624d97c806df",
+      "anchor": "class ",
+      "start_line": 105,
+      "end_line": 119,
+      "note": "按现有wire扩参数，不引入新的全局HTTP客户端。"
+    },
+    {
+      "path": "deeptutor/services/llm/provider_core/openai_codex_provider.py",
+      "sha256": "18627b7a40238f78f159bc7ad649a3cb26f07767a6abd33f95771217e4e1e74e",
+      "anchor": "if reasoning_effort:",
+      "start_line": 66,
+      "end_line": 80,
+      "note": "专用Responses字段和validate边界保留。"
+    },
+    {
+      "path": "deeptutor/services/llm/config.py",
+      "sha256": "e21bb72530c32f5e0ecf7cac2bbe77fc686652b735cb0d14d2cd59eab185b644",
+      "anchor": "class LLMConfig:",
+      "start_line": 94,
+      "end_line": 108,
+      "note": "单turn配置需保留MD-R2输出/输入容量，不修改全局catalog。"
+    },
+    {
+      "path": "deeptutor/services/model_selection/runtime.py",
+      "sha256": "6e136431769a53633270ae106e04b7d42e44d17b68c5c2819a3923869ec3314c",
+      "anchor": "def activate_llm_selection",
+      "start_line": 35,
+      "end_line": 49,
+      "note": "授权模型解析后设置scoped配置的明确接缝。"
+    },
+    {
+      "path": "deeptutor/services/session/turn_runtime.py",
+      "sha256": "bb39d968989c0f3b791503173523de75f0d066309d1ee4fc78a31cb8e053c27c",
+      "anchor": "llm_config, llm_scope_token =",
+      "start_line": 1857,
+      "end_line": 1871,
+      "note": "增加每轮覆盖应在解析所选模型后，finally仍reset。"
+    },
+    {
+      "path": "deeptutor/services/session/turn_runtime.py",
+      "sha256": "bb39d968989c0f3b791503173523de75f0d066309d1ee4fc78a31cb8e053c27c",
+      "anchor": "snapshot[\"llmSelection\"]",
+      "start_line": 501,
+      "end_line": 515,
+      "note": "请求快照/regen要补强度，而非只UI记住。"
+    },
+    {
+      "path": "deeptutor/runtime/request_contracts.py",
+      "sha256": "ea011e49f57b6b1fb157cbb2821d6bf04c605f5d755a6a7580142a5eff37986a",
+      "anchor": "class ChatRequestConfig",
+      "start_line": 33,
+      "end_line": 47,
+      "note": "extra=forbid：不能随便塞一个config字段指望后端使用。"
+    },
+    {
+      "path": "web/lib/unified-ws.ts",
+      "sha256": "c698bfd5bfceca8ab600c613b61f801fcc5c5b8dfb824a6a1e03533aad9dbacd",
+      "anchor": "llm_selection?:",
+      "start_line": 79,
+      "end_line": 93,
+      "note": "扩正式TS request contract和regen payload。"
+    },
+    {
+      "path": "web/context/UnifiedChatContext.tsx",
+      "sha256": "cefdc1d5b56e46f36456b2ec5ee0fc585149fce0d4685a059d176c29dc61d81d",
+      "anchor": "export interface SendMessageOptions",
+      "start_line": 88,
+      "end_line": 102,
+      "note": "会话选择、发送和快照的共同接缝。"
+    },
+    {
+      "path": "web/components/chat/home/ChatComposer.tsx",
+      "sha256": "86751e5ff759fb0fb629dfb987ad87f15e54c26191a072bd891b4d60e9e321ea",
+      "anchor": "<ModelSelector",
+      "start_line": 1082,
+      "end_line": 1096,
+      "note": "共享picker及新强度组件插入附近，不重构整composer。"
+    },
+    {
+      "path": "web/components/quiz/FollowupChatComposer.tsx",
+      "sha256": "b75a8ed093a3b9f06b642714ab6cb07b7e8b67e34a93518deb3a317ccef4a7f5",
+      "anchor": "\"use client\";",
+      "start_line": 1,
+      "end_line": 13,
+      "note": "题目跟进必须实际发送一轮验收。"
+    },
+    {
+      "path": "web/components/quiz/QuizFollowupTabBody.tsx",
+      "sha256": "48e670d8efac393fb1b6da0b14906c3372dee80391a381e6f44cd9be727788df",
+      "anchor": "FollowupChatComposer",
+      "start_line": 7,
+      "end_line": 21,
+      "note": "跟进composer外层的状态/发送透传；避免只渲染控件。"
+    },
+    {
+      "path": "web/components/settings/SettingsContext.tsx",
+      "sha256": "63dd057a7053652356aabbf0a8b1c5b4c5ab320b45d0eb210bf3a107988291b1",
+      "anchor": "const addProfile",
+      "start_line": 808,
+      "end_line": 822,
+      "note": "当前添加/浏览与active引用耦合，需local editing_selection。"
+    },
+    {
+      "path": "web/components/settings/SettingsContext.tsx",
+      "sha256": "63dd057a7053652356aabbf0a8b1c5b4c5ab320b45d0eb210bf3a107988291b1",
+      "anchor": "const applyCatalog",
+      "start_line": 1125,
+      "end_line": 1139,
+      "note": "应用保留；Save/Apply需要正确revision与默认引用语义。"
+    },
+    {
+      "path": "web/components/settings/ServiceConfigEditor.tsx",
+      "sha256": "3541d9f183bff08ec91ba33f5a0b80cd44cbeeef29e901c13125e5e8d4c074dc",
+      "anchor": "next.services[service].active_profile_id = profile.id",
+      "start_line": 416,
+      "end_line": 430,
+      "note": "证实浏览tab会改draft默认；所有诊断/重命名/预览定位要随之改。"
+    },
+    {
+      "path": "web/components/settings/ServiceConfigEditor.tsx",
+      "sha256": "3541d9f183bff08ec91ba33f5a0b80cd44cbeeef29e901c13125e5e8d4c074dc",
+      "anchor": "reasoningEffortOptions(",
+      "start_line": 239,
+      "end_line": 253,
+      "note": "设置页与聊天不能维持两套不同档位表。"
+    },
+    {
+      "path": "web/lib/settings-nav.ts",
+      "sha256": "f7db76cf1ea716472ce38d34f14a030bc3fb270fbe82af0d2a21d9848ee930fd",
+      "anchor": "const MODEL_CHILDREN",
+      "start_line": 78,
+      "end_line": 92,
+      "note": "新默认页置第一；中文LLM目前原样显示。"
+    },
+    {
+      "path": "web/components/settings/SettingsMain.tsx",
+      "sha256": "1a1a7f4f39da673e84ad8f35413dfa15da778afd5dd676b02dbb577dd6e3a001",
+      "anchor": "Apply",
+      "start_line": 11,
+      "end_line": 25,
+      "note": "导航和工具栏说明的接缝；不要移除应用。"
+    },
+    {
+      "path": "web/components/settings/SettingsSectionGrid.tsx",
+      "sha256": "a46876aeeb4caaa86cec6e4994d0ee1f5e8646e15b1f90cace67962611320de7",
+      "anchor": "export default",
+      "start_line": 23,
+      "end_line": 37,
+      "note": "模型hub排序应来自统一nav，不能独立排序把默认项移后。"
+    },
+    {
+      "path": "deeptutor/api/routers/settings.py",
+      "sha256": "e78534ff101dfeb815d76f6327e9ea18b87d1bfb5cd24eeccb9843331098e88c",
+      "anchor": "async def update_catalog",
+      "start_line": 1450,
+      "end_line": 1464,
+      "note": "现有Save恢复secret、校验、invalidate边界保留。"
+    },
+    {
+      "path": "deeptutor/services/config/model_catalog.py",
+      "sha256": "abd66bea1bcc54213299e63f2216b136a97e9365996802e93a65df0b24bc0fea",
+      "anchor": "def update(",
+      "start_line": 204,
+      "end_line": 218,
+      "note": "已有锁内mutator：用于默认patch的revision比较和局部更新。"
+    },
+    {
+      "path": "deeptutor/services/config/provider_runtime.py",
+      "sha256": "2be78f791e09d32eb2f2f30686fb9116cd887a6f20fbb668735d8e3a63279c00",
+      "anchor": "reasoning_effort =",
+      "start_line": 748,
+      "end_line": 762,
+      "note": "选中模型default配置解析，chat override不能写这里全局对象。"
+    },
+    {
+      "path": "deeptutor/services/model_discovery/official_parameters.json",
+      "sha256": "28fd7a1bf243c02f095416928988c26daa5c28cf708b2e5854e60514f85b7655",
+      "anchor": "\"qwen3.7-text-embedding\"",
+      "start_line": 186,
+      "end_line": 200,
+      "note": "协调者已补现用嵌入资料，不重做归因或重写真实维度。"
+    },
+    {
+      "path": "tests/services/model_discovery/test_coordinator_regressions.py",
+      "sha256": "08af6b23e9de3716319f80ce4cc97650907e9ecd3a1eb095db00b0fe7198bd80",
+      "anchor": "test_embedding_metadata",
+      "start_line": 21,
+      "end_line": 35,
+      "note": "23项独立Python回归保持；SDK/通义视觉真实路由已修复。"
+    },
+    {
+      "path": "web/tests/model-metadata-coordinator.test.ts",
+      "sha256": "62b3c42137a9b1b19c307ee43e704245437571a79269b2633a8133bb8f19779c",
+      "anchor": "LLM import",
+      "start_line": 3,
+      "end_line": 17,
+      "note": "4项独立Node回归保持；preview可更新元数据而不改手工维度。"
+    },
+    {
+      "path": "web/e2e/model-discovery-r2.spec.ts",
+      "sha256": "3f81ddaf6482b305a65dfc1565ed6cf648dec92a55f73e74ba14632bb0c8af53",
+      "anchor": "test(",
+      "start_line": 204,
+      "end_line": 218,
+      "note": "MD-R2既有真实交互测试，新增R3后保留回归。"
+    },
+    {
+      "path": "web/playwright.phase1.config.ts",
+      "sha256": "b355c23cd781e7f8a2648f05776f1fe682ea3bd7671152b5c37adf082c1dd0fa",
+      "anchor": "MODEL_SERVER",
+      "start_line": 367,
+      "end_line": 381,
+      "note": "只在隔离服务扩fixtures，复用临时source和cleanup。"
+    },
+    {
+      "path": "scripts/run_tests_isolated.py",
+      "sha256": "9e9827fd9ea911e6072993d04d02c845b66d8990407b2c58b37f99aad85cc2a6",
+      "anchor": "def main",
+      "start_line": 32,
+      "end_line": 46,
+      "note": "Python不得直跑pytest，六树基线保护必须继续。"
+    }
+  ],
+  "missing": []
+}

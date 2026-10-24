@@ -1,0 +1,179 @@
+第一阶段已完成后的只读交接指令（2026-10-21）
+
+工作目录：/home/albert/selflearn/selflearn
+目标：核对S15最终签收并接收第一阶段成果。S15为原计划最后阶段；无S16，第二阶段尚未授权。本指令不派发编码任务。
+
+1. 读取 .phase1-evidence/stages/S15/review.json，解析其receipt路径与sha256，计算目标文件摘要；要求status=accepted、goal_met=true、phase1_complete=true、next_stage=null、phase2_authorized=false。核对receipt绑定的当前源码摘要与下附探索清单；如有差异仅报告路径及摘要，不覆写、不重跑旧卡。
+2. 读取 plans/phase1/PHASE1_ACCEPTANCE.md。继承用户批准的catalog单项例外；real_data_unchanged=false表示原配置未恢复，不能改成true。获准新基线及本轮到达之后无新增变化；不打开真实settings或复制密钥。其他数据继续保护。
+3. 证据：给出16阶段/57卡的签收概况、最终实际测试计数、已修复问题及仍有的验收限制。复用receipt及证据，不重做orientation、不重复全量测试。
+4. 允许范围：只读上述文件及摘要/关键片段发生漂移时必要的定向补读；本轮不写任何仓库、配置或历史证据文件，不安装升级、不启动服务、不调用真实provider、不commit/push。
+5. 完成条件：receipt与源码校验无误，准确确认第一阶段闭环及数据例外，说明真实provider/部署尚未验收，然后停止，等待用户给出第二阶段需求。不要自行设计第二阶段或运行历史START_Sxx/REWORK_Sxx。
+
+已探索的文件清单＋关键片段（由协调者从当前文件逐行提取；先比对sha256，匹配即可复用；行号为一基）：
+
+文件：/home/albert/selflearn/selflearn/plans/phase1/stages.json
+SHA256：cda86ecbe15d5faede39284b33b254d445e04450cc7d12a76bf4960631fd86f9
+L26–L32 原文：
+  "next_stage": null,
+  "stages": [
+    {
+      "id": "S00",
+      "title": "已完成的基线修补审查",
+      "status": "accepted",
+      "cards": [
+
+文件：/home/albert/selflearn/selflearn/AGENTS.md
+SHA256：6ae6ff588618be241ccd8320ef639c5435ed4de8882b03baa9dca5023f3cb3d7
+L171–L177 原文：
+## Isolated Python tests
+
+Use `.venv/bin/python scripts/run_tests_isolated.py [pytest arguments]`. With no arguments it runs the configured full suite. Direct unisolated collection fails before application imports; do not bypass the guard. Preserve both historical data evidence and the explicitly approved S14 catalog exception baseline. Any later change remains a failure.
+
+## Browser evidence preservation
+
+The S15 Playwright configuration refuses sealed evidence directories. An explicitly requested rerun must set `S15_EVIDENCE_DIR` to a fresh directory under this checkout’s `.phase1-evidence/`; reuse the installed browser and isolated source runner. Never point `S15_SOURCE_COPY` at this checkout, its ancestors, or existing data. Read-only handoff instructions and verified source excerpts are in `plans/phase1/PHASE1_HANDOFF.txt`.
+
+文件：/home/albert/selflearn/selflearn/scripts/run_tests_isolated.py
+SHA256：36b00721c2f87e87461bb846bb662258a8cca4a560e1045c89e28cc8531495c9
+L1–L16 原文：
+#!/usr/bin/env python3
+"""Run pytest with disposable settings, credentials and a Python network guard.
+
+Usage: .venv/bin/python scripts/run_tests_isolated.py -q tests/phase1
+Without arguments, pytest uses both configured testpaths. No real model/config
+is copied into the disposable home. This does not claim OS sandbox isolation.
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import tempfile
+
+文件：/home/albert/selflearn/selflearn/web/lib/subject-results.ts
+SHA256：c8dc44508de95c71365a5c1d7fb0bedc13b7aef9788ada8a13f5d8ba32fff78a
+L645–L672 原文：
+export async function fetchSubjectArtifact(
+  request: SubjectRequest, url: string, format: "zip" | "pdf" | "docx",
+): Promise<Blob> {
+  if (!outputDownloadUrl({url})) throw new SubjectActionError(SAFE_BAD_EXPORT_URL, "protocol");
+  const response = await request(url, {method: "GET"});
+  if (!response.ok) {
+    const failure = await readSubjectFailure(response);
+    throw new SubjectActionError(failure.message, "http", failure);
+  }
+  const blob = await response.blob();
+  const prefix = new Uint8Array(await blob.slice(0, 8).arrayBuffer());
+  const valid = format === "pdf"
+    ? blob.size >= 8 && new TextDecoder().decode(prefix).startsWith("%PDF-")
+    : blob.size >= 22 && prefix[0] === 0x50 && prefix[1] === 0x4b
+      && ((prefix[2] === 3 && prefix[3] === 4) || (prefix[2] === 5 && prefix[3] === 6));
+  if (!valid || /text\/html|application\/json/i.test(blob.type)) {
+    throw new SubjectActionError(SAFE_BAD_DOWNLOAD, "protocol");
+  }
+  return blob;
+}
+
+export async function exportSubjectAction(options: {
+  request: SubjectRequest;
+  subjectId: string;
+  setBusy?: (busy: boolean) => void;
+  isCurrent?: () => boolean;
+  onError: (message: string) => void;
+  onSuccess: (url: string) => void;
+
+文件：/home/albert/selflearn/selflearn/web/components/chat/home/TracePanels.tsx
+SHA256：cac6bb77edde492b491532eced51efb2f10d92af9fd14249f16b7d9ba79150be
+L2545–L2564 原文：
+  const turnSources = useMemo(() => {
+    const unique = new Map<string, string>();
+    for (const event of events) {
+      const metadata = getTraceMeta(event);
+      if (event.type !== "sources" || metadata.call_id) continue;
+      for (const source of Array.isArray(metadata.sources) ? metadata.sources : []) {
+        if (!source || typeof source !== "object") continue;
+        const title = typeof source.title === "string" ? source.title
+          : typeof source.source === "string" ? source.source : "";
+        if (!title.trim()) continue;
+        const key = `${String(source.kb_ref ?? "")}\0${String(source.source ?? title)}\0${title}`;
+        unique.set(key, title);
+      }
+    }
+    return [...unique].map(([key, title]) => ({key, title}));
+  }, [events]);
+  const hasTrace = useMemo(() => hasRenderableCallTrace(events) || turnSources.length > 0, [events, turnSources]);
+  const hasFinalContent = Boolean(content && content.trim().length > 0);
+  const finalPhase = useMemo(
+    () => isFinalAnswerPhase(events, Boolean(isStreaming), hasFinalContent),
+
+文件：/home/albert/selflearn/selflearn/web/playwright.phase1.config.ts
+SHA256：c18798f050efda9b8dbad16aac22c738c2d5b6bc9f55d0a72fdb2c52355ced1a
+L37–L61 原文：
+const STAGE = canonical(process.env.S15_EVIDENCE_DIR || path.join(REPO, ".phase1-evidence", "stages", "S15"));
+if (!inside(path.join(REPO, ".phase1-evidence"), STAGE)) throw new Error("S15 evidence must stay under .phase1-evidence");
+if (fs.existsSync(path.join(STAGE, "report.json")) || fs.existsSync(path.join(STAGE, "closing_manifest.json"))) {
+  throw new Error("Sealed S15 evidence: set S15_EVIDENCE_DIR to a fresh directory");
+}
+const RUN_LABEL = process.env.S15_RUN_LABEL || "good";
+if (!/^[a-zA-Z0-9_-]{1,48}$/.test(RUN_LABEL)) throw new Error("Invalid S15_RUN_LABEL");
+const PROVIDED_SOURCE = process.env.S15_SOURCE_COPY
+  ? canonical(process.env.S15_SOURCE_COPY)
+  : null;
+const TEMP_BASE = canonical(process.env.S15_TEMP_BASE || os.tmpdir());
+if (inside(REPO, TEMP_BASE) || inside(TEMP_BASE, REPO)) throw new Error("S15 temporary base must be outside the repository");
+process.env.S15_TEMP_BASE = TEMP_BASE;
+function validateSource(source: string): void {
+  if (!inside(TEMP_BASE, source) || inside(REPO, source) || inside(source, REPO)) {
+    throw new Error("S15_SOURCE_COPY must be a disposable source outside the repository");
+  }
+}
+if (PROVIDED_SOURCE) validateSource(PROVIDED_SOURCE);
+const ARTIFACTS = process.env.S15_ARTIFACTS_DIR
+  ? canonical(process.env.S15_ARTIFACTS_DIR)
+  : path.join(STAGE, "playwright-artifacts");
+if (!inside(STAGE, ARTIFACTS)) throw new Error("S15 artifacts must stay under the fresh evidence directory");
+
+// Playwright evaluates this config once in the runner and again in each
+
+文件：/home/albert/selflearn/selflearn/web/e2e/phase1.spec.ts
+SHA256：dfda38914d682a4f94ef0ea8dc2769531445ecb581aab8ca90bf28eca4c0bf3e
+L203–L226 原文：
+async function visibleSource(page: Page, filename: string, excluded: string): Promise<void> {
+  const header = page.getByRole("button", {name: /^Done\b/}).last();
+  await expect(header).toBeVisible();
+  if (await header.getAttribute("aria-expanded") !== "true") await header.click();
+  const trace = header.locator("xpath=..");
+  for (let depth=0; depth<3; depth++) {
+    for (const row of await trace.locator('[role="button"][aria-expanded="false"]').all()) {
+      if (await row.isVisible()) await row.click();
+    }
+  }
+  await expect(trace.getByText(filename, {exact:false}).last()).toBeVisible();
+  expect(await trace.innerText()).not.toContain(excluded);
+  await header.click();
+}
+
+async function createSubject(request: APIRequestContext, name: string) {
+  const response = await request.post("/api/v1/subjects", { form: { name, description: "", term: "2026" } });
+  expect(response.status(), await response.text()).toBe(200);
+  return (await response.json()).subject as { id: string; name: string };
+}
+
+async function uploadText(subjectId: string, filename: string, text: string) {
+  const form = new FormData();
+  form.append("type", "assignment");
+
+文件：/home/albert/selflearn/selflearn/plans/phase1/PHASE1_ACCEPTANCE.md
+SHA256：ff3a25ff51f210fea197130d30b283000ff4fa0527217b6041833ea4b7cfdf7f
+L14–L21 原文：
+## 数据完整性与结论边界
+
+S14原model_catalog.json已丢失，未找到精确备份，原配置没有恢复。用户已明确接受单项例外并允许新基线；授权与摘要见 [例外记录](data_baseline_exception.json)。相对S13原基线，`real_data_unchanged=false`；相对获准新基线及协调者本轮到达时，六真实树无新增变化，`real_data_unchanged_from_approved_baseline=true`。其他五树和settings其余文件不放宽；原基线、事故与原报告保留。未读取/展示密钥、未验证真实配置有效性、未自动调用真实模型或轮换凭据。
+
+Fake模型用于验证真实入口的协议、作用域、成功/失败与持久化闭环，不是对真实模型生成质量的评价。RAG来源显示文件身份，未凭空生成原文下载URL；科目导出不含聊天、不支持导入恢复；知识点没有attempt证据时mastery=null。真实供应商、互联网检索/模型质量、部署及生产负载均未获验收，不应从本机门推导它们已经通过。
+
+原START_S15/B2要求“来源中的下载URL实际GET”，但现有KB来源投影没有URL；C08明确保持来源身份约束，不新增全文KB阅读能力。协调者据C08将该不可适用子项限定为当前轮次可展开来源身份、真实raw内容标记与跨科隔离；未宣称来源下载已经通过，也未以B4 ZIP下载替代它。若将来要求原文下载，应另立功能需求和访问契约。Next的一次npm版本检查被Node出口守卫阻断，记录保留；浏览器console中的故障请求错误来自注入场景，不是未捕获page error。
+

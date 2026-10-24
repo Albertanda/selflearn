@@ -725,3 +725,74 @@ def test_every_search_provider_has_a_registered_implementation() -> None:
     registered = set(list_providers())
     expected = {name for name in SEARCH_PROVIDERS if name != "none"}
     assert registered == expected
+
+
+def test_selected_model_budget_and_provider_capacity_are_resolved() -> None:
+    catalog = _build_catalog(
+        llm_profile={
+            "id": "llm-p",
+            "name": "DeepSeek",
+            "binding": "deepseek",
+            "base_url": "https://api.deepseek.com",
+            "api_key": "sk-fictitious",
+            "api_version": "",
+            "extra_headers": {},
+            "models": [
+                {
+                    "id": "llm-m",
+                    "name": "DeepSeek V4.1 Flash",
+                    "model": "deepseek-flash",
+                    "context_window": "1048576",
+                    "max_tokens": "8192",
+                    "provider_metadata": {
+                        "schema_version": 1,
+                        "parameters": {
+                            "context_window": 1048576,
+                            "max_output_tokens": 393216,
+                        },
+                    },
+                }
+            ],
+        }
+    )
+    resolved = resolve_llm_runtime_config(catalog=catalog)
+    assert resolved.max_tokens == 8192
+    assert resolved.max_output_tokens == 393216
+    assert resolved.context_window == 1048576
+
+
+def test_legacy_model_without_fields_keeps_4096() -> None:
+    catalog = _build_catalog()
+    resolved = resolve_llm_runtime_config(catalog=catalog)
+    assert resolved.max_tokens == 4096
+    assert resolved.max_output_tokens is None
+
+
+def test_llm_aliyun_alias_resolves_to_the_existing_dashscope_provider() -> None:
+    for alias in ("dashscope", "aliyun", "alibaba", "bailian"):
+        catalog = _build_catalog(
+            llm_profile={
+                "id": "llm-p",
+                "name": "Aliyun",
+                "binding": alias,
+                "base_url": "",
+                "api_key": "dash-key",
+                "api_version": "",
+                "extra_headers": {},
+                "models": [{"id": "llm-m", "name": "Qwen", "model": "qwen-plus"}],
+            }
+        )
+        resolved = resolve_llm_runtime_config(catalog=catalog)
+        assert resolved.provider_name == "dashscope"
+        assert resolved.binding == "dashscope"
+        assert resolved.effective_url == "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+
+def test_stt_and_embedding_keep_their_aliyun_adapters() -> None:
+    from deeptutor.services.config.provider_runtime import (
+        EMBEDDING_PROVIDERS,
+        STT_PROVIDERS,
+    )
+
+    assert STT_PROVIDERS["aliyun"].adapter == "qwen_asr"
+    assert EMBEDDING_PROVIDERS["aliyun"].adapter == "dashscope_native"

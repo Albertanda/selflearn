@@ -37,12 +37,9 @@ dependencies = [
     "rich>=13.0.0",
     "prompt_toolkit>=3.0.36",
     "pyte>=0.8.1",  # in-memory terminal emulator: scrape Claude Code's /model TUI on sync
-    # MCP client. Core rather than a `partners`-only extra (issue #792): the
-    # connection manager and the built-in PageIndex MCP server are injected on
-    # any turn where a PageIndex API key is configured, so a plain
-    # `pip install deeptutor` has to be able to import `mcp` — otherwise the
-    # connection task dies with ModuleNotFoundError and every turn stalls for
-    # the full connect timeout.
+    # MCP SDK (compatibility pending review). Kept because the shared MCP
+    # modules still import it; this fork's PageIndex overview runs through the
+    # existing RAG outline pipeline and does not claim an auto-injected client.
     "mcp>=1.26.0,<2.0.0",
     # Full app dependencies included by default for `pip install deeptutor`.
     "anthropic>=0.30.0",
@@ -58,6 +55,12 @@ dependencies = [
     "faiss-cpu>=1.8.0,<2.0.0",
     "PyMuPDF>=1.26.0",
     "numpy>=1.24.0,<3.0.0",
+    # M7 chart reports: the report pipeline generates matplotlib code per
+    # ``{{CHART: …}}`` placeholder and runs it in a subprocess, so a chart
+    # report cannot render without this. It belongs with the other
+    # document/rendering libs rather than only in the README's toolchain note,
+    # which does not install anything.
+    "matplotlib>=3.8.0,<4.0.0",
     "arxiv>=2.0.0",
     "python-docx>=1.1.0",
     "openpyxl>=3.1.0",
@@ -104,6 +107,8 @@ cli = [
     "faiss-cpu>=1.8.0,<2.0.0",
     "PyMuPDF>=1.26.0",
     "numpy>=1.24.0,<3.0.0",
+    # M7 chart reports (see the core dependency list for the rationale).
+    "matplotlib>=3.8.0,<4.0.0",
     "arxiv>=2.0.0",
     # Document text extraction (chat attachments) + office-skill authoring libs
     "python-docx>=1.1.0",
@@ -141,36 +146,6 @@ server = [
     "psutil>=5.9.0,<8.0.0",
 ]
 
-# Partner channel SDKs. Mirrors requirements/partners.txt.
-# Partners run on the chat agent loop, so there is no engine here — just the
-# IM platform SDKs. The MCP client used for deferred tools is a core dependency
-# (see `mcp` above), not a partners-only one.
-partners = [
-    "deeptutor[server]",
-    "python-telegram-bot[socks]>=22.6,<23.0",
-    "wecom-aibot-sdk>=1.0.8,<2.0.0",
-    "lark-oapi>=1.5.0,<2.0.0",
-    "dingtalk-stream>=0.24.0,<1.0.0",
-    "slack-sdk>=3.39.0,<4.0.0",
-    "slackify-markdown>=0.2.0,<1.0.0",
-    "qq-botpy>=1.2.0,<2.0.0",
-    "python-socketio>=5.16.0,<6.0.0",
-    "msgpack>=1.1.0,<2.0.0",
-    "python-socks[asyncio]>=2.8.0,<3.0.0",
-    "socksio>=1.0.0,<2.0.0",
-    "websocket-client>=1.9.0,<2.0.0",
-    "zulip>=0.8.0,<1.0.0",
-    # slack-sdk Socket Mode + napcat need the async `websockets` lib — pin it
-    # explicitly instead of relying on dingtalk-stream/lark-oapi transitives.
-    "websockets>=12.0",
-    # napcat (OneBot v11) media downloads
-    "aiohttp>=3.10.0,<4.0.0",
-    # msteams Bot Framework token validation
-    "PyJWT[crypto]>=2.8.0,<3.0.0",
-    # weixin QR-code login
-    "qrcode>=7.4.0,<9.0.0",
-]
-
 # Optional document-parsing engines for the shared parse layer
 # (deeptutor/services/parsing). MinerU is an external CLI / hosted API and is
 # not a pip dependency. Engines import lazily, so these stay opt-in and an
@@ -192,23 +167,6 @@ parse = [
     "deeptutor[parse-docling]",
     "deeptutor[parse-pymupdf4llm]",
     "deeptutor[parse-liteparse]",
-]
-
-# Legacy alias kept for one release: `pip install deeptutor[tutorbot]`.
-tutorbot = ["deeptutor[partners]"]
-
-# Matrix (Element) channel for partners. Mirrors requirements/matrix.txt.
-# Default Matrix install is non-E2EE so it works without libolm/python-olm.
-matrix = [
-    "matrix-nio>=0.25.2,<1.0.0",
-    "mistune>=3.0.0,<4.0.0",
-    "nh3>=0.2.18,<1.0.0",
-]
-
-# Optional Matrix E2EE addon. Mirrors requirements/matrix-e2e.txt and requires libolm.
-matrix-e2e = [
-    "deeptutor[matrix]",
-    "matrix-nio[e2e]>=0.25.2,<1.0.0",
 ]
 
 # Math Animator addon (Manim). Mirrors requirements/math-animator.txt.
@@ -252,10 +210,9 @@ dev = [
     "defusedxml>=0.7.1",
 ]
 
-# Everything: server + partners + non-E2EE matrix + math-animator + dev tools.
+# Everything: server + math-animator + dev tools. The retired partner/Matrix
+# extras are deliberately not part of `all`.
 all = [
-    "deeptutor[partners]",
-    "deeptutor[matrix]",
     "deeptutor[math-animator]",
     "deeptutor[dev]",
 ]

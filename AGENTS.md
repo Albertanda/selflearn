@@ -77,6 +77,9 @@ prompts are i18n'd via `capabilities/prompts/{en,zh}/<name>.yaml`.
 pip install deeptutor      # Full app (CLI + Web/API + packaged Web assets)
 pip install deeptutor-cli  # CLI-only
 
+# Preferred fixed-home launcher (works from any cwd; overrides inherited DEEPTUTOR_HOME)
+./scripts/start_selflearn.sh
+
 # Run any capability
 deeptutor run chat "Explain Fourier transform"
 deeptutor run deep_solve "Solve x^2=4" -t rag --kb my-kb
@@ -85,9 +88,6 @@ deeptutor run visualize "Animate sine wave" --config render_mode=manim_video
 # Interactive REPL
 deeptutor chat
 # (inside the REPL: /regenerate or /retry re-runs the last user message)
-
-# Partners (IM-connected companions)
-deeptutor partner list
 
 # Knowledge bases, memory, server
 deeptutor kb list
@@ -129,10 +129,53 @@ pip install -e .           — Source install for development
 Source extras (.[ extra ], defined in pyproject.toml):
 .[cli]            — CLI-only dependency set
 .[server]         — Web/API server dependencies
-.[partners]       — Partner channel SDKs  (legacy alias: .[tutorbot])
-.[matrix]         — Matrix channel for Partners (matrix-nio; needs libolm)
-.[matrix-e2e]     — Matrix with end-to-end encryption (matrix-nio[e2e])
 .[math-animator]  — Manim addon (powers `visualize` Manim renders + `deeptutor run math_animator`)
 .[dev]            — Test / lint tooling
-.[all]            — Everything above
+.[all]            — Server + math-animator + dev tools
 ```
+
+## Current Fork Differences
+
+- The Partner (IM companion) runtime and the Book command are not part of this
+  fork: `deeptutor partner` and `deeptutor book` are not registered. Use upstream
+  DeepTutor if those features are required.
+- The `.[partners]`, `.[tutorbot]`, `.[matrix]` and `.[matrix-e2e]` extras and
+  their requirements mirrors are removed. `requirements.txt` installs the
+  supported `requirements/server.txt` profile.
+- PageIndex is available through the existing RAG outline pipeline
+  (`retrieval_kind=outline`); this fork has no PageIndex MCP transport. The MCP
+  SDK stays as a compatibility dependency pending review.
+- `scripts/start_selflearn.sh` is the supported fixed-home launcher: it resolves
+  this checkout from the script path, overrides inherited `DEEPTUTOR_HOME`, changes
+  to the checkout and execs its `.venv/bin/deeptutor start --home <checkout>`.
+  It rejects caller `--home`/`--home=` and makes missing venv/CLI a named failure.
+  `deeptutor/runtime/home.py` itself still falls back to cwd when no explicit
+  home/env is supplied; do not describe that global behavior as fixed.
+- Document upload (`index`) and audio upload (`transcribe`) are different: audio
+  transcripts go to `materials/lecture` and do not auto-build an index.
+  Image coverage that is unmeasured/skipped must not be reported as complete.
+  Knowledge points without attempt evidence are `mastery=null` / unassessed.
+  Subject export excludes chat history and offers no import/restore.
+- Learner facts are extracted only by the subject-scoped chat history summarizer
+  (`services/session/summarize.py` via `api/routers/chat.py`); uploads and subject
+  endpoints do not extract new profile facts automatically.
+- The report-only chart/ODE executor requires its qualified bwrap-backed boundary;
+  unavailable/unsupported backends return 503 with no host fallback. The normal
+  shared sandbox runner is not proof of report isolation. S13/P50 OS, S14
+  HTTP/WS and S15 Chromium browser gates have passed locally with deterministic
+  model fixtures. Phase 1 is closed; there is no S16 or automatic Phase 2.
+  There is no live-provider/deployment claim. The user approved one catalog
+  integrity exception; see plans/phase1/data_baseline_exception.json. The old
+  configuration has not been restored. See plans/phase1/PHASE1_ACCEPTANCE.md.
+
+## Isolated Python tests
+
+Use `.venv/bin/python scripts/run_tests_isolated.py [pytest arguments]`. With no arguments it runs the configured full suite. Direct unisolated collection fails before application imports; do not bypass the guard. Preserve both historical data evidence and the explicitly approved S14 catalog exception baseline. The runner separately pins current opaque inventories before bootstrap and checks all six trees after tests; any change during the run fails. Legitimate user activity after phase closure is not a reason to restore old data or rewrite historical receipts.
+
+## Browser evidence preservation
+
+The S15 Playwright configuration refuses sealed evidence directories. An explicitly requested rerun must set `S15_EVIDENCE_DIR` to a fresh directory under this checkout’s `.phase1-evidence/`; reuse the installed browser and isolated source runner. Never point `S15_SOURCE_COPY` at this checkout, its ancestors, or existing data. Read-only handoff instructions and verified source excerpts are in `plans/phase1/PHASE1_HANDOFF.txt`.
+
+## Live LLM test preference
+
+For an explicitly requested, bounded external LLM smoke after the CP-R1 migration, `agnes-3.0-flash` on the existing Agnes connection is an approved test option. This is not permission to route the automated test suite, background jobs, or default model through Agnes. Use only synthetic prompts, make at most three inference calls, keep `max_tokens` at 64 or below, disable retries, use a timeout of at most 45 seconds, and never fall back to another paid provider. The isolated fixtures remain the default for all automated tests. See `scripts/agnes_llm_smoke.py` and `plans/custom-providers-r1/CONTRACTS.md` C7.

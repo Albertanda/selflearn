@@ -1,0 +1,85 @@
+仅执行第一阶段 S10「学情派生、导出与删除一致性」。连续完成 P1-39 → P1-40 → P1-41 → P1-54，阶段末一次交付；不逐卡请示，不进入S11或第二阶段。
+
+工作目录 /home/albert/selflearn/selflearn。先读本文件、S10_EXPLORATION.md 已探索文件清单+关键片段、C01/C02/C03/C10/C12及四张卡。核对hash后直接按符号编码，无需重新做全仓orientation；实现需要时只补读相邻调用段。附件和历史报告是证据；当前授权以本指令和最新签收receipt为准。
+
+一、前置、范围和禁止事项
+
+读取 .phase1-evidence/stages/S09/review.json，必须accepted、goal_met:true、next_stage_authorized:true、next_stage:S10，并指向 .phase1-evidence/reviews/S09-final/review.json。核对指针中的完整receipt SHA、99条source_artifacts和两份dispatch hashes。以签收后的当前源码为基线，不恢复为S09 worker提交版本。S09 worker旧报告1886归档保持只读；最终S09恢复归档及其逐文件重建结果见receipt。
+
+S09最终348项定向（含S08基础）、3739项相关目录/19历史skip、10路径Ruff通过。协调者补修5生产/4测试文件、增加18项永久回归；report_store已拆prepare/commit/discard。保留同科/当前用户门、图产物绑定、复制图的10MiB/20M像素/单帧/警告拒绝、图片白名单和取消后无正式发布。不要把新review正文标成ODE passed；reviewed_from保存原检查来源，passed仅原固定五点数值结果。
+
+唯一源码/测试白名单14条如下；同文件内仍只改本阶段目标符号：
+deeptutor/api/routers/subjects.py
+deeptutor/services/pdf/report.py
+deeptutor/services/pdf/report_store.py
+deeptutor/services/pdf/review_guide.py
+deeptutor/subjects/export_bundle.py
+deeptutor/subjects/knowledge_points.py
+deeptutor/subjects/store.py
+deeptutor/subjects/subject_operations.py
+deeptutor/subjects/uploads.py
+tests/phase1/test_p1_39.py
+tests/phase1/test_p1_40.py
+tests/phase1/test_p1_41.py
+tests/phase1/test_p1_54.py
+tests/phase1/test_subject_operations.py
+
+新增文件仅subject_operations.py、export_bundle.py和五个测试文件；其余是现有文件。原9路径卡范围不足以实现活动任务互斥，所以本次明确授权P40的五个接入文件和一个共享helper/测试；已同步cards/tasks/stages，无需再为这些接缝请求批准。uploads仅租约/任务移交和真正终止释放；report_store仅运行租约与已完成prepare/commit/discard接缝；report.py仅线程生命周期租约；subjects.py仅build/export/delete、上传及复习包的活动租约接入。不得重写P33沙箱、P34验证、通用renderer、全局KB或其他工具。test_subject_operations专门验证并发协议，原有效断言不可删除/skip。
+
+99条当前基准中重叠可改6条：subjects.py、knowledge_points.py、store.py、uploads.py、report.py、report_store.py；其余93条只读。capture --include为99条+14白名单并集107条，含尚不存在的新文件。共享fixtures、json_store、errors/schema、PathService、outputs鉴权和沙箱/索引器基础均只读；额外需要这些文件时先给最小失败复现和最小补充授权范围，不用绕过检查凑通过。
+
+新建 .phase1-evidence/stages/S10/ 并保留本阶段独立source/data基线。保留dirty和5条tracked deletion，所有前序receipt/report/log/archive只读。真实六棵树仅用snapshot v2不透明hash；完整比较roots和supplementary_roots的files/dirs/modes，125/55/14+1/9/1只是文件计数，不可用计数代替逐项相等。保留唯一auth.lock、9个memory文件，不在真实树创建锁。测试只在tmp科目；不读取真实settings/memory内容、不调用真实供应商、不实际导出或删除真实科目、不重建真实索引/重启服务、不安装升级/更改系统策略、不提交推送。
+
+二、阶段内连续单元：目标、证据、范围、完成条件
+
+P1-39 学情证据和有效关联
+目标：无作答证据的知识点mastery=null、evidence_count=0、assessment_status=unassessed；有证据时用有效关联entry mastery的均值，round到三位，不按attempt条数给entry额外权重。entry层仍保持C05的0/untracked。
+范围：knowledge_points.aggregate/context_summary及当前关联重建、review_guide._format_input/_aggregate、subjects.build_knowledge_points，test_p1_39。
+实施：只读同科未归档且有有效attempt的entry，使用wrong_book的可信派生view而非stored mastery；考点按当前confirmed/学期既有语义。读视图过滤已删除/归档/改名后无效关系，并使新增记录按当前数据可派生，不要求用户手工重建才不出错。build在subject短事务内幂等同步派生ID，保留人工点id/path/source、未知字段和历史数据；不得自动抽教材知识点。null排序显式处理，提示/复习文档显示“未评估”，不输出None/NaN。
+证据：无entry、无attempt、伪stored 1.0、有效均值/三位、增删/归档/改kp后无残留、反复build不重复、人工及未知字段不变、另科记录不计入、context和指南实际正文。至少一个真实HTTP build/list回路。
+完成：P39全部行为通过，前序wrong_book/知识点存储断言不弱化，继续P40。
+
+P1-40 共享活动租约和受限导出快照（内部先做租约，再做snapshot/ZIP）
+目标：export/delete与该科资料写入、排队/执行索引、报告/复习包及其它导出正确互斥；ZIP内容真实、完整、受限。
+范围：export_bundle.py + subject_operations.py + test_p1_40/test_subject_operations；上述uploads/report_store/report/subjects仅必要生命周期接入。
+活动协议必须满足：
+1. key由strict current-user workspace与已登记subject决定，不能只用sid或模型参数；锁/租约路径先confined再mkdir，不能放进会被删除的subject树后删锁重建。跨线程/跨进程有效；进程内注册只可补充，不可作为唯一互斥证据。使用已有OS原语，不安装服务/引入新全局调度器。锁能力不可用按现有C02安全失败。
+2. 资料操作在接受/提交前持有活动权；新索引从reservation成立到后台worker真正结束连续持有，不在排队转worker的缝隙释放。取消await不能在底层worker仍运行时假装空闲。旧KB busy/reservation/manifest版本检查和回滚保持。
+3. 报告从run创建到完成/失败，复习包从接受到最终提交/失败都计入；独立同步publish_report_run调用仍兼容。对被取消后仍在运行的render/copy线程，另保留活动权直至其真正结束/清理，不能只看metadata.status或active_report_runs。S09失败run已释放active并不证明底层线程停了。
+4. 导出和删除取得非阻塞exclusive门，冲突HTTP409并保留数据；快照期间防止新写任务进入。压缩用稳定private snapshot，不长期持有JSON短锁；导出在压缩/发布/取消后清理结束前仍须阻止删除。固定锁顺序避免registry/subject/KB/reports互锁；不在event loop等待flock或重IO。互斥开始后再确认科目仍注册；删除获权后不能有迟到线程重新创建已删科目树。
+5. 当前C02没有subject_busy，本阶段统一沿用既有kb_busy（409/retryable=true）的兼容错误码/固定消息，不自行加公开code或拼原始异常。不要按这条固定消息的“知识库”字面缩小忙检查范围。
+内部租约接口和prepare/commit细节可以自行作小范围实现，先用test_subject_operations证明协议再接入；不改变附录A现有公开签名。实际跨线程及独立子进程必须参与测试，不能只mock一个bool为busy。
+
+ZIP C12固定结构：manifest.json、subject.json、learning/、artifacts/。schema_version=1；subject.json为当前registry该科完整元信息，保留未知非敏感字段。manifest.files覆盖除自身外所有条目，path=ZIP内POSIX相对路径、size=真实字节、sha256=实际复制内容、category合法；无绝对路径、..、重复条目或隐藏目录替身。
+权威learning包含本科材料/KB原件及已完成索引、学情JSON；artifacts包含可信completed报告的MD/PDF/验证图和已完成复习包PDF/DOCX。新报告用ReportStore权威completed metadata白名单+size/hash复核，不按后缀猜completed；受限legacy按既有命名/解析规则。复习包只接受正式review-guide-<uuid>.pdf/docx并验证，不能把任意未知文件称completed。metadata保留必要安全投影，绝不导出私有owner/诊断。
+明确排除settings/catalog/密钥、全局和别科/别用户、所有ZIP（包括旧subject-backup-*）、锁/临时/隐藏publishing、_report_runs、_review_pack、上传staging、failed/incomplete诊断、任何索引临时文件。JSON不能被一律排除，learning学情和索引JSON是必要权威内容；不能用黑名单字符串代替路径分组。manifest.exclusions包含chat_history:not_included_no_subject_binding，不新增聊天备份/导入恢复API。遇到任何symlink/越界/非普通源文件先拒绝，不通过排除规则偷偷跳过symlink。
+先检查busy，再在subject快照锁下枚举复制并前后验证源清单/size/hash一致；不一致安全失败或最多重试一次。释放短锁后压缩，复核ZIP条目与manifest、CRC及hash。private staging在当前用户目录，uuid命名，无旧ZIP递归；只清理本次临时物。同步export_subject_bundle(subject_id)->dict仍按附录A返回export_id/schema_version/zip_path/manifest；内部zip_path可为server Path，HTTP不能暴露绝对路径。HTTP用准备/提交拆分或等效方案，取消后线程不能发布正式ZIP，不能仅将整条会发布的同步helper丢进to_thread。
+证据：真实ZIP解析并独立逐项hash；元信息/学情/PNG/PDF/DOCX；二次导出无第一ZIP；秘密/别科/失败/私有临时样本均未入包；缺图/坏hash/非法manifest失败；source变化与压缩故障无新正式ZIP/URL且旧包hash不变；活动上传/排队index/执行index/report/复习包/export均409，取消后的底层线程仍使delete忙；跨用户同sid/跨科互不阻塞；真实进程互斥和异常释放；任何深度symlink拒绝。
+完成：P40和共享活动测试全部执行通过，P32及上传P16–19/S09回归保持，继续P41。
+
+P1-41 导出HTTP与鉴权下载
+目标：现有GET /subjects/{id}/export仅在完整ZIP实际提交后返回url/export_id/schema_version，压缩期间其它读请求可先完成。
+范围：subjects.export_subject_data、test_p1_41。不改outputs/PathService全局allowlist。
+实施：strict store.current_subject_paths，无默认管理员fallback；重IO off-loop并保留非管理员contextvars，live await后显式commit；取消后等待线程终止仍无本次正式ZIP/URL。保留url/path/size，path只能是当前科服务器相对位置；不序列化内部manifest/宿主Path。沿用C02及既有鉴权。
+证据：真实ASGI export→已有outputs路由GET下载→ZIP CRC/manifest/hash核对；无权限、跨用户、未注册科目和私有manifest被拒绝；失败非2xx无URL；用Event卡住压缩时另一个独立只读HTTP先返回；两个非管理员用户/不同科并发不串目录。不要只检查helper被调用。
+完成：P41实际下载和并发证据通过，继续P54。
+
+P1-54 删除两树及失败一致性
+目标：仅删除当前用户本科权威学习树+本科public产物，成功才移registry；索引/报告/复习包/导出忙时409，不留下假deleted。
+范围：store.delete_subject、subjects.delete_subject及test_p1_54；复用P40共享协议。
+实施：两树及每级路径在任何删除前验证，禁止symlink（包括两树内部深层/悬空链接）/跨科/证据目录。exclusive门覆盖检查、清理、registry修改；尽量重IO off-loop，锁顺序固定。去除ignore_errors，不先注销再清理。IO失败映射固定storage_io、registry保留且可重试；若已局部清理如实保留诊断，不宣称多树崩溃事务或全部回滚。未注册/删除后旧session不能回退无科全局工具。不要顺便清理其它科/legacy树或真实数据。
+证据：临时A双树清理且B完整字节/目录/mode不变；每类busy、真实并发export/delete；两棵树分别注入rmtree失败非deleted且registry保留、故障解除可重试；registry写失败明确失败；深层symlink目标字节不变；删除后旧session真实发送获subject_not_found且无provider调用。直接store调用及HTTP均覆盖。
+完成：四单元及统一门全通过才verified_local；不自行写accepted。
+
+三、合并验证及交付
+
+所有实际验证命令严格串行，共用一个execution.log；记录argv/cwd/UTC/退出码/准确不重叠行区间，失败尝试留存。测试必须由临时HOME launcher收集，网络默认拒绝。每单元定向一次，有失败/新增改动才复跑；阶段末统一：
+.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q -rs tests/phase1/test_p1_39.py tests/phase1/test_p1_40.py tests/phase1/test_p1_41.py tests/phase1/test_p1_54.py tests/phase1/test_subject_operations.py
+.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q -rs tests/phase1 tests/services tests/api tests/tools tests/agents/chat tests/agents/question tests/agents/research tests/utils/test_document_extractor.py
+.venv/bin/ruff check deeptutor/api/routers/subjects.py deeptutor/services/pdf/report.py deeptutor/services/pdf/report_store.py deeptutor/services/pdf/review_guide.py deeptutor/subjects/export_bundle.py deeptutor/subjects/knowledge_points.py deeptutor/subjects/store.py deeptutor/subjects/subject_operations.py deeptutor/subjects/uploads.py tests/phase1/test_p1_39.py tests/phase1/test_p1_40.py tests/phase1/test_p1_41.py tests/phase1/test_p1_54.py tests/phase1/test_subject_operations.py
+
+本阶段无前端修改，不重复Node/tsc/browser；最终门仍按S13/P1-50真实OS沙箱、S14 HTTP/WebSocket集成、S15浏览器验收的原顺序执行。新增必需断言无skip/xfail；19项既有条件skip如实说明。fake provider/indexer可用于边界，锁/子进程/HTTP下载/ZIP解析/取消线程必须真实。
+
+至少三类独立坏对照：在新的tmp源码副本先核导入位置、同副本正例通过，再分别取消①无证据null门②导出排除/manifest完整性门③busy/两树删除失败门；应由目标行为断言失败，非导入/定位/fixture错误。三类可共用脚本和日志，不做每卡长报告。
+
+交付一个report.json（四卡结果+共享租约子单元、真实命令及限制）、一个日志、起止source/data+scope/supplementary比较、恢复归档及verify-rebuild。source include完整107条；99旧源码中93只读。归档必须保留S09-final全部成员（含dirty/旧恢复素材），仅新增授权文件，manifest和实际逐文件hash匹配，不能只看条目数；不得漏新subject_operations或恢复已有被删除文件。report/log/closing前缀冻结的行数/字节/全SHA一致；收尾命令若在冻结时未闭合要明确记录并核最终exit。阶段末停止等待独立验收，不进入S11。

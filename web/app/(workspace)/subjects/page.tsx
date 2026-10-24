@@ -1,9 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { apiFetch } from "@/lib/api";
+import AsrJobPanel from "@/components/subjects/AsrJobPanel";
+import {
+  createSubjectAction,
+  deleteSubjectAction,
+  loadSubjectsView,
+  uploadSubjectMaterialAction,
+  type KnowledgeProjection,
+} from "@/lib/subject-results";
 
 type Subject = {
   id: string;
@@ -32,65 +40,110 @@ export default function SubjectsPage() {
   const [name, setName] = useState("");
   const [term, setTerm] = useState("");
   const [uploading, setUploading] = useState<Record<string, boolean>>({});
+  const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  const mounted = useRef(true);
+  const loadGeneration = useRef(0);
+  const isCurrent = () => mounted.current;
 
-  const refresh = useCallback(async () => {
-    const res = await apiFetch("/api/v1/subjects");
-    if (res.ok) {
-      const data = await res.json();
-      setSubjects(data.subjects ?? []);
-      const kb: Record<string, KnowledgeRecord[]> = {};
-      await Promise.all(
-        (data.subjects ?? []).map(async (s: Subject) => {
-          const kr = await apiFetch(`/api/v1/subjects/${s.id}/knowledge`);
-          if (kr.ok) kb[s.id] = (await kr.json()).knowledge ?? [];
-        }),
-      );
-      setKnowledge(kb);
-    }
-  }, []);
+  async function load(notify: boolean) {
+    const generation = ++loadGeneration.current;
+    const view = await loadSubjectsView({
+      request: apiFetch,
+      isCurrent: () => mounted.current && generation === loadGeneration.current,
+      notify,
+      onError: setMsg,
+      onLoaded: (loaded) => {
+        const rows = loaded.subjects as unknown as Subject[];
+        setSubjects(rows);
+        setKnowledge((previous) => {
+          const next: Record<string, KnowledgeRecord[]> = {};
+          for (const subject of rows) {
+            next[subject.id] =
+              (loaded.knowledge[subject.id] as unknown as
+                | KnowledgeRecord[]
+                | undefined) ?? previous[subject.id] ?? [];
+          }
+          return next;
+        });
+      },
+    });
+    return view?.knowledge ?? {};
+  }
+  const loadRef = useRef(load);
+  useEffect(() => {
+    loadRef.current = load;
+  });
 
   useEffect(() => {
-    void refresh();
-    const timer = setInterval(() => void refresh(), 5000);
-    return () => clearInterval(timer);
-  }, [refresh]);
+    mounted.current = true;
+    void loadRef.current(true);
+    const timer = setInterval(() => void loadRef.current(false), 5000);
+    return () => {
+      mounted.current = false;
+      loadGeneration.current += 1;
+      clearInterval(timer);
+    };
+  }, []);
 
   async function createSubject(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
-    const body = new FormData();
-    body.append("name", name);
-    body.append("term", term);
-    const res = await apiFetch("/api/v1/subjects", { method: "POST", body });
-    setMsg(res.ok ? "创建成功" : await res.text());
-    setName("");
-    setTerm("");
-    await refresh();
+    await createSubjectAction({
+      request: apiFetch,
+      isCurrent,
+      name,
+      term,
+      setBusy,
+      onError: setMsg,
+      onSuccess: () => {
+        setMsg("创建成功");
+        void loadRef.current(false);
+      },
+      clearInputs: () => {
+        setName("");
+        setTerm("");
+      },
+    });
   }
 
   async function uploadFiles(subjectId: string, files: FileList | null, type: string) {
     if (!files || files.length === 0) return;
-    setUploading((u) => ({ ...u, [subjectId]: true }));
-    try {
-      const body = new FormData();
-      body.append("type", type);
-      for (const f of Array.from(files)) body.append("files", f);
-      const res = await apiFetch(`/api/v1/subjects/${subjectId}/knowledge/upload`, {
-        method: "POST",
-        body,
-      });
-      setMsg(res.ok ? "上传成功，正在建索引…" : await res.text());
-      await refresh();
-    } finally {
-      setUploading((u) => ({ ...u, [subjectId]: false }));
+    const rows = Array.from(files);
+    const audio = rows.some((file) => /\.(?:mp3|m4a|wav|flac|ogg|oga|opus|aac|amr|wma)$/i.test(file.name));
+    if (audio) {
+      setMsg("课堂录音请使用该科目的“课堂录音”入口；文档与录音不能混在同一批。");
+      return;
     }
+    await uploadSubjectMaterialAction({
+      request: apiFetch,
+      isCurrent,
+      subjectId,
+      files: Array.from(files),
+      type,
+      setBusy: (value) => setUploading((u) => ({ ...u, [subjectId]: value })),
+      onError: setMsg,
+      onSuccess: setMsg,
+      reloadKnowledge: async () => {
+        const knowledgeMap = await loadRef.current(false);
+        return (knowledgeMap[subjectId] ?? []) as KnowledgeProjection[];
+      },
+    });
   }
 
   async function deleteSubject(id: string) {
     if (!confirm(`删除科目 ${id}？将同时删除其全部数据`)) return;
-    await apiFetch(`/api/v1/subjects/${id}`, { method: "DELETE" });
-    await refresh();
+    await deleteSubjectAction({
+      request: apiFetch,
+      isCurrent,
+      subjectId: id,
+      setBusy,
+      onError: setMsg,
+      onSuccess: () => {
+        setMsg("科目已删除。");
+        void loadRef.current(false);
+      },
+    });
   }
 
   return (
@@ -114,8 +167,12 @@ export default function SubjectsPage() {
           value={term}
           onChange={(e) => setTerm(e.target.value)}
         />
-        <button className="rounded-md bg-blue-600 px-4 py-1.5 text-sm text-white" type="submit">
-          新建科目
+        <button
+          className="rounded-md bg-blue-600 px-4 py-1.5 text-sm text-white disabled:opacity-50"
+          type="submit"
+          disabled={busy}
+        >
+          {busy ? "创建中…" : "新建科目"}
         </button>
         {msg && <span className="self-center text-sm text-amber-600">{msg}</span>}
       </form>
@@ -135,28 +192,35 @@ export default function SubjectsPage() {
                 <input
                   type="file"
                   multiple
-                  accept=".pdf,.epub,.ppt,.pptx,.png,.jpg,.jpeg,.mp3,.m4a,.docx,.md,.txt"
+                  disabled={busy || uploading[s.id]}
+                  accept=".pdf,.epub,.ppt,.pptx,.png,.jpg,.jpeg,.docx,.md,.txt"
                   className="hidden"
                   id={`file-${s.id}`}
                   onChange={(e) => uploadFiles(s.id, e.target.files, "auto")}
                 />
                 <label
                   htmlFor={`file-${s.id}`}
-                  className="cursor-pointer rounded-md bg-emerald-600 px-3 py-1 text-sm text-white"
+                  className={
+                    uploading[s.id] || busy
+                      ? "cursor-not-allowed rounded-md bg-emerald-600/60 px-3 py-1 text-sm text-white"
+                      : "cursor-pointer rounded-md bg-emerald-600 px-3 py-1 text-sm text-white"
+                  }
                 >
                   {uploading[s.id] ? "上传中…" : "上传材料"}
                 </label>
                 <button
-                  className="rounded-md bg-red-600 px-3 py-1 text-sm text-white"
+                  className="rounded-md bg-red-600 px-3 py-1 text-sm text-white disabled:opacity-50"
                   onClick={() => deleteSubject(s.id)}
+                  disabled={busy || uploading[s.id]}
                 >
-                  删除
+                  {busy ? "处理中…" : "删除"}
                 </button>
               </div>
             </div>
+            <AsrJobPanel request={apiFetch} subjectId={s.id} compact label="课堂录音" />
             <div className="mt-3 space-y-1 text-sm">
               {(knowledge[s.id] ?? []).length === 0 && (
-                <div className="opacity-50">暂无知识库，上传材料后自动创建（默认按文件类型归类）。</div>
+                <div className="opacity-50">暂无知识库，上传文档后自动创建；课堂录音仅转写。</div>
               )}
               {(knowledge[s.id] ?? []).map((kb) => (
                 <div key={kb.kb_name} className="flex items-center gap-2 rounded-lg bg-black/5 px-3 py-1.5">

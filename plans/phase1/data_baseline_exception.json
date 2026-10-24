@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "exception_id": "S14-model-catalog-20261020",
+  "status": "user_authorized",
+  "recorded_at_utc": "2026-10-20T11:14:34.258088+00:00",
+  "authorization": {
+    "actor": "user",
+    "text": "接受单项例外，允许建立新配置基线"
+  },
+  "allowed_path": "data/user/settings/model_catalog.json",
+  "historical": {
+    "path": ".phase1-evidence/P1-00/real_data_protection_baseline.json",
+    "sha256": "fd4fe5d4079712d0f587efbedeeaf54583fe9c9e1e4ce34e691b956245c8f461"
+  },
+  "previous": {
+    "path": ".phase1-evidence/reviews/S13-final/data_after.json",
+    "sha256": "3349b624094145a4cba7b240d300b54f7a8766235caa037c5621ed2ca7222ce2"
+  },
+  "baseline": {
+    "path": ".phase1-evidence/reviews/S14-final/data_exception_baseline.json",
+    "sha256": "1d231082f8bc3c35bda8728491710c18fa4c8259d89d7b34878b7c8eaa0c3d9b"
+  },
+  "before": {
+    "sha256": "630dbac8a405233f2b946e3a60e42d6f9a5ebe43aedb81a3b702109e3f51110e",
+    "size": 3608
+  },
+  "after": {
+    "sha256": "65db48a600816207a3b6f366fbb227ef06960d3eacd519b2e281e8978a23d5a0",
+    "size": 3117
+  },
+  "incident": {
+    "path": ".phase1-evidence/stages/S14/incident.json",
+    "sha256": "24102afcacc3ba06123ebc8c6db3a59b74775b278994ba4c8b1d44aab253b4e7"
+  },
+  "original_restored": false,
+  "live_provider_validation": false,
+  "meaning": "User accepts the single lost configuration baseline. All other inventories, metadata and old evidence remain protected. This is not restoration or provider verification."
+}

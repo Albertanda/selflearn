@@ -43,7 +43,6 @@ logger = logging.getLogger(__name__)
 
 import re
 
-
 _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 _UNSAFE_CHARS = re.compile(r'[<>:"/\\|?*]')
 

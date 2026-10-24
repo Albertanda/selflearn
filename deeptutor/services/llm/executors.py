@@ -13,6 +13,10 @@ from openai import AsyncOpenAI, BadRequestError
 from deeptutor.services.llm.capabilities import disable_response_format_at_runtime
 from deeptutor.services.llm.openai_http_client import openai_client_kwargs
 from deeptutor.services.llm.provider_registry import find_by_name, strip_provider_prefix
+from deeptutor.services.llm.reasoning_controls import (
+    is_provider_default,
+    openai_compat_reasoning_fields,
+)
 from deeptutor.services.llm.reasoning_params import default_reasoning_effort_for
 
 from .config import get_token_limit_kwargs
@@ -202,8 +206,17 @@ async def sdk_complete(
     effective_effort = reasoning_effort or default_reasoning_effort_for(
         provider_name, resolved_model
     )
-    if effective_effort:
-        payload["reasoning_effort"] = effective_effort
+    if effective_effort and not is_provider_default(effective_effort):
+        for key, value in openai_compat_reasoning_fields(
+            provider=provider_name,
+            model=resolved_model,
+            effort=effective_effort,
+            max_tokens=max_tokens_val,
+        ).items():
+            if key == "extra_body" and isinstance(value, dict):
+                payload["extra_body"] = {**payload.get("extra_body", {}), **value}
+            else:
+                payload[key] = value
     payload.update(kwargs)
 
     response = await _create_with_format_fallback(
@@ -278,8 +291,17 @@ async def sdk_stream(
     effective_effort = reasoning_effort or default_reasoning_effort_for(
         provider_name, resolved_model
     )
-    if effective_effort:
-        payload["reasoning_effort"] = effective_effort
+    if effective_effort and not is_provider_default(effective_effort):
+        for key, value in openai_compat_reasoning_fields(
+            provider=provider_name,
+            model=resolved_model,
+            effort=effective_effort,
+            max_tokens=max_tokens_val,
+        ).items():
+            if key == "extra_body" and isinstance(value, dict):
+                payload["extra_body"] = {**payload.get("extra_body", {}), **value}
+            else:
+                payload[key] = value
     payload.update(kwargs)
 
     stream_response = await _create_with_format_fallback(

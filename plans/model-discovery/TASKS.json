@@ -1,0 +1,236 @@
+{
+  "stage": "MD-R1",
+  "schema_version": 1,
+  "working_directory": "/home/albert/selflearn/selflearn",
+  "execution": "One authorized stage; serial units, no per-card approval pauses",
+  "dispatch_order": [
+    "MD-01",
+    "MD-02",
+    "MD-03",
+    "MD-04",
+    "MD-05",
+    "MD-06",
+    "MD-07"
+  ],
+  "contracts": "CONTRACTS.md",
+  "acceptance": "ACCEPTANCE.md",
+  "exploration": "EXPLORATION.md",
+  "tasks": [
+    {
+      "id": "MD-01",
+      "title": "统一类型与纯函数",
+      "depends_on": [],
+      "goal": "实现 D1/D3/D6/D7 的可共享类型、响应校验、候选归并、稳定引用及显示辅助函数，不接网络、不写真实配置。",
+      "evidence": [
+        "Python/TS fixture 覆盖合法响应、空目录、坏字段、保留大小写和含斜杠 ID。",
+        "同 profile 重复添加不改 id/别名/参数；不同 profile 同 model 可独立存在。",
+        "缺省 visible=true、未知类别、unsupported 和旧 schema 的行为可断言。"
+      ],
+      "allowed_changes": [
+        "deeptutor/services/model_discovery/types.py",
+        "deeptutor/services/model_discovery/compatibility.py",
+        "deeptutor/services/model_discovery/__init__.py",
+        "web/lib/model-discovery.ts",
+        "web/lib/model-discovery-state.ts",
+        "web/components/settings/SettingsContext.tsx（仅类型及候选合并接缝）",
+        "tests/services/model_discovery/test_types.py",
+        "web/tests/model-discovery-state.test.ts"
+      ],
+      "done_when": [
+        "Python/TS 类型和示例契约一致，无导入时 IO。",
+        "候选与 CatalogModel 不共用内部 id 语义，不用模型名称当内部稳定 id。",
+        "纯函数行为测试通过，未修改任何历史数据或默认模型。"
+      ]
+    },
+    {
+      "id": "MD-02",
+      "title": "四类目录适配与协议兼容判断",
+      "depends_on": [
+        "MD-01"
+      ],
+      "goal": "按 D4 实现 Aliyun、SiliconFlow、OpenAI-compatible、Ollama 的有界目录读取与规范化；既有推理适配器保持不变。",
+      "evidence": [
+        "httpx MockTransport/本地 fixture 验证 URL、认证、extra_headers、分页及响应解析，不访问厂商。",
+        "阿里 output.models 与 capabilities、SF sub_type、通用 data[]/裸列表、Ollama /api/tags 各有正例。",
+        "第三方 routing、ASR Filetrans/实时型号、reranker、unknown 类型、非法响应均有反例。",
+        "100页/10k模型/字节/截止限制和分页不前进不会无限循环或把半份目录缓存成完整。"
+      ],
+      "allowed_changes": [
+        "deeptutor/services/model_discovery/adapters.py",
+        "deeptutor/services/model_discovery/compatibility.py",
+        "tests/services/model_discovery/test_adapters.py",
+        "tests/services/model_discovery/fixtures/**"
+      ],
+      "done_when": [
+        "四类适配器行为测试通过。",
+        "首批实际覆盖矩阵可列明；不能全部伪造为 unsupported。",
+        "只发送目录元数据请求，未调用推理、下载、拉模型或浏览器跨域接口。",
+        "不改 deeptutor/services/voice/adapters/qwen_asr.py 等推理代码。"
+      ]
+    },
+    {
+      "id": "MD-03",
+      "title": "凭据解析与持久缓存",
+      "depends_on": [
+        "MD-01",
+        "MD-02"
+      ],
+      "goal": "实现同服务/profile 凭据恢复、连接指纹、TTL、失败冷却、单次并发合并与有界磁盘缓存。",
+      "evidence": [
+        "mask 含敏感 headers、完整含点号密钥、空值语义与不存在 profile 均有测试。",
+        "相同 URL 的不同 key/header/owner/service/profile/API version 不串缓存。",
+        "fake clock 验证 1h/5min/60s/7d；失败保留旧目录及 fetched_at，成功空目录有独立语义。",
+        "并发同连接只产生一次上游读取；缓存损坏、写失败、容量清理不丢已有成功目录。",
+        "检查日志、缓存与响应：不包含 fixture 密钥、认证头值或上游错误正文。"
+      ],
+      "allowed_changes": [
+        "deeptutor/services/model_discovery/service.py",
+        "deeptutor/services/model_discovery/cache.py",
+        "deeptutor/services/model_discovery/types.py",
+        "tests/services/model_discovery/test_service.py",
+        "tests/services/model_discovery/test_cache.py"
+      ],
+      "done_when": [
+        "缓存只写隔离的 user/cache/model-discovery；查询不调用 catalog.save/apply。",
+        "origin/binding 改变时不会自动携带旧凭据；缺完整凭据时明确返回需重填。",
+        "原子写和 single-flight 异常路径会释放，冷却/旧目录状态符合 D5。"
+      ]
+    },
+    {
+      "id": "MD-04",
+      "title": "管理员 API 与错误边界",
+      "depends_on": [
+        "MD-03"
+      ],
+      "goal": "添加统一 model-discovery 路由，接入服务，保持旧 fetch-models 与专用 OAuth/CodeBuddy 行为兼容。",
+      "evidence": [
+        "真实 FastAPI TestClient 覆盖七个服务、search拒绝、saved/draft 连接、mask恢复、HTTP/envelope 错误语义。",
+        "未登录/普通用户不能读取目录、探测 key 或写缓存；跨服务同 id 不会取错凭据。",
+        "新接口调用前后 catalog 的逐字节摘要一致。",
+        "旧 fetch-models、OAuth/CodeBuddy 契约回归通过。"
+      ],
+      "allowed_changes": [
+        "deeptutor/api/routers/settings.py（新增 payload/route 及必要 helper，旧接口只做必要兼容）",
+        "deeptutor/services/model_discovery/**",
+        "tests/api/test_model_discovery.py",
+        "tests/services/model_discovery/**"
+      ],
+      "done_when": [
+        "七类共用一个契约，API 只返回净化元数据。",
+        "失败无 traceback/URL 凭据/上游 body 泄漏。",
+        "手动及自动请求均走后端权限、凭据和缓存层。"
+      ]
+    },
+    {
+      "id": "MD-05",
+      "title": "Chatbox 式候选面板与首次自动获取",
+      "depends_on": [
+        "MD-04"
+      ],
+      "goal": "在七类设置中提供共享查询/筛选/多选添加界面，接入仅当前已存连接的首次自动获取和缓存状态。",
+      "evidence": [
+        "实际执行生产 hook/组件的测试验证自动首次请求、StrictMode 去重、失败冷却和显式刷新。",
+        "切 profile/service/binding/key/URL、保存中切换及迟到响应不能污染新面板或 draft。",
+        "取消面板/查询失败/空目录不改变模型，添加后先 dirty draft，保存后才进入实际配置。",
+        "搜索、unknown 确认、unsupported 禁添加、模型去重与别名保留可通过真实交互复现。"
+      ],
+      "allowed_changes": [
+        "web/components/settings/ModelDiscoveryDialog.tsx",
+        "web/components/settings/useModelDiscovery.ts",
+        "web/components/settings/ServiceConfigEditor.tsx（通用模型管理入口）",
+        "web/components/settings/SettingsContext.tsx（保存/添加候选必要接缝和错误保留）",
+        "web/lib/model-discovery.ts",
+        "web/lib/model-discovery-state.ts",
+        "web/tests/model-discovery-*.test.ts",
+        "web/locales/**（只新增本功能文案；实际目录见探索包）"
+      ],
+      "done_when": [
+        "不在输入密钥时自动请求、不在应用启动时扫描所有 profile。",
+        "自动获取不添加模型、不切默认、不覆盖原列表。",
+        "普通 profile 能查询，不支持供应商和 search 有清晰表现；专用 managed profile 无新写入口。",
+        "保存失败不清 draft、不清 catalog，连接旧响应被可靠丢弃。"
+      ]
+    },
+    {
+      "id": "MD-06",
+      "title": "聊天显示开关与授权隔离",
+      "depends_on": [
+        "MD-01",
+        "MD-05"
+      ],
+      "goal": "实现 visible_in_picker 的展示语义、默认项保护及当前会话保留，确保隐藏不撤权。",
+      "evidence": [
+        "旧 catalog 无迁移仍全部显示；隐藏条目保留原 id、参数、grants。",
+        "管理员和普通用户新候选列表按显示规则过滤；普通用户仍只看到已授权模型。",
+        "隐藏后按 id 的既有会话仍可继续，has_capability_access/selection validation 不变；当前项有解释标记。",
+        "UI 与 PUT/Apply 均拒绝隐藏当前默认，失败前后配置摘要不变。",
+        "保存后失效原 LLM options 缓存，不在刷新目录时调用失效/切换选择。",
+        "LLM options 新增 hidden_options/has_usable_models；旧响应缺字段兼容，all-hidden grants 不导致 CapabilityAccessContext 错误锁定。"
+      ],
+      "allowed_changes": [
+        "deeptutor/services/model_selection/llm.py（展示 helper，不重写运行授权）",
+        "deeptutor/api/routers/settings.py（llm-options 展示边界、PUT/Apply 显示校验）",
+        "deeptutor/multi_user/model_access.py（仅安全读取显示元数据或展示 helper，授权本身不改）",
+        "web/components/settings/SettingsContext.tsx",
+        "web/components/settings/ServiceConfigEditor.tsx",
+        "web/lib/llm-options.ts",
+        "web/lib/llm-options-state.ts",
+        "web/context/UnifiedChatContext.tsx（仅保留已选隐藏项的必要接缝）",
+        "tests/services/model_selection/test_llm_selection.py",
+        "tests/api/test_model_visibility.py",
+        "tests/phase1/test_model_visibility_access.py",
+        "web/tests/model-visibility*.test.ts",
+        "web/components/access/CapabilityAccessContext.tsx（只读 has_usable_models，避免显示过滤撤权）",
+        "web/hooks/useLLMOptions.ts（传递 hidden_options 等展示元数据）",
+        "web/components/chat/home/ModelSelector.tsx（只为当前已选隐藏项保留显示）",
+        "web/components/chat/home/ChatComposer.tsx（传递隐藏项元数据）",
+        "web/app/(workspace)/home/[[...sessionId]]/page.tsx（只传递模型展示元数据，不改聊天流程）",
+        "web/components/quiz/FollowupChatComposer.tsx（只传递模型展示元数据，不改题目流程）",
+        "web/tests/capability-model-visibility.test.ts"
+      ],
+      "done_when": [
+        "显示/配置/默认/授权四种语义不互相替代。",
+        "查询或隐藏均不自动改 active/default 或会话模型。",
+        "普通用户不能借隐藏/目录参数获得管理员模型或其他账号 OAuth 模型。"
+      ]
+    },
+    {
+      "id": "MD-07",
+      "title": "阶段联调、浏览器及证据",
+      "depends_on": [
+        "MD-02",
+        "MD-03",
+        "MD-04",
+        "MD-05",
+        "MD-06"
+      ],
+      "goal": "在隔离环境完成真实组件/浏览器验收、必要回归与源数据完整性核验，输出一份阶段报告。",
+      "evidence": [
+        "ACCEPTANCE.md 全部强制矩阵及命令有实际 exit code/原始日志，失败尝试保留。",
+        "真实 Chromium 验证首次获取、缓存重开、筛选添加保存、LLM显示/会话保留、刷新失败和无真实数据写入。",
+        "两个坏对照在临时副本分别关闭 generation 校验和恢复覆盖式同步，相关测试因目标断言失败。",
+        "到达/收尾 opaque 六树数据一致；源码范围核验、单次源码归档及解包逐项哈希一致。"
+      ],
+      "allowed_changes": [
+        "tests/services/model_discovery/**",
+        "tests/api/test_model_discovery.py",
+        "tests/api/test_model_visibility.py",
+        "tests/phase1/test_model_visibility_access.py",
+        "tests/asr/**（仅新增/修正本功能兼容回归，不改掉原断言）",
+        "web/tests/model-discovery*.test.ts",
+        "web/tests/model-visibility*.test.ts",
+        "web/e2e/model-discovery.spec.ts",
+        "web/playwright.model-discovery.config.ts",
+        "plans/model-discovery/RESULT.md（可新增，不覆盖本契约/任务/探索包）",
+        ".phase1-evidence/model-discovery/MD-R1-<fresh>/**",
+        "web/playwright.phase1.config.ts（仅 MODEL_SERVER/本功能专用 fixture 开关；禁止改隔离、guard、源码路径和端口清理）"
+      ],
+      "done_when": [
+        "全部强制用例通过；无法执行的门如实 blocked_environment，不能伪造通过或更改保护来放行。",
+        "当前 Aliyun ASR、legacy multipart、OAuth 和普通用户授权回归未退化。",
+        "只报 verified_local 或具体阻塞，列出远程/预置/未知支持矩阵；等待协调者独立验收。",
+        "不提交、不推送、不升级、不改真实配置、不进入后续功能阶段。"
+      ]
+    }
+  ]
+}

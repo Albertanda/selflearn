@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
@@ -30,11 +31,23 @@ from deeptutor.agents.question.pipeline import (
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _fake_model_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pure pipeline tests must not depend on a user's configured provider."""
+    monkeypatch.setattr(
+        "deeptutor.agents.question.pipeline.get_llm_config",
+        lambda: SimpleNamespace(
+            model="test-model", binding="openai", provider_name="test-provider",
+            api_key="", base_url="", api_version=None, extra_headers={}, reasoning_effort=None,
+        ),
+    )
+
+
 def _make_pipeline(language: str = "en") -> QuestionPipeline:
     """Build a pipeline without hitting the network for LLM config."""
     # Tests don't drive ``run`` — they only exercise pure helpers and the
-    # YAML-driven trace metadata builders. So the LLM config can be the
-    # production one (env-based) without making any actual API calls.
+    # YAML-driven trace metadata builders. The explicit fixture above supplies
+    # configuration without consulting a real model catalog.
     return QuestionPipeline(language=language)
 
 

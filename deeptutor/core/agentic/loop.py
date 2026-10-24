@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable
 from dataclasses import dataclass, field
+import logging
 from typing import Any, Protocol
 
 from deeptutor.core.agentic.labeled_step import LabeledStepResult, run_labeled_step
@@ -34,6 +35,9 @@ from deeptutor.core.agentic.messages import assistant_message_with_tool_calls
 from deeptutor.core.agentic.tool_dispatch import DispatchOutcome
 from deeptutor.core.agentic.usage import UsageTracker
 from deeptutor.core.stream_bus import StreamBus
+from deeptutor.services.llm.types import finish_was_truncated
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -74,6 +78,11 @@ class LoopOutcome:
     sources: list[dict[str, Any]] = field(default_factory=list)
     messages: list[dict[str, Any]] = field(default_factory=list)
     completed: bool = False
+    #: The provider stopped the final step at an output cap *without* producing
+    #: text — the reasoning-burned-the-budget case. Surfaced so a caller can say
+    #: so instead of presenting an empty answer. Upstream v1.6.10 diagnoses the
+    #: same condition in its agent loop.
+    truncated: bool = False
 
 
 class LoopHost(Protocol):
@@ -213,6 +222,7 @@ async def run_agentic_loop(
     final_text = ""
     final_label_seen = ""
     completed = False
+    truncated_final = False
     iterations_run = 0
     max_iter = max(1, max_iterations)
 
@@ -292,6 +302,18 @@ async def run_agentic_loop(
             final_text = step.text
             final_label_seen = step.label
             completed = True
+            # A truncated step that still produced text is a usable partial
+            # answer; only the "budget spent, nothing written" shape is worth
+            # reporting, because the user would otherwise see an empty reply.
+            if not step.text.strip() and finish_was_truncated(step.finish_reason):
+                truncated_final = True
+                logger.warning(
+                    "agentic loop: final step hit the output cap without text "
+                    "(finish_reason=%s, label=%s) — this is the reasoning model "
+                    "spending its whole budget on internal reasoning",
+                    step.finish_reason,
+                    step.label,
+                )
             break
 
         if protocol.tool_label is not None and step.label == protocol.tool_label:
@@ -369,6 +391,7 @@ async def run_agentic_loop(
         sources=aggregated_sources,
         messages=messages,
         completed=completed,
+        truncated=truncated_final,
     )
 
 

@@ -11,6 +11,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Sparkles,
   Terminal,
   Trash2,
 } from "lucide-react";
@@ -19,9 +20,23 @@ import { useTranslation } from "react-i18next";
 import ProviderIcon from "@/components/common/ProviderIcon";
 import { apiFetch, apiUrl } from "@/lib/api";
 import {
-  reasoningEffortOptions,
-  reasoningEffortOptionsFromSupportedLevels,
-} from "@/lib/reasoning-effort";
+  CUSTOM_PROVIDER_SENTINEL,
+  customProviderIdFromSelectValue,
+  customProvidersForService,
+  customProviderSelectValue,
+  localizeProviderLabel,
+  newCustomProviderId,
+  resolveProviderPresentation,
+  type CustomProviderDefinition,
+  type CustomProviderService,
+} from "@/lib/custom-providers";
+import CustomProviderDialog, {
+  type CustomProviderDialogValue,
+} from "./CustomProviderDialog";
+import {
+  modelDefaultReasoningChoices,
+  reasoningControlsKey,
+} from "@/lib/reasoning-controls";
 import { CodexOAuthCard } from "./CodexOAuthCard";
 import { CodeBuddyAuthCard } from "./CodeBuddyAuthCard";
 import {
@@ -35,12 +50,25 @@ import {
   type LlmContextWindowDetection,
   type ProviderOption,
   type ServiceName,
-  getActiveModel,
-  getActiveProfile,
+  resolveEditingSelection,
   useSettings,
 } from "./SettingsContext";
 import { DimensionField } from "./DimensionField";
+import { ModelDiscoveryDialog } from "./ModelDiscoveryDialog";
+import { useModelDiscovery } from "./useModelDiscovery";
 import { nextProfileName } from "./profile-naming";
+import {
+  mergeDiscoveredModels,
+  modelVisibleInPicker,
+  type DiscoveryService,
+} from "@/lib/model-discovery";
+import {
+  modelOverrideFlags,
+  parameterSourceLabel,
+  positiveInteger,
+  previewParameterUpdate,
+  type ParameterOverrideKey,
+} from "@/lib/model-metadata";
 import { searchProviderFields } from "./search-providers";
 import {
   activeProfileDetail,
@@ -52,7 +80,7 @@ import {
 } from "./shared";
 
 const SERVICE_LABEL: Record<ServiceName, string> = {
-  llm: "LLM",
+  llm: "Large language model (LLM)",
   embedding: "Embedding",
   search: "Search",
   tts: "Text-to-Speech",
@@ -65,6 +93,7 @@ const SERVICE_LABEL: Record<ServiceName, string> = {
 export function ServiceConfigEditor({ service }: { service: ServiceName }) {
   const { t } = useTranslation();
   const {
+    catalog,
     draft,
     catalogEditable,
     settingsError,
@@ -75,14 +104,21 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
     logs,
     testRunning,
     mutateCatalog,
+    editingSelections,
+    reasoningControls,
+    selectEditingProfile,
+    selectEditingModel,
     addProfile,
-    removeActiveProfile,
+    removeEditingProfile,
     addModel,
-    removeActiveModel,
+    removeEditingModel,
     updateProfileField,
     updateModelField,
     updateModelBoolField,
     updateContextWindowField,
+    updateLlmBudgetField,
+    updateEmbeddingDimensionField,
+    updateEmbeddingSendDimensions,
     updateReasoningEffort,
     llmContextDetection,
     applyDetectedContextWindow,
@@ -90,8 +126,13 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
     setToast,
   } = useSettings();
 
-  const activeProfile = getActiveProfile(draft, service);
-  const activeModel = getActiveModel(draft, service);
+  const editing = resolveEditingSelection(
+    draft,
+    service,
+    editingSelections[service],
+  );
+  const activeProfile = editing.profile;
+  const activeModel = editing.model;
   const activeProviderValue =
     service === "search"
       ? activeProfile?.provider || ""
@@ -115,6 +156,9 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const [editingProfileName, setEditingProfileName] = useState("");
   const [modelsSyncing, setModelsSyncing] = useState(false);
+  const [discoveryOpen, setDiscoveryOpen] = useState(false);
+  const [parameterPreviewOpen, setParameterPreviewOpen] = useState(false);
+  const [restoreAuto, setRestoreAuto] = useState<ParameterOverrideKey[]>([]);
 
   // Reset API-key visibility whenever we land on a different profile or
   // switch services — same effect the old code had, but using React's
@@ -125,7 +169,40 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
   if (lastProfileKey !== profileKey) {
     setLastProfileKey(profileKey);
     if (showApiKey) setShowApiKey(false);
+    if (discoveryOpen) setDiscoveryOpen(false);
   }
+
+  const discoveryService: DiscoveryService =
+    service === "search" ? "llm" : service;
+  const savedProfile =
+    service === "search" || !activeProfile
+      ? null
+      : (catalog.services[service].profiles.find(
+          (profile) => profile.id === activeProfile.id,
+        ) ?? null);
+  const discovery = useModelDiscovery({
+    service: discoveryService,
+    profile: service === "search" ? null : activeProfile,
+    savedProfile,
+  });
+  const isCurrentGlobalLlmDefault =
+    service === "llm" &&
+    Boolean(activeProfile && activeModel) &&
+    catalog.services.llm.active_profile_id === activeProfile?.id &&
+    catalog.services.llm.active_model_id === activeModel?.id;
+  const isEditingDefaultProfile =
+    Boolean(activeProfile) &&
+    draft.services[service].active_profile_id === activeProfile?.id;
+  const isEditingDefaultModel =
+    isEditingDefaultProfile &&
+    (service === "search" ||
+      draft.services[service].active_model_id === activeModel?.id);
+  const discoveryDisabled =
+    service === "search" ||
+    !activeProfile ||
+    isCodexOAuth ||
+    isManagedCodex ||
+    activeProfile.binding === "codebuddy";
 
   const searchProviderRaw =
     service === "search"
@@ -158,22 +235,53 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
     !String(activeProfile?.api_key || "").trim();
   const activeLlmDetection =
     service === "llm" &&
-    llmContextDetection?.profileId === draft.services.llm.active_profile_id &&
-    llmContextDetection?.modelId === draft.services.llm.active_model_id
+    llmContextDetection?.profileId === activeProfile?.id &&
+    llmContextDetection?.modelId === activeModel?.id
       ? llmContextDetection
       : null;
+  const matchedCandidate = activeModel
+    ? discovery.response?.models.find((model) => model.id === activeModel.model)
+    : undefined;
+  const currentParameterPreview =
+    activeModel &&
+    (matchedCandidate?.parameters || matchedCandidate?.reasoning_controls)
+      ? previewParameterUpdate({
+          existing: activeModel,
+          parameters: matchedCandidate.parameters,
+          service: service === "llm" || service === "embedding" ? service : "llm",
+          restoreAuto,
+          reasoningControls: matchedCandidate.reasoning_controls,
+        })
+      : null;
+  const manualParameterFields = activeModel
+    ? (Object.entries(modelOverrideFlags(activeModel)) as [
+        ParameterOverrideKey,
+        boolean,
+      ][])
+        .filter(([, value]) => value)
+        .map(([key]) => key)
+    : [];
+  const activeReasoningControls =
+    service === "llm" && activeProfile && activeModel
+      ? (reasoningControls[
+          reasoningControlsKey(activeProfile.id, activeModel.id)
+        ] ?? activeModel.provider_metadata?.reasoning_controls)
+      : undefined;
+  const storedReasoningValue = (activeModel?.reasoning_effort ?? "").trim();
   const reasoningOptions =
-    service === "llm" && activeModel
+    service === "llm" &&
+    activeModel &&
+    activeReasoningControls?.supported === true
       ? isManagedCodex
         ? isBoundManagedCodex
-          ? reasoningEffortOptionsFromSupportedLevels(
-              activeModel.codex_supported_reasoning_levels ?? [],
+          ? modelDefaultReasoningChoices(
+              activeReasoningControls,
+              activeModel.reasoning_effort ?? "",
             )
           : []
-        : reasoningEffortOptions(
-            activeProfile?.binding,
-            activeModel.model,
-            activeModel.reasoning_effort,
+        : modelDefaultReasoningChoices(
+            activeReasoningControls,
+            activeModel.reasoning_effort ?? "",
           )
       : [];
 
@@ -218,7 +326,7 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
         const existing = new Map(
           profile.models.map((model) => [model.model, model]),
         );
-        profile.models = fetched.map((item, index) => {
+        const fetchedModels = fetched.map((item, index) => {
           const previous = existing.get(item.id);
           return previous
             ? { ...previous, name: item.name || previous.name, model: item.id }
@@ -228,11 +336,17 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                 model: item.id,
               };
         });
-        if (
-          !profile.models.some((model) => model.id === target.active_model_id)
-        ) {
-          target.active_model_id = profile.models[0]?.id ?? null;
-        }
+        // Directory sync is an edit of this profile, never an implicit
+        // default change. Keep the saved default entry even if a transient
+        // provider response omitted it.
+        const savedDefault = profile.models.find(
+          (model) =>
+            model.id === target.active_model_id &&
+            !fetchedModels.some((item) => item.id === model.id),
+        );
+        profile.models = savedDefault
+          ? [...fetchedModels, savedDefault]
+          : fetchedModels;
       });
       setToast(t("Synced {{count}} models", { count: fetched.length }));
     } catch (error) {
@@ -252,8 +366,11 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
       activeProfile?.models.findIndex((model) => model.id === modelId) ?? -1;
     const fallbackName = defaultModelLabel(language, fallbackIndex + 1);
     const nextName = editingModelName.trim() || fallbackName;
+    const profileId = activeProfile?.id;
     mutateCatalog((next) => {
-      const profile = getActiveProfile(next, service);
+      const profile = next.services[service].profiles.find(
+        (item) => item.id === profileId,
+      );
       const model = profile?.models.find((item) => item.id === modelId);
       if (model) model.name = nextName;
     });
@@ -331,7 +448,8 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
             </div>
             <div className="space-y-0.5">
               {draft.services[service].profiles.map((profile) => {
-                const isActive =
+                const isActive = profile.id === activeProfile?.id;
+                const isSavedDefault =
                   profile.id === draft.services[service].active_profile_id;
                 const profileDetail = activeProfileDetail(profile, service, t);
                 const isManagedProfile = isManagedCodexProfile(profile);
@@ -341,16 +459,12 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                   <div
                     key={profile.id}
                     role="button"
+                    data-testid="profile-tab"
+                    data-profile-id={profile.id}
                     tabIndex={isEditing ? -1 : 0}
                     onClick={() => {
                       if (isEditing) return;
-                      mutateCatalog((next) => {
-                        next.services[service].active_profile_id = profile.id;
-                        if (service !== "search") {
-                          next.services[service].active_model_id =
-                            profile.models[0]?.id ?? null;
-                        }
-                      });
+                      selectEditingProfile(service, profile.id);
                     }}
                     onDoubleClick={() => {
                       if (!isManagedProfile) startProfileRename(profile);
@@ -359,13 +473,7 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                       if (isEditing) return;
                       if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
-                        mutateCatalog((next) => {
-                          next.services[service].active_profile_id = profile.id;
-                          if (service !== "search") {
-                            next.services[service].active_model_id =
-                              profile.models[0]?.id ?? null;
-                          }
-                        });
+                        selectEditingProfile(service, profile.id);
                       }
                     }}
                     title={
@@ -385,6 +493,7 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                     {isEditing ? (
                       <input
                         autoFocus
+                        aria-label={t("Rename profile")}
                         className="block w-full rounded border border-[var(--border)] bg-[var(--background)] px-1.5 py-0.5 text-[13px] font-medium text-[var(--foreground)] outline-none focus:border-[var(--ring)]"
                         value={editingProfileName}
                         onChange={(e) => setEditingProfileName(e.target.value)}
@@ -399,8 +508,7 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                             cancelProfileRename();
                           }
                         }}
-                        aria-label={t("Rename profile")}
-                      />
+                                              />
                     ) : (
                       <div className="flex items-center gap-1.5">
                         <ProviderIcon
@@ -408,6 +516,15 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                             service === "search"
                               ? profile.provider
                               : profile.binding
+                          }
+                          icon={
+                            service === "search"
+                              ? null
+                              : resolveProviderPresentation(
+                                  draft,
+                                  service,
+                                  profile,
+                                ).providerIcon
                           }
                           size={13}
                         />
@@ -418,6 +535,11 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                         >
                           {profile.name}
                         </div>
+                        {isSavedDefault && (
+                          <span className="shrink-0 rounded-full bg-[var(--muted)] px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+                            {t("Default")}
+                          </span>
+                        )}
                         {!isManagedProfile && (
                           <button
                             type="button"
@@ -443,13 +565,20 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
             </div>
             <div className="mt-2 border-t border-[var(--border)]/40 pt-2">
               <button
-                onClick={() => removeActiveProfile(service)}
-                disabled={!activeProfile || isManagedCodex}
+                data-testid="delete-profile"
+                onClick={() => removeEditingProfile(service)}
+                disabled={
+                  !activeProfile || isManagedCodex || isEditingDefaultProfile
+                }
                 className="flex w-full items-center gap-1.5 rounded-lg px-3 py-1.5 text-left text-[11px] text-[var(--muted-foreground)]/60 transition-colors hover:bg-red-500/5 hover:text-red-500 disabled:opacity-30"
                 title={
-                  activeProfile && !isManagedCodex
-                    ? t("Permanently remove the currently selected profile.")
-                    : undefined
+                  isEditingDefaultProfile
+                    ? t(
+                        "This profile holds the saved default. Choose another default before deleting it.",
+                      )
+                    : activeProfile && !isManagedCodex
+                      ? t("Permanently remove the selected profile.")
+                      : undefined
                 }
               >
                 <Trash2 className="h-3 w-3 shrink-0" />
@@ -471,6 +600,7 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                 </div>
                 <button
                   type="button"
+                  data-testid="add-profile"
                   onClick={() => addProfile(service)}
                   className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)]/50 px-2.5 py-1 text-[12px] text-[var(--muted-foreground)] transition-colors hover:border-[var(--border)] hover:text-[var(--foreground)]"
                 >
@@ -495,6 +625,7 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                     previousProvider === "codebuddy";
                   if (crossesCodeBuddyBoundary) {
                     const profileId = activeProfile.id;
+                    const modelId = `llm-model-${Date.now()}`;
                     mutateCatalog((next) => {
                       const target = next.services.llm;
                       const profile = target.profiles.find(
@@ -504,10 +635,8 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                         return;
                       if (provider.value === "codebuddy") {
                         profile.models = [];
-                        target.active_model_id = null;
                         return;
                       }
-                      const modelId = `llm-model-${Date.now()}`;
                       profile.models = [
                         {
                           id: modelId,
@@ -515,7 +644,6 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                           model: "",
                         },
                       ];
-                      target.active_model_id = modelId;
                     });
                   }
                   if (provider.value === "codebuddy") {
@@ -537,6 +665,20 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                   </div>
                   {!isCodexOAuth && (
                     <div className="flex items-center gap-2">
+                      {!discoveryDisabled && (
+                        <button
+                          type="button"
+                          onClick={() => setDiscoveryOpen(true)}
+                          data-testid="model-discovery-open"
+                          className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)]/50 px-2.5 py-1 text-[12px] text-[var(--muted-foreground)] transition-colors hover:border-[var(--border)] hover:text-[var(--foreground)] disabled:opacity-40"
+                          title={t(
+                            "Query the provider directory, search, and add models to this draft.",
+                          )}
+                        >
+                          <Sparkles className="h-3 w-3" />
+                          {t("Query models")}
+                        </button>
+                      )}
                       {service === "llm" &&
                         activeProfile.binding === "codebuddy" && (
                           <button
@@ -553,6 +695,7 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                         )}
                       <button
                         type="button"
+                        data-testid="add-model"
                         onClick={() => addModel(service)}
                         className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)]/50 px-2.5 py-1 text-[12px] text-[var(--muted-foreground)] transition-colors hover:border-[var(--border)] hover:text-[var(--foreground)]"
                       >
@@ -560,8 +703,16 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                         {t("Model")}
                       </button>
                       <button
-                        onClick={() => removeActiveModel(service)}
-                        disabled={!activeModel}
+                        data-testid="delete-model"
+                        onClick={() => removeEditingModel(service)}
+                        disabled={!activeModel || isEditingDefaultModel}
+                        title={
+                          isEditingDefaultModel
+                            ? t(
+                                "This is the saved default model. Choose another default before deleting it.",
+                              )
+                            : undefined
+                        }
                         className="inline-flex items-center gap-1 text-[11px] text-[var(--muted-foreground)]/40 transition-colors hover:text-red-500 disabled:opacity-30"
                       >
                         <Trash2 className="h-3 w-3" />
@@ -573,7 +724,9 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                 {activeProfile.models.length > 0 && (
                   <div className="mb-4 flex flex-wrap items-center gap-1.5">
                     {activeProfile.models.map((model, index) => {
-                      const isActive =
+                      const isActive = model.id === activeModel?.id;
+                      const isSavedDefault =
+                        isEditingDefaultProfile &&
                         model.id === draft.services[service].active_model_id;
                       const label =
                         (model.name || "").trim() ||
@@ -591,6 +744,7 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                           {editingModelId === model.id && !isCodexOAuth ? (
                             <input
                               autoFocus
+                              data-testid="model-rename-input"
                               className="h-8 w-60 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 text-[12.5px] text-[var(--foreground)] outline-none focus:border-[var(--ring)]"
                               value={editingModelName}
                               onChange={(e) =>
@@ -611,11 +765,10 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                           ) : (
                             <button
                               type="button"
+                              data-testid="model-chip"
+                              data-model-id={model.id}
                               onClick={() =>
-                                mutateCatalog((next) => {
-                                  next.services[service].active_model_id =
-                                    model.id;
-                                })
+                                selectEditingModel(service, model.id)
                               }
                               onDoubleClick={() => {
                                 if (!isCodexOAuth) startModelRename(model);
@@ -641,6 +794,18 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                               >
                                 {label}
                               </span>
+                              {isSavedDefault && (
+                                <span className="shrink-0 rounded-full bg-[var(--muted)] px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+                                  {t("Default")}
+                                </span>
+                              )}
+                              {service === "llm" &&
+                                !modelVisibleInPicker(model) && (
+                                  <EyeOff
+                                    className="h-3 w-3 shrink-0 text-[var(--muted-foreground)]/70"
+                                    aria-label={t("Hidden from chat picker")}
+                                  />
+                                )}
                               {metric && (
                                 <span className="shrink-0 text-[10.5px] tabular-nums leading-none text-[var(--muted-foreground)]/80">
                                   {metric}
@@ -661,6 +826,7 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                           {t("Model ID")}
                         </div>
                         <input
+                          data-testid="model-id-input"
                           className={inputClass}
                           value={activeModel.model}
                           onChange={(e) =>
@@ -681,6 +847,7 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                               <input
                                 className={inputClass}
                                 inputMode="numeric"
+                                data-testid="llm-context-window"
                                 value={activeModel.context_window || ""}
                                 onChange={(e) =>
                                   updateContextWindowField(e.target.value)
@@ -688,14 +855,149 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                                 placeholder="65536"
                               />
                               <ContextWindowMeta model={activeModel} />
+                              {!activeModel.context_window &&
+                              activeModel.max_input_tokens ? (
+                                <p className="mt-1 text-[11px] text-[var(--muted-foreground)]">
+                                  {t("Input limit")}:{" "}
+                                  {Number(
+                                    activeModel.max_input_tokens,
+                                  ).toLocaleString("en-US")}{" "}
+                                  ·{" "}
+                                  {t(
+                                    "This is an input-only limit, not the total context window.",
+                                  )}
+                                </p>
+                              ) : null}
+                            </div>
+                            <div>
+                              <div className="mb-1.5 text-[12px] text-[var(--muted-foreground)]">
+                                {t("Default max output tokens")}
+                              </div>
+                              <input
+                                className={inputClass}
+                                inputMode="numeric"
+                                data-testid="llm-max-tokens"
+                                value={activeModel.max_tokens || ""}
+                                onChange={(e) =>
+                                  updateLlmBudgetField(e.target.value)
+                                }
+                                placeholder="4096"
+                              />
+                              <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--muted-foreground)]">
+                                {t(
+                                  "Used when a request has no smaller business budget. The provider's declared maximum is enforced as a ceiling.",
+                                )}
+                                {activeModel.provider_metadata?.parameters
+                                  .max_output_tokens ? (
+                                  <>
+                                    {" "}
+                                    {t("Provider maximum")}:{" "}
+                                    {activeModel.provider_metadata.parameters.max_output_tokens.toLocaleString(
+                                      "en-US",
+                                    )}
+                                  </>
+                                ) : null}
+                              </p>
                             </div>
                             <ContextWindowDetectionBanner
                               model={activeModel}
                               detection={activeLlmDetection}
                               onApply={applyDetectedContextWindow}
                             />
+                            {currentParameterPreview &&
+                            (currentParameterPreview.changes.length > 0 ||
+                              manualParameterFields.length > 0) ? (
+                              <div className="sm:col-span-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--border)]/60 bg-[var(--muted)]/20 px-3.5 py-2.5">
+                                <div className="text-[11px] leading-relaxed text-[var(--muted-foreground)]">
+                                  {t(
+                                    "The directory returned different official parameters for this model.",
+                                  )}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setRestoreAuto([]);
+                                    setParameterPreviewOpen(true);
+                                  }}
+                                  data-testid="llm-parameter-update"
+                                  className="rounded-md border border-[var(--border)] bg-[var(--background)] px-2.5 py-1 text-[11.5px] font-medium text-[var(--foreground)] transition-colors hover:border-[var(--foreground)]"
+                                >
+                                  {t("Preview official parameter update")}
+                                </button>
+                              </div>
+                            ) : null}
+                            <div className="sm:col-span-2 rounded-lg border border-[var(--border)]/60 bg-[var(--muted)]/20 px-3.5 py-3">
+                              <label className="flex items-start justify-between gap-3">
+                                <span className="min-w-0">
+                                  <span className="block text-[12px] font-medium text-[var(--foreground)]">
+                                    {t("Show in chat picker")}
+                                  </span>
+                                  <span className="mt-0.5 block text-[11px] leading-relaxed text-[var(--muted-foreground)]">
+                                    {isCurrentGlobalLlmDefault
+                                      ? t(
+                                          "The current global default cannot be hidden. Choose another default first.",
+                                        )
+                                      : t(
+                                          "Hiding only removes this model from new selections. It keeps its API id, parameters, grants, and existing conversations.",
+                                        )}
+                                  </span>
+                                </span>
+                                <input
+                                  type="checkbox"
+                                  className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[var(--foreground)] disabled:opacity-40"
+                                  checked={modelVisibleInPicker(activeModel)}
+                                  disabled={isCurrentGlobalLlmDefault}
+                                  onChange={(event) => {
+                                    if (
+                                      isCurrentGlobalLlmDefault &&
+                                      !event.target.checked
+                                    ) {
+                                      setToast(
+                                        t(
+                                          "Choose another global default before hiding this model.",
+                                        ),
+                                      );
+                                      return;
+                                    }
+                                    updateModelBoolField(
+                                      service,
+                                      "visible_in_picker",
+                                      event.target.checked,
+                                    );
+                                  }}
+                                  aria-label={t("Show in chat picker")}
+                                />
+                              </label>
+                            </div>
                           </>
                         )}
+                        {service === "llm" &&
+                          activeModel &&
+                          (activeReasoningControls?.supported === false ||
+                            (storedReasoningValue &&
+                              reasoningOptions.length === 0)) && (
+                            <div className="sm:col-span-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3.5 py-2 text-[11px] leading-relaxed text-amber-700 dark:text-amber-400">
+                              <span>
+                                {storedReasoningValue
+                                  ? t(
+                                      "Stored reasoning setting “{{value}}” has no verified control for this model and is not sent.",
+                                      { value: storedReasoningValue },
+                                    )
+                                  : t(
+                                      "This model has no verified reasoning control. No reasoning parameter will be sent.",
+                                    )}
+                              </span>
+                              {storedReasoningValue && (
+                                <button
+                                  type="button"
+                                  onClick={() => updateReasoningEffort("")}
+                                  className="rounded-md border border-amber-500/40 px-2 py-0.5 text-[10.5px] font-medium text-amber-700 hover:bg-amber-500/10 dark:text-amber-300"
+                                >
+                                  {t("Clear reasoning setting")}
+                                </button>
+                              )}
+                            </div>
+                          )}
                         {reasoningOptions.length > 0 && (
                           <div>
                             <div className="mb-1.5 text-[12px] text-[var(--muted-foreground)]">
@@ -703,6 +1005,7 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                             </div>
                             <div className="relative">
                               <select
+                                data-testid="model-reasoning-effort"
                                 className={selectClass}
                                 value={activeModel.reasoning_effort || ""}
                                 onChange={(event) =>
@@ -742,11 +1045,7 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                               className="h-3 w-3 cursor-pointer accent-[var(--foreground)]"
                               checked={activeModel.send_dimensions !== false}
                               onChange={(e) =>
-                                updateModelBoolField(
-                                  service,
-                                  "send_dimensions",
-                                  e.target.checked,
-                                )
+                                updateEmbeddingSendDimensions(e.target.checked)
                               }
                             />
                             <span>{t("Send dimensions")}</span>
@@ -760,7 +1059,7 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                                 className="pointer-events-none absolute top-full left-1/2 z-20 mt-1.5 w-64 -translate-x-1/2 rounded-lg border border-[var(--border)] bg-[var(--card)] p-2.5 text-[11px] leading-relaxed text-[var(--foreground)] opacity-0 shadow-lg transition-opacity duration-75 group-hover/info:opacity-100 group-focus/info:opacity-100"
                               >
                                 {t(
-                                  "Some embedding models (e.g. Qwen text-embedding-v4) reject the `dimensions` request param. Turn this off if your provider returns HTTP 400.",
+                                  "Send a dimension parameter only when this endpoint supports it. Disable it for fixed-dimension models or gateways that reject the parameter.",
                                 )}
                               </span>
                             </span>
@@ -772,9 +1071,7 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                           capabilities={embeddingCapabilities}
                           embeddingDefaultDim={embeddingDefaultDim}
                           inputClass={inputClass}
-                          onChangeDimension={(value) =>
-                            updateModelField(service, "dimension", value)
-                          }
+                          onChangeDimension={updateEmbeddingDimensionField}
                         />
                       </div>
                     )}
@@ -967,6 +1264,7 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                 <div className="ml-3 flex items-center gap-3">
                   <button
                     type="button"
+                    data-testid="run-test"
                     onClick={() => {
                       if (!diagnosticsOpen) setDiagnosticsOpen(true);
                       runDetailedTest(service);
@@ -1024,6 +1322,171 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
           </button>
         </div>
       )}
+      {service !== "search" && (
+        <ModelDiscoveryDialog
+          key={discovery.identity}
+          open={discoveryOpen}
+          onClose={() => setDiscoveryOpen(false)}
+          service={discoveryService}
+          profile={activeProfile}
+          state={{
+            requestKey: discovery.requestKey,
+            response: discovery.response,
+            loading: discovery.loading,
+            error: discovery.error,
+          }}
+          onQuery={() => void discovery.query("cache_first")}
+          onRefresh={() => void discovery.refresh()}
+          onRetry={() => void discovery.retry()}
+          onAddSelected={(ids, confirmed) => {
+            if (!activeProfile) return;
+            const merged = mergeDiscoveredModels({
+              existing: activeProfile.models,
+              candidates: discovery.response?.models ?? [],
+              selectedIds: ids,
+              confirmedUnknownIds: confirmed,
+              service: discoveryService,
+            });
+            if (merged.addedIds.length === 0) {
+              setToast(
+                merged.reusedIds.length > 0
+                  ? t("The selected models are already configured.")
+                  : t("No new models were added."),
+              );
+              return;
+            }
+            const profileId = activeProfile.id;
+            mutateCatalog((next) => {
+              const profile = next.services[service].profiles.find(
+                (item) => item.id === profileId,
+              );
+              if (!profile) return;
+              profile.models = merged.models;
+            });
+            if (merged.addedIds[0]) {
+              selectEditingModel(service, merged.addedIds[0]);
+            }
+            setToast(
+              t(
+                "Added {{count}} model(s) to this draft. Save or Apply to use them.",
+                { count: merged.addedIds.length },
+              ),
+            );
+          }}
+        />
+      )}
+      {parameterPreviewOpen &&
+      activeProfile &&
+      activeModel &&
+      (matchedCandidate?.parameters || matchedCandidate?.reasoning_controls) &&
+      currentParameterPreview ? (
+        <div
+          className="fixed inset-0 z-[130] flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          data-testid="parameter-update-dialog"
+        >
+          <div className="w-full max-w-lg rounded-2xl border border-[var(--border)] bg-[var(--popover)] p-5 shadow-2xl">
+            <div className="text-[15px] font-semibold text-[var(--foreground)]">
+              {t("Update official parameters")}
+            </div>
+            <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--muted-foreground)]">
+              {t(
+                "This only changes the unsaved draft. Manual values are preserved unless you explicitly restore automatic values.",
+              )}
+            </p>
+            <div className="mt-3 space-y-1.5">
+              {currentParameterPreview.changes.length === 0 ? (
+                <div className="rounded-lg border border-[var(--border)]/60 px-3 py-2 text-[12px] text-[var(--muted-foreground)]">
+                  {Object.keys(currentParameterPreview.updates).length > 0
+                    ? t("Official metadata or automatic request settings will be updated; manual values are preserved.")
+                    : t("No automatic value differs from the current draft.")}
+                </div>
+              ) : (
+                currentParameterPreview.changes.map((change) => (
+                  <div
+                    key={change.field}
+                    data-testid="parameter-update-change"
+                    className="flex items-center justify-between gap-3 rounded-lg border border-[var(--border)]/60 px-3 py-2 text-[12px]"
+                  >
+                    <span className="font-mono text-[11.5px] text-[var(--foreground)]">
+                      {change.field}
+                    </span>
+                    <span className="tabular-nums text-[var(--muted-foreground)]">
+                      {change.from?.toLocaleString("en-US") ?? t("Unknown")} →{" "}
+                      {change.to?.toLocaleString("en-US") ?? t("Unknown")}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+            {manualParameterFields.length > 0 ? (
+              <div className="mt-3 space-y-1.5">
+                <div className="text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+                  {t("Manual values")}
+                </div>
+                {manualParameterFields.map((field) => (
+                  <label
+                    key={field}
+                    className="flex items-center gap-2 text-[12px] text-[var(--foreground)]"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={restoreAuto.includes(field)}
+                      onChange={(event) =>
+                        setRestoreAuto((current) =>
+                          event.target.checked
+                            ? [...current, field]
+                            : current.filter((item) => item !== field),
+                        )
+                      }
+                    />
+                    {t("Restore automatic value for {{field}}", {
+                      field,
+                    })}
+                  </label>
+                ))}
+              </div>
+            ) : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setParameterPreviewOpen(false)}
+                className="rounded-lg border border-[var(--border)]/60 px-3 py-1.5 text-[12px] text-[var(--muted-foreground)]"
+              >
+                {t("Cancel")}
+              </button>
+              <button
+                type="button"
+                disabled={Object.keys(currentParameterPreview.updates).length === 0}
+                data-testid="parameter-update-apply"
+                onClick={() => {
+                  const profileId = activeProfile.id;
+                  const modelId = activeModel.id;
+                  const updates = currentParameterPreview.updates;
+                  mutateCatalog((next) => {
+                    const profile = next.services[service].profiles.find(
+                      (item) => item.id === profileId,
+                    );
+                    const model = profile?.models.find(
+                      (item) => item.id === modelId,
+                    );
+                    if (!model) return;
+                    Object.assign(model, updates);
+                  });
+                  setParameterPreviewOpen(false);
+                  setToast(
+                    t("Applied official parameters to the unsaved draft."),
+                  );
+                }}
+                className="rounded-lg bg-[var(--foreground)] px-3 py-1.5 text-[12px] font-medium text-[var(--background)] disabled:opacity-40"
+              >
+                {t("Apply to draft")}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1188,14 +1651,43 @@ function ProfileFields({
   ) => void;
 }) {
   const { t } = useTranslation();
-  const { providers, updateProfileField, updateModelField } = useSettings();
+  const {
+    providers,
+    draft,
+    customProviderCapabilities,
+    mutateCatalog,
+    updateProfileField,
+    updateModelField,
+  } = useSettings();
   const [extraOpen, setExtraOpen] = useState(false);
+  const [customDialog, setCustomDialog] = useState<
+    { mode: "create" } | { mode: "edit"; definition: CustomProviderDefinition } | null
+  >(null);
 
+  const customService =
+    service === "search" ? null : (service as CustomProviderService);
+  const definitions = customService
+    ? customProvidersForService(draft, customService)
+    : [];
+  const protocols = customService
+    ? (customProviderCapabilities?.protocols[customService] ?? [])
+    : [];
   const providerValue =
     service === "search" ? profile.provider || "" : profile.binding || "";
+  const selectValue =
+    service === "search" ? providerValue : customProviderSelectValue(profile);
   const providerOption = (providers[service] || []).find(
     (option) => option.value === providerValue,
   );
+  const presentation = resolveProviderPresentation(
+    draft,
+    service as CustomProviderService,
+    profile,
+    providerOption?.label ?? providerValue,
+  );
+  const selectedDefinition = profile.custom_provider_id
+    ? definitions.find((item) => item.id === profile.custom_provider_id) ?? null
+    : null;
   const isManagedCodex = isManagedCodexProfile(profile);
   const isCodexOAuth = isCodexOAuthProfile(
     service,
@@ -1214,32 +1706,126 @@ function ProfileFields({
   const missingRequiredBaseUrl =
     fields.baseUrlRequired && !String(profile.base_url || "").trim();
 
+  const saveCustomProvider = (value: CustomProviderDialogValue) => {
+    if (!customService) return;
+    if (customDialog?.mode === "edit") {
+      const definition = customDialog.definition;
+      mutateCatalog((next) => {
+        const target = (next.custom_providers || []).find(
+          (item) => item.id === definition.id,
+        );
+        if (target) {
+          target.name = value.name;
+          target.icon = value.icon;
+        }
+      });
+      setCustomDialog(null);
+      return;
+    }
+    const id = newCustomProviderId();
+    mutateCatalog((next) => {
+      next.custom_providers = [
+        ...(next.custom_providers || []),
+        {
+          id,
+          service: customService,
+          binding: value.binding,
+          name: value.name,
+          icon: value.icon,
+        },
+      ];
+      const target = next.services[service].profiles.find(
+        (item) => item.id === profile.id,
+      );
+      if (target) {
+        target.binding = value.binding;
+        target.custom_provider_id = id;
+        target.name = nextProfileName(target.name, presentation.providerLabel, value.name);
+      }
+    });
+    setCustomDialog(null);
+  };
+
+  const chooseCustomDefinition = (id: string) => {
+    const definition = definitions.find((item) => item.id === id);
+    if (!definition) return;
+    mutateCatalog((next) => {
+      const target = next.services[service].profiles.find(
+        (item) => item.id === profile.id,
+      );
+      if (target) {
+        target.binding = definition.binding;
+        target.custom_provider_id = definition.id;
+        target.name = nextProfileName(target.name, presentation.providerLabel, definition.name);
+      }
+    });
+  };
+
   return (
+    <>
     <div className="grid gap-4 sm:grid-cols-2">
       <div className="sm:col-span-2">
-        <div className="mb-1.5 text-[12px] text-[var(--muted-foreground)]">
-          {t("Provider")}
+        <div className="mb-1.5 flex items-center justify-between gap-2">
+          <div className="text-[12px] text-[var(--muted-foreground)]">
+            {t("Provider")}
+          </div>
+          {selectedDefinition && (
+            <button
+              type="button"
+              data-testid="edit-custom-provider"
+              onClick={() =>
+                setCustomDialog({ mode: "edit", definition: selectedDefinition })
+              }
+              className="text-[11px] font-medium text-[var(--foreground)] underline-offset-2 hover:underline"
+            >
+              {t("Edit provider")}
+            </button>
+          )}
         </div>
         <div className="relative">
           {providerValue && (
             <ProviderIcon
               provider={providerValue}
+              icon={presentation.providerIcon}
               size={15}
               className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2"
             />
           )}
           <select
             className={`${selectClass} ${providerValue ? "pl-9" : ""}`}
-            value={providerValue}
+            value={selectValue}
             disabled={isManagedCodex}
+            data-testid={`provider-select-${service}`}
             onChange={(e) => {
               const val = e.target.value;
+              if (customService && val === CUSTOM_PROVIDER_SENTINEL) {
+                setCustomDialog({ mode: "create" });
+                return;
+              }
+              const customId = customProviderIdFromSelectValue(val);
+              if (customService && customId) {
+                chooseCustomDefinition(customId);
+                return;
+              }
               const field = service === "search" ? "provider" : "binding";
               const options = providers[service] || [];
               const previousLabel =
-                options.find((p) => p.value === providerValue)?.label ?? "";
+                resolveProviderPresentation(
+                  draft,
+                  service as CustomProviderService,
+                  profile,
+                  options.find((p) => p.value === providerValue)?.label ?? "",
+                ).providerLabel || "";
               const match = options.find((p) => p.value === val);
-              updateProfileField(service, field, val);
+              mutateCatalog((next) => {
+                const target = next.services[service].profiles.find(
+                  (item) => item.id === profile.id,
+                );
+                if (target) {
+                  target[field] = val;
+                  if (field === "binding") delete target.custom_provider_id;
+                }
+              });
               // Keep an un-customized profile name tracking its provider.
               const renamed = nextProfileName(
                 profile.name,
@@ -1285,10 +1871,32 @@ function ProfileFields({
                   className={selectOptionClass}
                   key={p.value}
                   value={p.value}
+                  data-testid={`provider-option-${service}-${p.value}`}
                 >
-                  {p.label}
+                  {localizeProviderLabel(p.label, t)}
                 </option>
               ))}
+            {customService &&
+              definitions.map((definition) => (
+                <option
+                  className={selectOptionClass}
+                  key={definition.id}
+                  value={`cp:${definition.id}`}
+                  data-testid="custom-provider-option"
+                  data-custom-provider-id={definition.id}
+                >
+                  {definition.name}
+                </option>
+              ))}
+            {customService && (
+              <option
+                className={selectOptionClass}
+                value={CUSTOM_PROVIDER_SENTINEL}
+                data-testid="custom-provider-create-option"
+              >
+                {t("Custom provider configuration…")}
+              </option>
+            )}
           </select>
           <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--muted-foreground)]" />
         </div>
@@ -1399,6 +2007,7 @@ function ProfileFields({
         <div className="sm:col-span-2 rounded-xl border border-[var(--border)]/60 bg-[var(--muted)]/20">
           <button
             type="button"
+            data-testid="profile-extra-toggle"
             onClick={() => setExtraOpen((value) => !value)}
             className="flex w-full items-center justify-between gap-3 px-3.5 py-3 text-left"
             aria-expanded={extraOpen}
@@ -1434,6 +2043,31 @@ function ProfileFields({
                   placeholder={t("Optional")}
                 />
               </div>
+              {service !== "search" ? (
+                <div className="sm:col-span-2">
+                  <div className="mb-1.5 text-[12px] text-[var(--muted-foreground)]">
+                    {t("Model directory URL (optional)")}
+                  </div>
+                  <input
+                    className={inputClass}
+                    data-testid="model-directory-url"
+                    value={profile.model_directory_url || ""}
+                    onChange={(e) =>
+                      updateProfileField(
+                        service,
+                        "model_directory_url",
+                        e.target.value,
+                      )
+                    }
+                    placeholder="https://gateway.example/school/ai/v1/models"
+                  />
+                  <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--muted-foreground)]">
+                    {t(
+                      "A complete read-only directory URL. It never changes the chat Base URL, and changing its origin requires re-entering a masked credential.",
+                    )}
+                  </p>
+                </div>
+              ) : null}
               {service === "search" ? (
                 <div>
                   <div className="mb-1.5 text-[12px] text-[var(--muted-foreground)]">
@@ -1471,6 +2105,20 @@ function ProfileFields({
           )}
         </div>
       )}
+      {customDialog && customService && (
+        <CustomProviderDialog
+          service={customService}
+          mode={customDialog.mode}
+          initial={
+            customDialog.mode === "edit" ? customDialog.definition : null
+          }
+          protocols={protocols}
+          definitions={definitions}
+          onCancel={() => setCustomDialog(null)}
+          onSave={saveCustomProvider}
+        />
+      )}
     </div>
+    </>
   );
 }

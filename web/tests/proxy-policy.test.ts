@@ -46,6 +46,25 @@ test("large knowledge uploads bypass the buffering proxy", () => {
   assert.equal(matches("http://localhost/home"), true);
 });
 
+test("only the exact ASR job collection bypasses the proxy", () => {
+  const matches = (url: string) =>
+    unstable_doesMiddlewareMatch({ config: proxyConfig, url });
+
+  assert.equal(matches("http://localhost/api/v1/subjects/sub-1/asr/jobs"), false);
+  assert.equal(
+    matches("http://localhost/api/v1/subjects/sub-1/asr/jobs?limit=20"),
+    false,
+  );
+  assert.equal(
+    matches("http://localhost/api/v1/subjects/sub-1/asr/jobs/abc"),
+    true,
+  );
+  assert.equal(
+    matches("http://localhost/api/v1/subjects/sub-1/asr/jobs/abc/result"),
+    true,
+  );
+});
+
 test("isCodexCallbackPath matches only the exact public callback path", () => {
   assert.equal(CODEX_CALLBACK_PATH, "/auth/callback");
   assert.equal(CODEX_CALLBACK_API_PATH, "/api/v1/auth/openai-codex/callback");

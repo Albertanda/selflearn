@@ -38,6 +38,9 @@ import type { SelectedQuestionEntry } from "@/components/chat/QuestionBankPicker
 import type { SelectedRecord } from "@/lib/notebook-selection-types";
 import type { SpaceMemoryFile } from "@/lib/space-items";
 import type { LLMSelection } from "@/lib/unified-ws";
+import {
+  INHERIT_REASONING,
+} from "@/lib/reasoning-controls";
 
 const NotebookRecordPicker = dynamic(
   () => import("@/components/notebook/NotebookRecordPicker"),
@@ -147,10 +150,27 @@ function FollowupChatComposerImpl({ context }: FollowupChatComposerProps) {
   // ── Shared data (KBs + LLMs) ──────────────────────────────────
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [llmOptions, setLLMOptions] = useState<LLMOption[]>([]);
+  const [hiddenLLMOptions, setHiddenLLMOptions] = useState<LLMOption[]>([]);
   const [activeLLMDefault, setActiveLLMDefault] = useState<LLMSelection | null>(
     null,
   );
-  const [llmSelection, setLLMSelection] = useState<LLMSelection | null>(null);
+  // The thread outlives the tab's composer. Hydration restores the same
+  // preferences from its persisted follow-up session after a page refresh.
+  const llmSelection = thread.llmSelection;
+  const reasoningPreferences = thread.reasoningPreferences;
+  const preferencesPending = Boolean(context.followupSessionId && !thread.sessionId);
+  const setLLMSelection = useCallback((selection: LLMSelection | null) => {
+    controller.updateThread(context.questionKey, (current) => ({
+      ...current,
+      llmSelection: selection,
+    }));
+  }, [context.questionKey, controller]);
+  const reasoningKey = llmSelection
+    ? `${llmSelection.profile_id}:${llmSelection.model_id}`
+    : "";
+  const reasoningOverride =
+    (reasoningKey ? reasoningPreferences[reasoningKey] : undefined) ??
+    INHERIT_REASONING;
   const [llmOptionsLoading, setLLMOptionsLoading] = useState(true);
   const [llmOptionsError, setLLMOptionsError] = useState(false);
 
@@ -170,36 +190,50 @@ function FollowupChatComposerImpl({ context }: FollowupChatComposerProps) {
     };
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    const run = async () => {
-      setLLMOptionsLoading(true);
-      try {
-        const payload = await listLLMOptions();
-        if (cancelled) return;
-        setLLMOptions(payload.options);
-        setActiveLLMDefault(payload.active);
-        setLLMOptionsError(false);
-      } catch {
-        if (cancelled) return;
-        setLLMOptionsError(true);
-        setLLMOptions([]);
-        setActiveLLMDefault(null);
-      } finally {
-        if (!cancelled) setLLMOptionsLoading(false);
-      }
-    };
-    void run();
-    return () => {
-      cancelled = true;
-    };
+  const refreshLLMOptions = useCallback(async (force = false) => {
+    setLLMOptionsLoading(true);
+    try {
+      const payload = await listLLMOptions({ force });
+      setLLMOptions(payload.options);
+      setHiddenLLMOptions(payload.hidden_options ?? []);
+      setActiveLLMDefault(payload.active);
+      setLLMOptionsError(false);
+    } catch {
+      setLLMOptionsError(true);
+      setLLMOptions([]);
+      setHiddenLLMOptions([]);
+      setActiveLLMDefault(null);
+    } finally {
+      setLLMOptionsLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void refreshLLMOptions();
+  }, [refreshLLMOptions]);
+
+  // Returning from Settings (or reactivating the tab) must pick up renamed
+  // models even though this composer stays mounted.
+  useEffect(() => {
+    const refresh = () => void refreshLLMOptions(true);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    window.addEventListener("focus", refresh);
+    window.addEventListener("pageshow", refresh);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("pageshow", refresh);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [refreshLLMOptions]);
 
   // Default to the server-side active LLM until the user picks one.
   useEffect(() => {
-    if (llmSelection || !activeLLMDefault) return;
+    if (llmSelection || !activeLLMDefault || preferencesPending) return;
     setLLMSelection(activeLLMDefault);
-  }, [activeLLMDefault, llmSelection]);
+  }, [activeLLMDefault, llmSelection, preferencesPending, setLLMSelection]);
 
   // Click-outside handlers for menu chrome (cap / space).
   useEffect(() => {
@@ -480,7 +514,7 @@ function FollowupChatComposerImpl({ context }: FollowupChatComposerProps) {
         !!selectedPersona ||
         selectedMemoryFiles.length > 0;
       if (!hasContent && !hasReferences) return;
-      if (thread.isStreaming) return;
+      if (thread.isStreaming || preferencesPending) return;
 
       const isFirstSend = !thread.sessionId && thread.messages.length === 0;
       const answerImageAttachments = isFirstSend
@@ -551,6 +585,7 @@ function FollowupChatComposerImpl({ context }: FollowupChatComposerProps) {
         questionNotebookReferences: questionNotebookReferencesPayload,
         persona: personaPayload,
         llmSelection,
+        reasoningOverride,
       });
 
       // Wipe transient selections — the chat session now owns them.
@@ -569,6 +604,8 @@ function FollowupChatComposerImpl({ context }: FollowupChatComposerProps) {
       controller,
       historyReferencesPayload,
       llmSelection,
+      preferencesPending,
+      reasoningOverride,
       memoryReferencesPayload,
       notebookReferencesPayload,
       questionNotebookReferencesPayload,
@@ -605,6 +642,7 @@ function FollowupChatComposerImpl({ context }: FollowupChatComposerProps) {
 
   return (
     <>
+      <div data-testid="followup-composer" className="contents">
       <ChatComposer
         composerRef={composerRef}
         capMenuRef={capMenuRef}
@@ -623,10 +661,19 @@ function FollowupChatComposerImpl({ context }: FollowupChatComposerProps) {
         activeCap={activeCap}
         knowledgeBases={knowledgeBases}
         llmOptions={llmOptions}
+        hiddenLLMOptions={hiddenLLMOptions}
         activeLLMDefault={activeLLMDefault}
         llmSelection={llmSelection}
         llmOptionsLoading={llmOptionsLoading}
         llmOptionsError={llmOptionsError}
+        reasoningOverride={reasoningOverride}
+        onSelectReasoning={(value) => {
+          if (!reasoningKey) return;
+          controller.updateThread(context.questionKey, (current) => ({
+            ...current,
+            reasoningPreferences: { ...current.reasoningPreferences, [reasoningKey]: value },
+          }));
+        }}
         selectedBookReferences={selectedBookReferences}
         selectedNotebookRecords={selectedNotebookRecords}
         selectedHistorySessions={selectedHistorySessions}
@@ -638,8 +685,8 @@ function FollowupChatComposerImpl({ context }: FollowupChatComposerProps) {
         selectedKnowledgeBases={selectedKnowledgeBases}
         isStreaming={thread.isStreaming}
         isVisualizeMode={false}
-        capabilityNeedsConfig={false}
-        capabilityConfigConfirmed={true}
+        capabilityNeedsConfig={preferencesPending}
+        capabilityConfigConfirmed={!preferencesPending}
         onRequestConfigConfirm={() => {}}
         capabilities={FOLLOWUP_CAPABILITIES}
         onSetCapMenuOpen={setCapMenuOpen}
@@ -675,6 +722,7 @@ function FollowupChatComposerImpl({ context }: FollowupChatComposerProps) {
           "Ask anything about this question, your answer, or the AI judgment.",
         )}
       />
+      </div>
 
       <NotebookRecordPicker
         open={showNotebookPicker}

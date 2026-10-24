@@ -1,0 +1,107 @@
+S02 合并返修指令（2026-10-11）
+
+工作目录：/home/albert/selflearn/selflearn
+本次只执行 S02 的一次返修批次 R1–R5；阶段内自修和复测，最后交接一次，不进入 S03。
+S01 accepted 仍有效。S02 当前 changes_requested；原 report.json 的 verified_local/goal_met=true 不是独立验收通过。
+先读本文件、.phase1-evidence/reviews/S02/review.json、STAGE_WORKFLOW.md，以及 P1-03/P1-55 和 C01/C02/C04/附录A 的相关条目。不重新遍历全部仓库，不扩建错误框架或解析器体系。
+
+一、审查结论
+
+已核验：9 个提交源码哈希和 13 个证据哈希吻合；StageReport 合法；初次提交只改了 8 个允许路径；恢复归档 1814/1814 匹配。指定合并回归为 213 passed；协调者另外运行完整 tests/phase1 + tests/services + tests/api，为 1849 passed、18 skipped；9 文件 Ruff 通过。真实三树和 supplementary 三根均无新变化。
+P1-09 的对象/数组写入、NaN 写入拒绝、失败前保留旧目标和清理，以及 P1-04 的先检查截断再返回正文方向正确，保留这些成果。
+但是独立 probe_s02.py 已证明错误边界与 parser 仍有遗漏。测试全绿不意味着以下问题已经解决。本轮主要修改 errors.py/model_output.py 及对应测试，避免无关改动。
+
+二、允许修改范围
+
+源码白名单仍为 S02 原 9 个路径，不新增范围：
+- deeptutor/subjects/errors.py
+- deeptutor/services/file_io.py
+- deeptutor/subjects/model_output.py
+- deeptutor/subjects/generation.py
+- tests/phase1/test_p1_03.py
+- tests/phase1/test_p1_09.py
+- tests/phase1/test_p1_55.py
+- tests/phase1/test_p1_04.py
+- tests/services/test_file_io.py
+
+仍遵守每卡符号范围。本轮无需重写 file_io/generation；若为真实集成失败必须修正，也只能在原卡范围内，并说明理由。
+不得改 routers、subjects store/批改/考点、LLM factory、S01 helpers/conftest、任务包、Schema、真实 data/settings；不注册全局 handler。路由包装为 P1-56/S04，存储锁/事务为 S03，领域字段校验和业务接入为 S04。
+允许写 .phase1-evidence/stages/S02/rework01/ 和追加 .phase1-evidence/stages/S02/execution.log。本轮只提交 rework01/report.json 一份汇总。
+原 S02 报告、source/data 起止清单、归档、原日志行和所有 reviews/** 保持只读。原探针是独立审查材料；把相同行为加入允许的测试文件，不能编辑审查探针来使它“通过”。
+
+三、返修单元
+
+R1：错误构造与投影遵守固定安全字段
+目标：C02 的 code 对应固定安全消息、HTTP 状态和布尔 retryable，不能被任意输入覆盖。
+实际证据：SubjectOperationError 的 message 只被压平/截断，传入唯一虚构 Authorization 标记后仍进入 HTTP/WS/tool payload；SubjectOutputTruncated(message=...) 同样泄漏。provider_timeout 可被构造成 http_status=200；invalid_input 的 retryable="false" 被 bool() 转成 True。
+允许范围：errors.py、test_p1_03.py；必要时与同模块的 ModelOutputError/SubjectOutputTruncated 调用兼容。
+处理：保留附录A的 SubjectOperationError(code, message, *, http_status, retryable, cause=None) 签名及所有必需字段。有效参数继续可用；不符合固定规格的参数可安全拒绝，或归一化成 ERROR_SPECS 的固定值。不能把“调用者应自行保证消息安全”作为 public projection 的保证。
+message 必须来自固定表/明确的静态安全文案白名单；本轮直接使用 ERROR_SPECS 是最简单的处理。状态与 retryable 也按同一 code 验证，不允许 int(True)、bool("false") 等隐式转换掩盖错类型。保留 cause/diagnostics 在服务端，但不得把它们拼进对外 message/args。
+safe_message 的压平/截断只改变格式，不能宣称能去秘密。禁止通过针对 sk-/Authorization 的 regex 或只删除测试标记来过关；任意虚构正文/宿主路径同样不能成为该 code 的动态对外消息。
+证据：先用完全合法的基准证明构造/投影可用，再分别只改 message、http_status、retryable；检查 HTTP/WS/tool 完整序列化及 str/repr。自定义 message 不得回传，固定 code 不得变成 200；retryable 真正为 bool 且符合表。保留 23 个 code 的 Schema 和映射回归。
+完成：所有构造入口和投影满足固定安全规格；不删字段、不改 Schema、不破坏已有合法调用及空截断旧异常语义。
+
+R2：未知异常不能根据泛型或类名猜成用户错误/超时
+目标：遵守附录A“未知异常 internal_error”；用户输入错误和 provider timeout 有明确的领域依据。
+实际证据：任意 ValueError/TypeError/KeyError 均被改为 invalid_input/400，内部参数或状态故障会被归咎于用户；名为 TimeoutConfigurationError 的普通 RuntimeError 被映射成 provider_timeout/504。
+允许范围：errors.py、test_p1_03.py。
+处理：删除这两种无上下文的猜测。调用者已验证为参数错误时，应显式构造 INVALID_INPUT 等领域错误；未知内核/代码异常按 internal_error/500/false。已知 LLMReasoningBudgetExhausted、Empty、Parse、Provider、Storage 及真实 timeout 映射保持。
+超时使用实际已知异常类型/继承关系，不能只看类名是否含 timeout。如果保留 httpx/OpenAI 的既有支持，用明确类型和独立正例证明；不新增依赖、不修改全局异常树。
+证据：三种泛型异常及“名字像超时的非超时异常”得 internal_error；明确 INVALID_INPUT 仍 400；真实 LLMTimeoutError/TimeoutError 仍 504；真实预算异常继承及 502 code 保留。
+完成：未知不会误标可重试的 provider timeout 或用户输入错；真正的已知业务错误仍按 C02 表处理。
+
+R3：严格数字与解码失败都是具名模型错误
+目标：parse_model_object 返回可用的严格 JSON 对象，不能接受非标准/非有限数字，不能漏出原生解码异常。
+实际证据：{"nested":{"value":NaN/Infinity/-Infinity}} 均被接受；1e400/-1e400 被解成非有限 float；5000 位整数产生原生 ValueError。受控 decoder RecursionError 也绕过了当前只 catch JSONDecodeError 的处理。
+允许范围：model_output.py、test_p1_55.py。
+处理：拒绝非标准 numeric constants；检查浮点转换溢出后是否非有限，包含嵌套对象/数组。合法有限浮点、整数、中文和已有对象结构继续支持。解码/转换引起的 ValueError、RecursionError 等应转换为 ModelOutputError/invalid_model_output，保留固定服务端 reason，投影不含原文。
+这不是新增任意精度数字或无界深度支持。运行时无法处理的合法极大数可以具名拒绝；禁止修改 sys.set_int_max_str_digits/sys.setrecursionlimit 或吞错返回 {} 来逃避。也不要把所有系统退出/取消异常用 except BaseException 当作模型错误。
+证据：NaN/±Infinity 和浮点溢出反例；有限大浮点与合法嵌套正例；5000 位数字在受控默认整数限制下具名失败；对合法基准注入 decoder RecursionError 后具名失败。测试改变解释器限制必须在测试自身恢复，生产 parser 不改全局状态。
+特别说明：协调者初版用固定 1200 层嵌套触发递归限制，但当前环境并未达到限制，该用例本身不成立；两份早期日志保留。最终权威探针改为先证明基准合法，再注入 decoder RecursionError，不要求“1200 层必须拒绝”，不要据此新造深度策略。
+完成：上述失败均为 invalid_model_output/502/retryable，原始 ValueError/RecursionError 不直接逃逸；不提前做 verdict/points 领域语义校验。
+
+R4：外围包装不能吃掉合法正文或错误闭合标签
+目标：完整围栏/闭合 think 包装与 JSON 字符串内容正确区分，唯一对象必须完整。
+实际证据：合法 fenced JSON 的 feedback 字符串含字面 ``` 时被首个 find 当作结束，json 和单行围栏都误拒绝；<think> 与 </thinking>（反向亦然）被误当闭合；</think> 后紧接 ```json 时，close regex 的可选反引号吃掉第一个 fence 字符，合法结果被拒绝。
+允许范围：model_output.py、test_p1_55.py。
+处理：围栏只剥真正完整的外围包装，不能在 JSON 字符串内部找第一个 ``` 当结束。按实际开标签名识别闭标签；显式 DeepSeek end token 的既有兼容保持。区分单反引号包装和三反引号围栏，不能吞掉紧邻的完整围栏。不要改上游 clean_thinking_tags。
+证据：用 json.dumps 构造合法对象，再包 json/bare/单行 fence；正文含 ```、转义引号、换行、花括号和字面推理标记均原样解析。<think>... </think> 与相邻 fence 正例通过；think/thinking 交叉闭合负例失败。现有孤立结束标记、已闭合多个块和显式 DeepSeek 结束 token 的正例保留。
+仍拒绝两个对象、围栏后额外内容、截断、未闭合包装和错误顶层。不能通过贪婪挑一个对象、删字符串中的 backticks、补闭合标签或返回空对象来过关。
+完成：合法外围包装内的合法 JSON 字符串不会误拒绝；未闭合/错配标签不会伪装成功。撤回“fenced JSON 字符串含 ``` 可一律拒绝”的限制，该内容属于本卡支持的合法 JSON。
+
+R5：证据范围、命令和既有未解决事项说准确
+目标：报告区分实际覆盖、协调者补测和仍延后的阶段任务。
+允许范围：本轮 evidence，不修改历史记录。
+实际证据：初次报告写“合并回归覆盖 tests/services、tests/api”，但所列合并命令只跑 phase1 加三个 services 文件，未跑 API。协调者额外完整回归现为 1849 passed/18 skipped，应标明由谁执行和日志位置。报告失败行的 commands.command 写的是成功重跑命令和注释，原日志实际带 merged/ruff 包装；scope 行区间仍指占位符，完整命令位于另一个 correction 段。
+处理：旧记录不重写；新报告把目录/文件覆盖写精确。历史包装失败若无法恢复真实工具参数，承认缺口，保留原输出，不宣称所有旧 command 字段可复现其 exit code。scope 新核验用本轮新输出路径，记录真实完整命令及其输出行范围，不靠事后补一行“已通过”。
+统计 production 调用点时只用同一明确范围，不把测试调用也算成生产数量；无需逐一新建所有调用点测试。返修后新增完整相关回归、定向 tests 和 Ruff 的实际证据。
+完成：本轮 StageReport 的命令、cwd、退出码与对应原始日志一致；失败尝试也保留，mutation 标明预期失败；不伪造历史输出。
+
+四、原报告残余限制的处理决定
+
+- 非空截断失败与 JSON fsync 失败上抛是本阶段要求的修复，保留；不能为“兼容”恢复半篇正文或吞 fsync 错误。
+- 暂不做目录 fsync/跨崩溃多文件事务。dict|list 的文档类型及 atomic_write_text 保持现有范围，不扩建持久化层。
+- 限流/鉴权/模型缺失等已知 LLM 错误在没有细分 code 时映射 provider_unavailable 可以保留；R2修的是无依据的未知异常猜测，不增加错误码。
+- parser 只做完整对象/严格 JSON 校验，verdict/feedback/points 等字段校验留 S04；未知厂商分隔符可以明确拒绝，不增加通用推理格式识别器。
+- 对象后客套话继续拒绝；不能以“上游清洗”为借口选一个候选或丢掉任意尾随文本。
+- validate_subject_response 的可选诊断 max_tokens 不影响公共 complete_subject_text 签名，可以保留；不提高预算、不自动重试。
+- 新 output_truncated 的后续消费接入仍由既有下游卡完成；不提前改路由/工具/PDF。当前已知生成检测与原消费者回归继续通过即可。
+- 全仓库/前端/浏览器验收留对应后续阶段；Starlette/AnyIO 第三方告警记录即可，不升级或屏蔽整类告警。
+- 历史 data/memory/trace/kb/2026-10-11.jsonl 仍保留，不删除、不解析。本轮真实数据禁止任何新变化。
+
+五、执行步骤和一次性交付
+
+1. 先留 rework01 的新 source/data 起点，capture --include 显式覆盖 S01 已验收的7个文件和 S02的9个文件。保留原 dirty 工作树和初次归档，禁止恢复旧文件或改原证据。
+2. 按 R1/R2（errors）→ R3/R4（parser）→ R5（收尾）完成，在同一会话里内部自修和复测，不逐单元请求批准。
+3. 定向验收：
+./.venv/bin/python -m pytest -q tests/phase1/test_p1_03.py tests/phase1/test_p1_55.py tests/phase1/test_p1_04.py tests/phase1/test_p1_09.py tests/services/test_file_io.py
+配置/业务测试仍使用 S01 的隔离 fixture；不读实际 settings、不调用真实供应商。
+4. 阶段合并回归（先按新行为定向过，再各做一次必要合并）：
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q tests/phase1 tests/services/test_file_io.py tests/services/test_codebuddy_credentials.py tests/services/rag/test_llamaindex_document_loader.py
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q tests/phase1 tests/services tests/api
+后者是相关目录回归，不是整个项目基线。不改启动器，不安装/升级依赖，不启动真实服务或真实重建索引。
+5. 对原9个授权路径做 Ruff。scope --allow 必须逐个列路径；开始/结束保护三棵树并附加比较 supplementary 三根，均不得新增/修改/删除。原审查 probe 只读，可运行复核，但权威新增行为用允许的测试文件实现。
+6. 本轮一个完成归档/sidecar，verify-rebuild 到新的 tmp 目录，不覆盖旧归档。原日志追加命令、时间、原输出和 exit code；普通失败留在阶段内自修，安全/真实数据失败立即停。
+7. rework01/report.json 使用现有 StageReport，仍是四张卡的 card_results：03记R1/R2，55记R3/R4；09/04说明保留并回归了什么；R5作为阶段证据要求。记录 supersedes 初次报告 hash、最新源码 hash、测试输入/预期/实际及日志定位、scope/data/归档结果、真实限制。
+
+完成条件：R1–R5 有实际正反证据；附录A接口/23个错误码/已有合法调用兼容；S00/S01和四卡相关回归、Ruff、范围/数据/归档均通过，无新增 skip/xfail或删减有效断言。然后只提交一次 verified_local 汇总，停止等待协调者验收；不自签 accepted，不进入 S03。

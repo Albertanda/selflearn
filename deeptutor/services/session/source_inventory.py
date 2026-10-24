@@ -615,8 +615,8 @@ def _imported_agent_label(meta: dict[str, Any], lang: str) -> str | None:
 
     A referenced session is "imported" when its id carries the ``imported_``
     prefix or its preferences hold the ``import`` block written at import time.
-    A referenced *partner* session (resolved by :func:`_load_partner_session`)
-    carries ``source == "partner"`` and is framed with the partner's own name.
+    The ``source == "partner"`` framing stays for transcripts imported before
+    partners were removed from this build.
     """
     prefs = meta.get("preferences") if isinstance(meta, dict) else None
     import_meta = prefs.get("import") if isinstance(prefs, dict) else None
@@ -707,51 +707,13 @@ def serialize_referenced_transcript(
 # A referenced *partner* session: ``partner:{partner_id}:{session_key}``. The
 # session_key itself may contain ``:`` (e.g. ``web:abc``), so only the partner
 # id is split off — partner ids are colon-free slugs.
+#
+# The resolver that used to sit here read the admin-scoped partner session store
+# through ``deeptutor.services.partners``. Partners were removed by the M0 fork
+# trim, so the import could never resolve and every reference silently degraded
+# to an empty transcript. The prefix is kept only so callers get a warning
+# instead of a silent miss (see ``_load_history_session``).
 _PARTNER_REF_PREFIX = "partner:"
-
-
-def _load_partner_session(ref: str, *, language: str = "en") -> tuple[str, str]:
-    """Resolve a ``partner:{pid}:{session_key}`` reference into transcript + title.
-
-    Partner conversations live in the admin-scoped ``PartnerSessionStore`` (one
-    JSONL per session under ``data/partners/<id>/sessions/``), not the main
-    session store — so they resolve here through the partner manager rather than
-    ``store.get_session``. Gated to admins: partner data is admin-scoped (the
-    whole partners API is admin-gated), and this read runs inside the user's
-    turn, so a non-admin must not be able to pull a partner's transcript by
-    hand-crafting a reference id. Returns ``("", "")`` on any miss.
-    """
-    rest = ref[len(_PARTNER_REF_PREFIX) :]
-    pid, _, session_key = rest.partition(":")
-    pid, session_key = pid.strip(), session_key.strip()
-    if not pid or not session_key:
-        return "", ""
-
-    from deeptutor.multi_user.context import get_current_user
-
-    if not get_current_user().is_admin:
-        return "", ""
-    try:
-        from deeptutor.services.partners import get_partner_manager
-
-        manager = get_partner_manager()
-        if not manager.partner_exists(pid):
-            return "", ""
-        messages = manager.get_history(pid, session_key=session_key, limit=400)
-        config = manager.load_config(pid)
-    except Exception:
-        logger.debug("Failed to resolve partner session %r", ref, exc_info=True)
-        return "", ""
-
-    partner_name = (getattr(config, "name", "") or pid).strip()
-    meta = {"preferences": {"import": {"source": "partner"}}, "partner_name": partner_name}
-    transcript = serialize_referenced_transcript(meta, messages, language=language)
-    if not transcript:
-        return "", ""
-    opener = next((m for m in messages if str(m.get("role")) == "user"), None)
-    first_line = str((opener or {}).get("content", "") or "").strip().splitlines()
-    title = (first_line[0][:60].strip() if first_line else "") or partner_name
-    return transcript, title
 
 
 async def _load_history_session(
@@ -763,11 +725,20 @@ async def _load_history_session(
     """Fetch and serialize a referenced history session into transcript +
     title. Returns ``("", "")`` when the session is empty or missing.
 
-    A ``partner:`` reference resolves through the partner store instead of the
-    main session store (see :func:`_load_partner_session`).
+    NOTE: upstream also resolved ``partner:{pid}:{key}`` references here, via a
+    helper that read the admin-scoped partner session store. Partners — and with
+    them ``deeptutor.services.partners`` — were removed by the M0 fork trim, so
+    that helper's import could never resolve: every such reference fell into its
+    ``except`` and silently returned ``("", "")``. The prefix is now rejected
+    explicitly so the failure is visible to the caller instead of looking like
+    an empty session.
     """
     if history_session_id.startswith(_PARTNER_REF_PREFIX):
-        return _load_partner_session(history_session_id, language=language)
+        logger.warning(
+            "Ignoring partner session reference %r: partners are not part of this build.",
+            history_session_id,
+        )
+        return "", ""
     try:
         meta = await store.get_session(history_session_id)
     except Exception:

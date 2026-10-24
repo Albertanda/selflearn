@@ -125,16 +125,19 @@ def test_ghcr_compose_persists_complete_data_tree() -> None:
 
 
 def test_container_docs_use_temporary_codex_oauth_bridge() -> None:
-    """README links to the canonical guide, which owns the exact commands."""
+    """CONTAINERIZATION.md owns the exact temporary-OAuth-bridge commands."""
     root = Path(__file__).resolve().parents[2]
-    readme = (root / "README.md").read_text(encoding="utf-8")
     guide = (root / "CONTAINERIZATION.md").read_text(encoding="utf-8")
     heading = "### Temporary local Codex OAuth bridge"
     assert heading in guide, f"{heading} was renamed; update this test with it"
     section = guide.split(heading, 1)[1].split("\n### ", 1)[0]
     normalized_section = " ".join(section.replace("\\\n", " ").split())
 
-    assert "CONTAINERIZATION.md#temporary-local-codex-oauth-bridge" in readme
+    # NOTE: upstream also asserted that the root README linked this section.
+    # This fork rewrote the root README as a Chinese, subject-assistant README
+    # with no container/Codex-OAuth section, so the link is gone while
+    # CONTAINERIZATION.md itself is unchanged. The guide's own content is still
+    # verified below, which is what this test exists to protect.
     assert "127.0.0.1:1455:3782" in section
     assert "127.0.0.1:1457:3782" in section
     for base_file in ("docker-compose.yml", "docker-compose.ghcr.yml"):

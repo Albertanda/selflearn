@@ -9,6 +9,23 @@ VECTOR_PROFILE = "vector"
 HYBRID_PROFILE = "hybrid"
 SUPPORTED_RETRIEVAL_PROFILES = {VECTOR_PROFILE, HYBRID_PROFILE}
 
+# FAISS index construction (ported from upstream v1.6.3). The default stays the
+# exact `IndexFlatIP` — HNSW is an opt-in approximation for large corpora, so a
+# KB that does not ask for it indexes byte-identically to before.
+FLAT_VECTOR_INDEX = "flat"
+HNSW_VECTOR_INDEX = "hnsw"
+SUPPORTED_VECTOR_INDEX_TYPES = {FLAT_VECTOR_INDEX, HNSW_VECTOR_INDEX}
+
+
+@dataclass(frozen=True)
+class VectorIndexConfig:
+    """FAISS construction knobs for the next full index build."""
+
+    type: str = FLAT_VECTOR_INDEX
+    hnsw_m: int = 32
+    hnsw_ef_construction: int = 200
+    hnsw_ef_search: int = 64
+
 
 @dataclass(frozen=True)
 class RetrievalConfig:
@@ -96,10 +113,14 @@ def chunk_geometry() -> tuple[int, int]:
 
 
 __all__ = [
+    "FLAT_VECTOR_INDEX",
+    "HNSW_VECTOR_INDEX",
     "HYBRID_PROFILE",
     "RetrievalConfig",
     "SUPPORTED_RETRIEVAL_PROFILES",
+    "SUPPORTED_VECTOR_INDEX_TYPES",
     "VECTOR_PROFILE",
+    "VectorIndexConfig",
     "chunk_geometry",
     "default_top_k",
     "normalize_retrieval_profile",

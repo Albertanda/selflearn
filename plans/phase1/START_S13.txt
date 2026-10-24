@@ -1,0 +1,47 @@
+执行 S13：离线全量回归＋真实 OS 报告沙箱验收（P1-49 → P1-50），一次阶段交付。
+
+一、开工门与定位
+工作目录 /home/albert/selflearn/selflearn。先检查 .phase1-evidence/stages/S12/review.json 指向的 reviews/S12-final/review.json：status=accepted、goal_met=true、next_stage_authorized=true、next_stage=S13，完整 receipt 哈希须与协调者派发消息一致。按 receipt 核验当前 145 条 source_artifacts、历史证据和本指令/探索包哈希，HEAD 仍为 9723f953cb6ca56f13603f76c5d07e1e2f1f4473。不要用“与干净 HEAD 相等”代替合并工作区基准。
+先读 S13_EXPLORATION.md 的已探索文件清单＋关键片段、本文、stages/S13.md 和两卡。片段有完整文件 SHA 与行号；哈希一致时直接复用定位，只补读真正要调用的接口，不重新遍历全仓做 orientation。
+S12 已签收：协调者补修继承 CDPATH 下相对启动/相对链接解析，361 定向/1 既有 IUTF8 skip，4022 相关/20 条件 skip，业务 Ruff 清零。S11-final Node 实际 477（459 是早期提交）；S12 本轮没重跑前端。独立 Node 为 /usr/bin/node v22.22.1；原 worker v24 缺命令证据，不据此安装/升级。完整 Python testpaths 还未在 S12 重跑，不能拿 4022 当全量数。
+
+二、允许范围与保护
+仅新增/修改 scripts/phase1_verify.py、scripts/phase1_sandbox_acceptance.py，两项开工时都不存在；阶段证据只能写 .phase1-evidence/stages/S13/，临时探针在独立 tmp。145 条既有合并源码全部只读；capture 并集 147（145 现存＋2 新脚本）。计划、tests、生产、依赖、Ruff/pytest/TS 配置均不在写权限内。不要实施 S14/S15、第二阶段功能或自动修业务。
+保留 8 条 tracked deletion；不恢复裁剪功能。真实 learning/public/settings/global KB/memory/system 六树仅不透明流哈希，不展示内容，不复用真实配置/密钥，不增删锁、memory trace 或数据；初始 auth.lock 和 9 个 memory 文件必须保留。保护 ID 沿用 P1-00-data-357fe1c8118e2772。
+禁止 commit/push、安装/升级、改宿主策略、重启真实服务、真实供应商请求/索引/上传/导出/删除。默认串行，不并发写同一 execution.log；无须逐卡问批准。
+
+三、P1-49（低依赖单元：全量门禁脚本）
+目标：把完整测试、类型/lint、阶段证据链、源码范围、恢复归档和六树保护变成真实会失败的门禁；不能只生成一个“通过”JSON。
+实现可直接运行的 ./.venv/bin/python scripts/phase1_verify.py。可提供 --evidence-dir 等可选参数，但无参数即完成本卡门禁；输出目录默认属于 S13，不覆盖以前任何阶段。调用现有 phase1_snapshot.py，不另写读取配置内容的扫描器。
+必须逐条执行并记录实际 argv/cwd/UTC 起止/退出码、stdout/stderr 和计数：
+1) 完整 pytest，显式覆盖 tests 和 deeptutor/learning/tests；等价 .venv/bin/python -m pytest -q。使用临时 bootstrap launcher 时也显式传这两个路径，不能使用该历史 helper 的“相关目录”默认值。
+2) web cwd：node scripts/run-node-tests.mjs，递归收集所有现存 Node tests。保留已有 477 基线及后续合法新增，不钉死早期 403/459。记录实际收集与结果。
+3) web cwd：./node_modules/.bin/tsc --noEmit -p .；这是整站类型检查，不能只用 Node 测试编译替代。
+4) 根 cwd：.venv/bin/ruff check deeptutor deeptutor_cli，并检查本门禁脚本；P50写成后阶段末额外对两项新增脚本一起Ruff；git diff --check。
+5) S00–S12 receipt/原报告按其历史格式检查存在、状态、引用及密封哈希，最新 S12 receipt 的 145 条源码与当前匹配。早期 receipt 的源码是历史版本，会被后续明确授权的修复取代，不可要求所有历史源码哈希同时等于当前，也不可“更新”旧 receipt。S00/P1-00 路径兼容历史事实；不为统一字段重写旧证据。
+6) 开始/结束 source/data snapshot、范围比较（本阶段仅两脚本）、归档重建逐成员匹配。精确路径含 [id]/[[...sessionId]] 时按 literal escape，避免当 glob 漏检。允许的旧 dirty 修复不可丢失；归档排除真实数据/.venv/node_modules/.next 生成物，保留全部当前授权源码和规划文档。
+隔离：在 pytest 收集和应用导入之前设置临时 DEEPTUTOR_HOME、HOME/XDG 与外部认证文件位置，清除外部凭证环境变量而不打印值，使用可信默认配置，绝不复制实际 settings。复用已有 bootstrap/network guard 接缝；测试所需 mock/临时 loopback 端点应显式允许，禁止用全局放开网络来取绿。检查子进程测试也不接触真实 provider。若既有测试需修改 fixture 才能安全跑，保留失败，报告最小 blocked_scope，不越权改测试或绕过 guard。Python guard 不能当 P50 的 OS 隔离证据。
+条件 skip 必须逐条列原因/测试名，与已有条件缺依赖区分；不能把 P50 必需项或新增失败改为 skip、xfail、ignore、过滤测试。RuntimeWarning 与 PytestUnraisableExceptionWarning 作为错误检查；其它 warning 原样分类，不能通过全局忽略隐藏清理问题。
+证据：全量真实输出、收集清单/计数、每条 exit、完整 skip 清单、类型/lint 零错误、scope outside=[]、六树/锁/既有 dirty 保持、恢复归档 hash 无不匹配；任何必要子命令非零即本卡失败。
+完成条件：上述均可复跑，未修改只读文件。历史证据检查要有明确结果，不能只检查文件存在或沿用旧计数。实施顺序是P49编写及定向门禁自检 → P50编写及定向验收 → 阶段末实际全量门/两脚本Ruff统一一次；P49不必等待尚不存在的P50脚本才能做局部验证，完整门尚未执行前不提前填verified_local。没有新变化/失败时不反复跑全量。
+
+四、P1-50（依赖真实执行器：OS/图表/发布门禁脚本）
+目标：用生产 chart_executor 的默认合格 bwrap backend、真实 chart_worker、PNG/ODE 校验和报告发布链证明当前边界。无需真实 LLM/API/UI。只在临时运行根创建 A/B 科目、同科另一 run、fake 宿主配置/环境 secret 与 host canary；先设根/清凭证再导入应用。
+实现可直接运行 ./.venv/bin/python scripts/phase1_sandbox_acceptance.py；无参数完成所有必需场景。可复用只读 tests 中 fixture 思路，但不得 monkeypatch 执行器为 fake backend、host runner 或伪造成功。可仅在报告编排集成中替换 LLM 为确定性 fake 以给出脚本/Markdown；执行、PNG 校验和失败发布判断仍走生产链。
+按以下可独立定位的场景串行实现；每个都先证明探针真正执行，反例只改变目标故障，不能把启动前异常当成越界已拦：
+A. 合法当前 run 的真实 Matplotlib PNG，严格解码/尺寸/attempt 绑定通过；显式指定现存 CJK 字体并验证所用字体有目标中文字形、无缺字警告，产物可打开。观察真实后端资格、worker/hash、实际 mount 行为；只把当前 run workdir 作为宿主可写映射，系统依赖/工具/字体按生产白名单只读。
+B. fake 宿主 secret、另一科、同科另一 run 不可读；fake 环境 secret 不进入 worker。绝对路径、.. 和 symlink 越界写均无法改变宿主 canary、不能产生额外公开产物。沙箱独立 /tmp tmpfs 可写是正常行为，不可把内部 /tmp 写入成功误判为宿主逃逸。
+C. 临时 localhost listener 先从宿主合法请求成功，计数为正；再由实际沙箱尝试同 endpoint，listener 增量为 0，记录沙箱拒绝结果。只使用自己创建的 localhost 端点，不探测公共 Internet。host 正例只显式允许该临时 endpoint。
+D. 短 wall timeout 的无限循环、最多少量有界子/孙进程与延迟 canary；捕获实际宿主 PID/PGID，验证超时/取消后无仍运行后代、管道和句柄完成回收、延迟宿主 canary 不出现。不要将 namespace PID 当宿主 PID；不能误杀 unrelated PID，区别僵尸与运行进程。禁止 fork bomb。
+E. 读取真实 RLIMIT_CPU/AS/FSIZE/CORE 证明策略生效；小而安全的内存上限及超限分配/文件超限/有限输出洪泛，有合法小工作负载对照，输出截断且内存受控、返回明确失败。不要制造宿主 OOM。现实现是进程级硬限制，不宣称 cgroup 或整棵进程树累计配额，也不新增此功能。
+F. 真后端 ODE 固定五点合法正例，错误样本/非有限值等负例由可信侧重算拒绝；不依赖模型 stdout 自签 numeric_pass。
+G. 至少一个执行超限/图表失败用例实际进入生产 report.generate_report 的编排/清理/发布链，LLM 可 fake，执行与校验必须真实。验证无正式 PDF/公开 URL、原已完成报告不变、失败 manifest/活动状态释放。只调用 execute_chart_code 然后说“没有 PDF”不构成这项证据。合法链可使用现有 Typst 做真实产物正例，不能用 fake PDF 冒充成功。
+证据：每场景结构化输入摘要（全为 fake 值）、预期、实际、case_id、日志定位和产物摘要；保留 bwrap 真实执行依据、mount/namespace 结果、受控 listener 计数、canary 前后 hash、宿主进程清理、hard limit 及 PNG/ODE/发布结果。图片/PDF 属临时 fixture 或 S13 证据，不进真实公开树。
+完成条件：全部必需场景真实运行通过。bwrap/namespace/字体/Typst 等必需能力不足则 blocked_environment、非零退出，列最小缺项；不自动安装、不修改宿主、不把 skip 当通过。发现生产缺陷则 blocked_scope＋最小补修路径/复现，不能擅改两脚本以外文件或用 host fallback 绕过。
+
+五、共同输出数据契约与负控
+不修改 C11/C14 或 schemas.json。两个脚本各生成一个小结果文件（例如 verify_result.json / sandbox_result.json），统一至少含：schema_version、stage_id=S13、unit_id、status、goal_met、started_at_utc/finished_at_utc、cases[{id,expected,actual,status,evidence_refs}]、commands[{id,argv,cwd,start,end,exit_code,log_start_line,log_end_line}]、limitations。case 的 actual 须来自实际执行，不预填 pass；日志引用须在已关闭的唯一命令块内。
+unit status 使用 verified_local/failed/blocked_dependency/blocked_scope/blocked_environment，只有全部必需项通过且 exit=0 才 goal_met=true。失败或阻塞必须 exit 非零并保留原因；不自行写 accepted。最终 report.json 严格符合 C14 StageReport，汇总两单元、失败/skip、scope/data、源码/归档哈希和真实限制。
+至少三个安全坏对照，均在 tmp 副本/合成门禁输入中：必要子命令返回非零不能汇总成功；白名单外源码变化必须被 scope 拒绝；缺少必需 OS 场景/证据或明确失败的 probe 结果不能被 P50 汇总为通过。每组先跑同副本合法正例，证明负例在目标断言失败；仅测 JSON schema 不足。坏对照只证明门禁拒绝伪绿，不能替代第四节真实 OS 行为。绝不关闭沙箱后在宿主运行恶意脚本。
+阶段末一份 report.json＋追加 execution.log；source/data before/after、scope_check、readonly_check、archive+manifest、rebuild、两单元结果与负控共享放 S13。冻结后若再有收尾命令，用 closing_manifest 记录范围/自命令未闭合点与最终退出证据，不自引用最终日志 hash；所有列出 artifact 哈希在交付时必须仍匹配。不要覆盖任何 S00–S12 文件。
+最终只报 verified_local 或确切阻塞、实际结果/未解决事项和证据路径。停止等待 S13 独立审查，不自行进入 S14。

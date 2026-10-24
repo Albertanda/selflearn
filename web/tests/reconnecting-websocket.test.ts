@@ -157,17 +157,8 @@ test("stop cancels pending retries and closes without reconnecting", () => {
   assert.equal(sockets.length, 1);
 });
 
-test("partner composer restores focus after streaming and page return", () => {
-  const source = readFileSync(
-    path.resolve(process.cwd(), "components/partners/PartnerComposer.tsx"),
-    "utf8",
-  );
-
-  assert.match(source, /restoreFocusAfterSendRef\.current = true/);
-  assert.match(source, /if \(disabled \|\| streaming/);
-  assert.match(source, /window\.addEventListener\("blur", rememberFocus\)/);
-  assert.match(
-    source,
-    /document\.addEventListener\("visibilitychange", restoreFocus\)/,
-  );
-});
+// NOTE: this file used to end with a source-text assertion test for
+// ``components/partners/PartnerComposer.tsx`` ("partner composer restores focus
+// after streaming and page return"). The partners feature was removed by the
+// M0 fork trim, so the component no longer exists and the test could only fail
+// with ENOENT. The reconnection tests above are unaffected.

@@ -1,0 +1,393 @@
+{
+  "stage": "MD-R2",
+  "date": "2026-10-24",
+  "source": "deeptutor/services/provider_registry.py",
+  "source_sha256": "a9cbafa46726d941d22ec8150145a64b1c283ecb22da88f5319bfe1265b6e347",
+  "total": 38,
+  "currently_routable": 7,
+  "currently_blocked": 31,
+  "managed": 3,
+  "ordinary_missing_route": 28,
+  "providers": [
+    {
+      "binding": "custom",
+      "label": "Custom",
+      "inference_backend": "openai_compat",
+      "default_base": "",
+      "current_directory": "openai_compatible",
+      "target_policy": "openai_compatible",
+      "validation": "source_audit_only",
+      "note": "在用户配置站点有界 GET models；无声明类别可批量确认，无声明参数未知。"
+    },
+    {
+      "binding": "custom_anthropic",
+      "label": "Custom (Anthropic API)",
+      "inference_backend": "anthropic",
+      "default_base": "",
+      "current_directory": "unsupported",
+      "target_policy": "anthropic",
+      "validation": "source_audit_only",
+      "note": "原生认证/版本、display_name、游标；兼容端点无目录如实提示。"
+    },
+    {
+      "binding": "azure_openai",
+      "label": "Azure OpenAI",
+      "inference_backend": "azure_openai",
+      "default_base": "",
+      "current_directory": "unsupported",
+      "target_policy": "azure",
+      "validation": "source_audit_only",
+      "note": "新 v1 与旧 deployment 地址分开；offering 不是 deployment，不取 ARM 凭据。"
+    },
+    {
+      "binding": "openrouter",
+      "label": "OpenRouter",
+      "inference_backend": "openai_compat",
+      "default_base": "https://openrouter.ai/api/v1",
+      "current_directory": "unsupported",
+      "target_policy": "openai_compatible",
+      "validation": "source_audit_only",
+      "note": "在用户配置站点有界 GET models；无声明类别可批量确认，无声明参数未知。 增加已核验结构化字段的专用归一化。"
+    },
+    {
+      "binding": "orcarouter",
+      "label": "OrcaRouter",
+      "inference_backend": "openai_compat",
+      "default_base": "https://api.orcarouter.ai/v1",
+      "current_directory": "unsupported",
+      "target_policy": "openai_compatible",
+      "validation": "source_audit_only",
+      "note": "在用户配置站点有界 GET models；无声明类别可批量确认，无声明参数未知。"
+    },
+    {
+      "binding": "edenai",
+      "label": "Eden AI",
+      "inference_backend": "openai_compat",
+      "default_base": "https://api.edenai.run/v3",
+      "current_directory": "unsupported",
+      "target_policy": "openai_compatible",
+      "validation": "source_audit_only",
+      "note": "在用户配置站点有界 GET models；无声明类别可批量确认，无声明参数未知。 generic_probe，不宣称厂商一定有目录；404/405 可提示目录覆盖地址或手填。"
+    },
+    {
+      "binding": "aihubmix",
+      "label": "AiHubMix",
+      "inference_backend": "openai_compat",
+      "default_base": "https://aihubmix.com/v1",
+      "current_directory": "unsupported",
+      "target_policy": "openai_compatible",
+      "validation": "source_audit_only",
+      "note": "在用户配置站点有界 GET models；无声明类别可批量确认，无声明参数未知。"
+    },
+    {
+      "binding": "siliconflow",
+      "label": "SiliconFlow",
+      "inference_backend": "openai_compat",
+      "default_base": "https://api.siliconflow.cn/v1",
+      "current_directory": "siliconflow",
+      "target_policy": "siliconflow",
+      "validation": "source_audit_only",
+      "note": "已有分类目录；补有依据的参数，目录缺维度时使用官方文档资料或未知。"
+    },
+    {
+      "binding": "novita",
+      "label": "Novita AI",
+      "inference_backend": "openai_compat",
+      "default_base": "https://api.novita.ai/openai",
+      "current_directory": "unsupported",
+      "target_policy": "openai_compatible",
+      "validation": "source_audit_only",
+      "note": "在用户配置站点有界 GET models；无声明类别可批量确认，无声明参数未知。 generic_probe，不宣称厂商一定有目录；404/405 可提示目录覆盖地址或手填。"
+    },
+    {
+      "binding": "atlascloud",
+      "label": "Atlas Cloud",
+      "inference_backend": "openai_compat",
+      "default_base": "https://api.atlascloud.ai/v1",
+      "current_directory": "unsupported",
+      "target_policy": "openai_compatible",
+      "validation": "source_audit_only",
+      "note": "在用户配置站点有界 GET models；无声明类别可批量确认，无声明参数未知。 generic_probe，不宣称厂商一定有目录；404/405 可提示目录覆盖地址或手填。"
+    },
+    {
+      "binding": "volcengine",
+      "label": "VolcEngine",
+      "inference_backend": "openai_compat",
+      "default_base": "https://ark.cn-beijing.volces.com/api/v3",
+      "current_directory": "unsupported",
+      "target_policy": "openai_compatible",
+      "validation": "source_audit_only",
+      "note": "在用户配置站点有界 GET models；无声明类别可批量确认，无声明参数未知。 generic_probe，不宣称厂商一定有目录；404/405 可提示目录覆盖地址或手填。"
+    },
+    {
+      "binding": "volcengine_coding_plan",
+      "label": "VolcEngine Coding Plan",
+      "inference_backend": "openai_compat",
+      "default_base": "https://ark.cn-beijing.volces.com/api/coding/v3",
+      "current_directory": "unsupported",
+      "target_policy": "openai_compatible",
+      "validation": "source_audit_only",
+      "note": "在用户配置站点有界 GET models；无声明类别可批量确认，无声明参数未知。 generic_probe，不宣称厂商一定有目录；404/405 可提示目录覆盖地址或手填。"
+    },
+    {
+      "binding": "byteplus",
+      "label": "BytePlus",
+      "inference_backend": "openai_compat",
+      "default_base": "https://ark.ap-southeast.bytepluses.com/api/v3",
+      "current_directory": "unsupported",
+      "target_policy": "openai_compatible",
+      "validation": "source_audit_only",
+      "note": "在用户配置站点有界 GET models；无声明类别可批量确认，无声明参数未知。 generic_probe，不宣称厂商一定有目录；404/405 可提示目录覆盖地址或手填。"
+    },
+    {
+      "binding": "byteplus_coding_plan",
+      "label": "BytePlus Coding Plan",
+      "inference_backend": "openai_compat",
+      "default_base": "https://ark.ap-southeast.bytepluses.com/api/coding/v3",
+      "current_directory": "unsupported",
+      "target_policy": "openai_compatible",
+      "validation": "source_audit_only",
+      "note": "在用户配置站点有界 GET models；无声明类别可批量确认，无声明参数未知。 generic_probe，不宣称厂商一定有目录；404/405 可提示目录覆盖地址或手填。"
+    },
+    {
+      "binding": "anthropic",
+      "label": "Anthropic",
+      "inference_backend": "anthropic",
+      "default_base": "https://api.anthropic.com/v1",
+      "current_directory": "unsupported",
+      "target_policy": "anthropic",
+      "validation": "source_audit_only",
+      "note": "原生认证/版本、display_name、游标；兼容端点无目录如实提示。"
+    },
+    {
+      "binding": "openai",
+      "label": "OpenAI",
+      "inference_backend": "openai_compat",
+      "default_base": "https://api.openai.com/v1",
+      "current_directory": "openai_compatible",
+      "target_policy": "openai_compatible",
+      "validation": "source_audit_only",
+      "note": "在用户配置站点有界 GET models；无声明类别可批量确认，无声明参数未知。"
+    },
+    {
+      "binding": "openai_codex",
+      "label": "OpenAI Codex",
+      "inference_backend": "openai_codex",
+      "default_base": "https://chatgpt.com/backend-api",
+      "current_directory": "unsupported",
+      "target_policy": "managed",
+      "validation": "source_audit_only",
+      "note": "保留专用管理和凭据，不进入通用 key 查询；通用 unsupported 不代表其专用路径失效。"
+    },
+    {
+      "binding": "github_copilot",
+      "label": "GitHub Copilot",
+      "inference_backend": "github_copilot",
+      "default_base": "https://api.githubcopilot.com",
+      "current_directory": "unsupported",
+      "target_policy": "managed",
+      "validation": "source_audit_only",
+      "note": "保留专用管理和凭据，不进入通用 key 查询；通用 unsupported 不代表其专用路径失效。"
+    },
+    {
+      "binding": "codebuddy",
+      "label": "CodeBuddy/WorkBuddy",
+      "inference_backend": "codebuddy",
+      "default_base": "",
+      "current_directory": "unsupported",
+      "target_policy": "managed",
+      "validation": "source_audit_only",
+      "note": "保留专用管理和凭据，不进入通用 key 查询；通用 unsupported 不代表其专用路径失效。"
+    },
+    {
+      "binding": "deepseek",
+      "label": "DeepSeek",
+      "inference_backend": "openai_compat",
+      "default_base": "https://api.deepseek.com",
+      "current_directory": "unsupported",
+      "target_policy": "openai_compatible",
+      "validation": "source_audit_only",
+      "note": "在用户配置站点有界 GET models；无声明类别可批量确认，无声明参数未知。 增加已核验结构化字段的专用归一化。"
+    },
+    {
+      "binding": "gemini",
+      "label": "Gemini",
+      "inference_backend": "openai_compat",
+      "default_base": "https://generativelanguage.googleapis.com/v1beta/openai/",
+      "current_directory": "unsupported",
+      "target_policy": "gemini",
+      "validation": "source_audit_only",
+      "note": "官方 host 原生分页目录和 token limits；代理不跨域，保留资源名/调用 ID 区别。"
+    },
+    {
+      "binding": "zhipu",
+      "label": "Zhipu AI",
+      "inference_backend": "openai_compat",
+      "default_base": "https://open.bigmodel.cn/api/paas/v4",
+      "current_directory": "unsupported",
+      "target_policy": "openai_compatible",
+      "validation": "source_audit_only",
+      "note": "在用户配置站点有界 GET models；无声明类别可批量确认，无声明参数未知。"
+    },
+    {
+      "binding": "dashscope",
+      "label": "DashScope",
+      "inference_backend": "openai_compat",
+      "default_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "current_directory": "aliyun",
+      "target_policy": "aliyun",
+      "validation": "source_audit_only",
+      "note": "已有专用目录；改可见名称和别名；补完整参数。北京旧 host 404 要求业务空间目录，不猜 WorkspaceId。"
+    },
+    {
+      "binding": "moonshot",
+      "label": "Moonshot",
+      "inference_backend": "openai_compat",
+      "default_base": "https://api.moonshot.cn/v1",
+      "current_directory": "unsupported",
+      "target_policy": "openai_compatible",
+      "validation": "source_audit_only",
+      "note": "在用户配置站点有界 GET models；无声明类别可批量确认，无声明参数未知。"
+    },
+    {
+      "binding": "minimax",
+      "label": "MiniMax",
+      "inference_backend": "openai_compat",
+      "default_base": "https://api.minimax.io/v1",
+      "current_directory": "unsupported",
+      "target_policy": "openai_compatible",
+      "validation": "source_audit_only",
+      "note": "在用户配置站点有界 GET models；无声明类别可批量确认，无声明参数未知。 generic_probe，不宣称厂商一定有目录；404/405 可提示目录覆盖地址或手填。"
+    },
+    {
+      "binding": "minimax_anthropic",
+      "label": "MiniMax (Anthropic)",
+      "inference_backend": "anthropic",
+      "default_base": "https://api.minimax.io/anthropic",
+      "current_directory": "unsupported",
+      "target_policy": "anthropic",
+      "validation": "source_audit_only",
+      "note": "原生认证/版本、display_name、游标；兼容端点无目录如实提示。"
+    },
+    {
+      "binding": "mistral",
+      "label": "Mistral",
+      "inference_backend": "openai_compat",
+      "default_base": "https://api.mistral.ai/v1",
+      "current_directory": "unsupported",
+      "target_policy": "openai_compatible",
+      "validation": "source_audit_only",
+      "note": "在用户配置站点有界 GET models；无声明类别可批量确认，无声明参数未知。 增加已核验结构化字段的专用归一化。"
+    },
+    {
+      "binding": "stepfun",
+      "label": "Step Fun",
+      "inference_backend": "openai_compat",
+      "default_base": "https://api.stepfun.com/v1",
+      "current_directory": "unsupported",
+      "target_policy": "openai_compatible",
+      "validation": "source_audit_only",
+      "note": "在用户配置站点有界 GET models；无声明类别可批量确认，无声明参数未知。"
+    },
+    {
+      "binding": "xiaomi_mimo",
+      "label": "Xiaomi MIMO",
+      "inference_backend": "openai_compat",
+      "default_base": "https://api.xiaomimimo.com/v1",
+      "current_directory": "unsupported",
+      "target_policy": "openai_compatible",
+      "validation": "source_audit_only",
+      "note": "在用户配置站点有界 GET models；无声明类别可批量确认，无声明参数未知。 generic_probe，不宣称厂商一定有目录；404/405 可提示目录覆盖地址或手填。"
+    },
+    {
+      "binding": "vllm",
+      "label": "vLLM/Local",
+      "inference_backend": "openai_compat",
+      "default_base": "",
+      "current_directory": "openai_compatible",
+      "target_policy": "openai_compatible",
+      "validation": "source_audit_only",
+      "note": "在用户配置站点有界 GET models；无声明类别可批量确认，无声明参数未知。"
+    },
+    {
+      "binding": "ollama",
+      "label": "Ollama",
+      "inference_backend": "openai_compat",
+      "default_base": "http://localhost:11434/v1",
+      "current_directory": "ollama",
+      "target_policy": "ollama",
+      "validation": "source_audit_only",
+      "note": "原生 api/tags，保留代理前缀；只列已安装，参数不足留未知，不 pull。"
+    },
+    {
+      "binding": "lm_studio",
+      "label": "LM Studio",
+      "inference_backend": "openai_compat",
+      "default_base": "http://localhost:1234/v1",
+      "current_directory": "openai_compatible",
+      "target_policy": "openai_compatible",
+      "validation": "source_audit_only",
+      "note": "在用户配置站点有界 GET models；无声明类别可批量确认，无声明参数未知。"
+    },
+    {
+      "binding": "llama_cpp",
+      "label": "llama.cpp",
+      "inference_backend": "openai_compat",
+      "default_base": "http://localhost:8080/v1",
+      "current_directory": "unsupported",
+      "target_policy": "openai_compatible",
+      "validation": "source_audit_only",
+      "note": "在用户配置站点有界 GET models；无声明类别可批量确认，无声明参数未知。"
+    },
+    {
+      "binding": "lemonade",
+      "label": "Lemonade",
+      "inference_backend": "openai_compat",
+      "default_base": "http://localhost:13305/api/v1",
+      "current_directory": "unsupported",
+      "target_policy": "openai_compatible",
+      "validation": "source_audit_only",
+      "note": "在用户配置站点有界 GET models；无声明类别可批量确认，无声明参数未知。"
+    },
+    {
+      "binding": "ovms",
+      "label": "OpenVINO Model Server",
+      "inference_backend": "openai_compat",
+      "default_base": "http://localhost:8000/v3",
+      "current_directory": "unsupported",
+      "target_policy": "openai_compatible",
+      "validation": "source_audit_only",
+      "note": "在用户配置站点有界 GET models；无声明类别可批量确认，无声明参数未知。"
+    },
+    {
+      "binding": "nvidia_nim",
+      "label": "NVIDIA NIM",
+      "inference_backend": "openai_compat",
+      "default_base": "https://integrate.api.nvidia.com/v1",
+      "current_directory": "unsupported",
+      "target_policy": "openai_compatible",
+      "validation": "source_audit_only",
+      "note": "在用户配置站点有界 GET models；无声明类别可批量确认，无声明参数未知。"
+    },
+    {
+      "binding": "groq",
+      "label": "Groq",
+      "inference_backend": "openai_compat",
+      "default_base": "https://api.groq.com/openai/v1",
+      "current_directory": "unsupported",
+      "target_policy": "openai_compatible",
+      "validation": "source_audit_only",
+      "note": "在用户配置站点有界 GET models；无声明类别可批量确认，无声明参数未知。 增加已核验结构化字段的专用归一化。"
+    },
+    {
+      "binding": "qianfan",
+      "label": "Qianfan",
+      "inference_backend": "openai_compat",
+      "default_base": "https://qianfan.baidubce.com/v2",
+      "current_directory": "unsupported",
+      "target_policy": "openai_compatible",
+      "validation": "source_audit_only",
+      "note": "在用户配置站点有界 GET models；无声明类别可批量确认，无声明参数未知。 generic_probe，不宣称厂商一定有目录；404/405 可提示目录覆盖地址或手填。"
+    }
+  ]
+}

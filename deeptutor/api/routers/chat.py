@@ -146,13 +146,15 @@ async def websocket_chat(websocket: WebSocket):
                 history_summarized = False
                 if subject_id:
                     try:
+                        from deeptutor.services.pdf.review_guide import estimate_tokens
                         from deeptutor.subjects import (
                             exam_points,
                             knowledge_points,
-                            profile as subject_profile,
                             wrong_book,
                         )
-                        from deeptutor.services.pdf.review_guide import estimate_tokens
+                        from deeptutor.subjects import (
+                            profile as subject_profile,
+                        )
 
                         blocks = [
                             knowledge_points.context_summary(subject_id),
@@ -177,15 +179,27 @@ async def websocket_chat(websocket: WebSocket):
 
                 # Token-saver policy: full context vs bounded/compressed history.
                 try:
-                    from deeptutor.services.settings.token_budget import (
-                        get_token_budget_settings,
-                    )
                     from deeptutor.services.llm.context_window import (
                         resolve_effective_context_window,
                     )
+                    from deeptutor.services.settings.token_budget import (
+                        get_token_budget_settings,
+                    )
 
                     budget = get_token_budget_settings()
-                    llm_model = (llm_config.model if "llm_config" in dir() else "") or ""
+                    # Resolve the model actually in use so the window is sized
+                    # from the real model. The previous probe,
+                    # ``llm_config.model if "llm_config" in dir() else ""``, read
+                    # a name assigned further down in this same loop body: on the
+                    # FIRST message of a session it was unbound, so the window
+                    # fell back to "unknown", while every later message reused
+                    # the previous iteration's binding — one session behaving two
+                    # different ways. Guarded locally so a config-resolution
+                    # failure cannot skip the rest of the budget policy.
+                    try:
+                        llm_model = get_llm_config().model or ""
+                    except Exception:
+                        llm_model = ""
                     context_window = resolve_effective_context_window(model=llm_model or "unknown")
                     if budget.get("enabled", True):
                         context_mode = "saved"

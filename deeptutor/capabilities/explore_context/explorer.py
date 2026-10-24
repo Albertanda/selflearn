@@ -99,6 +99,7 @@ class ContextExplorer:
         self.binding = getattr(cfg, "binding", None) or "openai"
         self.extra_headers = getattr(cfg, "extra_headers", None) or {}
         self.reasoning_effort = getattr(cfg, "reasoning_effort", None)
+        self.reasoning_protocol = getattr(cfg, "reasoning_protocol", None)
         self.registry = get_tool_registry()
         self._client_config = LLMClientConfig(
             binding=self.binding,
@@ -108,6 +109,7 @@ class ContextExplorer:
             api_version=self.api_version,
             extra_headers=self.extra_headers or None,
             reasoning_effort=self.reasoning_effort,
+            reasoning_protocol=getattr(self, "reasoning_protocol", None),
         )
 
     async def investigate(
@@ -268,6 +270,7 @@ class ContextExplorer:
                 max_tokens=LOOP_MAX_TOKENS,
                 binding=self.binding,
                 reasoning_effort=self.reasoning_effort,
+                reasoning_protocol=getattr(self, "reasoning_protocol", None),
             ),
         }
         if threads_session_id(self.binding):

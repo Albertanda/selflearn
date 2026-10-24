@@ -1,0 +1,130 @@
+仅执行 S08 合并返修 R1 → R2 → R3 → R4 → R5 → R6 → R7 → R8，串行完成，阶段末一次交付。单元通过后直接继续，不逐卡等批准，不进入 S09 或第二阶段。
+
+工作目录：/home/albert/selflearn/selflearn。
+先读本指令、S08_REWORK_EXPLORATION.md（19文件77片段）、C11/C01/C02/C04及本轮review receipt；不要重新扫描全仓或重读历史所有报告。原 START_S08 与 S08_EXPLORATION 保留为历史授权，本指令细化本轮返修。
+
+一、开工核验与不可变边界
+
+读取 .phase1-evidence/stages/S08/review.json，必须 changes_requested、goal_met:false、next_stage_authorized:false、rework_authorized:true，指向 .phase1-evidence/reviews/S08/review.json。核对完整receipt SHA、94条source_artifacts及两份返修派发摘要；84条前置源码只读，允许改的仍是原S08十路径，零扩权：
+
+deeptutor/services/pdf/report.py
+deeptutor/services/pdf/report_inputs.py
+deeptutor/services/pdf/report_store.py
+deeptutor/services/pdf/chart_executor.py
+deeptutor/services/pdf/chart_worker.py
+deeptutor/services/pdf/chart_validation.py
+tests/phase1/test_p1_31.py
+tests/phase1/test_p1_32.py
+tests/phase1/test_p1_33.py
+tests/phase1/test_p1_34.py
+
+同一白名单文件也只许修改本轮目标。共享sandbox/subject store/error/config、API/工具、其他测试/fixtures/计划文件均只读。保持前置dirty、5个tracked deletion、真实六树与所有旧证据。不得提交/推送、装依赖/升级、改系统策略、访问真实供应商、重建真实索引、启动真实服务或读取settings/memory内容。
+
+已有165项定向、3556项相关目录/19历史skip和十路径Ruff全部通过；协调者独立32场景实际28 failed/4 passed，失败不是依赖/配置问题。真实bwrap已复现ODE自签与worker内存反例。不得把这28项归为S09或S15环境遗留。
+
+新建 .phase1-evidence/stages/S08/rework01/，不得覆盖旧S08报告/日志/归档/closing或本轮探针/receipt。capture --include完整94条基准（84前置+10返修），数据用snapshot v2，只记录不透明hash与文件/目录/mode。三强制根以外独立比较三supplementary根完整内容；保留唯一继承auth.lock和9个memory文件，不产生真实数据新锁。所有业务收集使用临时HOME launcher。
+
+先原样执行探针留红灯基线：
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q -rs .phase1-evidence/reviews/S08/probe_s08.py
+预期28 failed/4 passed；其中4通过必须保留。首次协调者探针语法错误及审计行分隔假设错误只是历史工具尝试，不计作产品缺陷，也不得用它们代替真实失败。
+
+二、内部返修单元（各单元含目标、允许范围、完成证据与门）
+
+R1 输入名与源码编码（独立失败3项）
+目标：普通路径段校验不能冒充固定chart名；模型源码必须在写文件前可UTF-8编码。
+允许：report_inputs.py、test_p1_31.py；report.py仅必要输入接线。
+实施：
+- build_chart_code_prompt的out_path严格fullmatch chart_[1-8].png；任意扩展名、引号、换行、分隔符/穿越均拒绝。可在纯输入模块集中命名helper供executor复用，避免循环import，不新增文件。
+- parse_chart_code_response返回前验证非空string的UTF-8可编码性；孤立surrogate等映射固定invalid_model_output，不能晚到_write_model_script裸UnicodeEncodeError。保留完整唯一JSON对象、无ODE默认方程、AST白名单及0/1/8/9图限制。
+证据：probe test_prompt_requires_exact_server_chart_basename（2失败+newline已通过）、test_model_code_requires_utf8_encodable_text全部通过；合法中文源码/合法chart名正例；坏输入零provider/执行器/文件副作用。
+完成门：上述断言迁入P31，P31定向通过，再进入R2。
+
+R2 服务端run身份、metadata与保留文件名（独立失败6项）
+目标：dataclass类型不等于服务端所有权；产物不得覆盖manifest，损坏metadata必须有稳定错误。
+允许：report_store.py及test_p1_32.py；chart_executor.py/chart_validation.py仅接入同一身份门，test_p1_33/34仅补必要消费者断言。
+实施：
+- 用当前用户PathService、已登记subject、严格rid重新推出staging/public/work/attempts/metadata路径；比较传入run所有路径与身份，拒绝外部/跨科/跨用户/链接/伪造路径。合法只读重建对象可用，不要求依赖本进程active注册才能读取；执行/写入还须合法running状态。验证先于任何mkdir/unlink/write/mount，不能仅isinstance或信任run.public_dir。
+- plan_chart_request文档称纯计算，实际_report_env会mkdir。拆分计划和执行准备：纯计划不创建cache/home目录；真正执行准备在身份验证后完成。
+- 新发布文件固定role/名字：正文report.md、PDF report.pdf、chart_[1-8].png；拒绝metadata.json、脚本/日志/cache及名字/role混用。不在P32重复实现P35的全文/PDF编译质量门，但确保复制字节不会被metadata写入覆盖。发布后清单size/hash逐项等于正式文件。
+- metadata严格检查类型再枚举/regex（fullmatch）：schema_version是int且恰为1，不接受bool；status/verification_status是string；坏list/dict不会触发unhashable TypeError。字段无效统一storage_corrupt，不回显原值。保留C11允许的私有extra，公开投影仍过滤内部信息，不改schemas.json。
+证据：probe publish_revalidates_server_owned_public_path、executor_revalidates_server_owned_staging_path、published_artifact_cannot_collide_with_metadata、bad_metadata三个参数全部通过。补合法当前用户与真实非管理员上下文正例；跨用户调用先拒绝且对方树不变。路径拒绝前后全树hash/目录一致。
+完成门：R2六项及原P32/P33/P34正常路径通过，再进入R3。
+
+R3 创建竞争与失败/活跃状态收尾（独立失败6项）
+目标：失败不得留下假running/active，碰撞竞争不得删除成功者，不能误弃仍运行的另一进程。
+允许：report_store.py、test_p1_32.py。
+实施：
+- create_report_run用原子mkdir认领，清理仅限本调用已经成功创建且拥有的目录。检查exists后mkdir失败不能无条件rmtree；失败竞争者不得删除成功者。不要靠重新uuid重试掩盖碰撞测试。
+- publish的声明/verification校验、manifest读取、锁获取、复制/metadata/rename异常均纳入收尾。原metadata有效且运行未完成时，失败应failed、无正式URL/半完成目录，并释放active；旧completed不降级。若已发现metadata损坏，保留损坏原件并报typed错误，但active仍finally释放，不能“修复”为新空metadata。
+- fail_report_run读取metadata失败时也必须释放本run活跃登记。失败记录本身的IO异常不能把原始错误变成成功或泄漏诊断。
+- mark_abandoned_if_stale只能在确定原拥有进程结束/身份不再匹配时写abandoned。可记录私有owner进程出生标识/运行nonce，或对无法证明已结束的跨进程状态保守保留running；未知不等于abandoned，也不称已证明active。仅PID存在不是run活跃证明，PID复用不能误保留；不新增全局调度器/DB，不要求多文件崩溃事务。
+证据：probe publish_rejection三参数、fail_cleanup_survives_corrupt_manifest、uuid_create_race、live_foreign_owner全部通过。UUID用两个已越过exists检查的并发调用，失败者不删成功者。跨进程正例由真实fork子进程create并保持存活；保留原真正结束进程→abandoned测试，再补PID复用/未知边界。
+完成门：R3六项和原并发发布、旧completed保护、普通IO回滚通过，再进入R4。
+
+R4 全程deadline、组清理与worker内部有界日志（独立失败3项）
+目标：EOF不结束墙钟约束；leader退出后仍能kill整个组；worker不能先communicate完整日志再截断。
+允许：chart_executor.py、chart_worker.py、test_p1_33.py。
+实施：
+- run_bounded_spawn把读stdout/stderr和process.wait放入同一墙钟deadline；不能只wait_for(readers)后无界wait。取消、超时、读取异常都清理自己拥有的进程组并reap、收回reader任务，不影响另一run。
+- 创建新session时就保存PGID（通常为process.pid）；leader先退出不再用getpgid(已退出PID)决定能否killpg。用受控marker证明后代未越过deadline写入，而非只看leader.returncode。
+- chart_worker的_run_script和_ode_mode仍subprocess.run(stdout/stderr=PIPE)，会完整communicate；ODE导入redirect StringIO也可能无界。替换为读取期间即丢弃超额输出的有界逻辑，stdout/stderr合计满足策略；继续设置hard RLIMIT在body之前，不回退宿主、不改共享backend。
+- 控制协议与诊断日志分开给有限预算；不能因为诊断budget较小把唯一JSON envelope截成半对象，也不能为控制协议无限抓输出。模型的原始输出只进私有有界诊断，不作为trusted控制流。
+证据：probe wall_clock_after_output_eof（关闭两FD后继续sleep）、exited_leader_descendant（leader先退出）及worker_output_flood全部通过。洪泛先同64MiB策略短输出正例通过，再128MiB输出流；当前代码报worker_crashed/MemoryError，返修应有界读取并正常返回图表结果。补ODE洪泛、取消/读取异常、低诊断预算正常结构、另一run不受影响。不得只复跑现有外层run_bounded_spawn输出测试声称worker已修。
+完成门：R4三项与原timeout/cancellation/hard limit/real bwrap图表正例通过，再进入R5。
+
+R5 worker控制结果的完整验证（独立失败3项，另1反例已通过）
+目标：唯一JSON对象只是语法门，缺字段/未知status/错类型不能冒充成功或裸抛异常。
+允许：chart_executor.py、chart_worker.py、test_p1_33.py。
+实施：
+- 固定schema=1、mode与本次请求一致、status枚举、exit_code严格int非bool、timed_out严格bool；避免int()/bool()/str()把坏字段变成“合法”。JSON重复键/截断/多对象/未知必需结构拒绝。
+- chart成功需status=ok、exit0、不超时、无error，artifact包含预期basename/正size/64位hash；缺图/无artifact/矛盾状态不是成功。ODE结构门与可信比较由R7闭合。返回安全worker_failed/chart_failed或既有503基础设施错误，不把ValueError及RAW_PRIVATE原文抛到消费者。
+- ChartExecutionResult.ok可表达进程基础设施结果，但chart_failure_error必须按实际worker mode/status/产物判断任务成功；原“只有exit0且无产物也算chart成功”的测试是假正例，应改为真实完整成功结构，保留其非零/超时/错误断言。
+证据：probe incomplete_or_wrong_typed_worker_protocol四参数全部通过（原3失败/1通过），加模式不符、bool exit、bad artifact、缺图及正常完整payload正例；断言实际_execute/消费者，不只调用schema helper。
+完成门：R5协议门可供R6绑定使用，再进入R6。
+
+R6 attempt代次、成功状态和产物绑定（独立失败5项）
+目标：finished不代表成功；旧收尾不能覆盖新代次，执行完成后替换的PNG不能冒充worker产物。
+允许：chart_executor.py、chart_validation.py、test_p1_33.py、test_p1_34.py。
+实施：
+- 私有attempt记录保留run/basename/generation，额外绑定本次执行最终exit/timed_out/error/status与产物name/size/hash。只有完整成功结果才允许P34验证；异常/取消/失败即便落了合法PNG也拒绝。
+- finish_chart_attempt按attempt_id与当前记录做CAS，在短锁下收尾；旧attempt不能把较新的finished:false改成自己的finished:true。必要的同run执行互斥在本模块实现，不添加全局调度器/修改共享sandbox；两个独立run仍可互不干扰。
+- P34现有Pillow verify+load/像素/字节/路径/非链接检查保留，并比较真实文件size/hash与当前成功worker记录；不能仅cleared+finished+UUID或mtime。验证/发布读取需有界且异常投影稳定。
+- 原测试fixture _write_artifact若手动生成结果，应补齐基于真实字节的成功artifact数据，不能旁路新的验证门。只读独立probe的valid_attempt已经带完整hash。
+证据：probe failed_attempt三参数、old_attempt_completion、post_execution_replacement全部通过；保留两个正常集成正例。补同run较旧收尾到达、当前记录损坏/缺hash、安全异常，以及最终publish字节与验证清单一致。
+完成门：R6五项与所有原PNG解码/炸弹/越界/旧图测试通过，再进入R7。
+
+R7 ODE可信数值比较与反伪造（独立失败2项）
+目标：模型子进程不能自签ok/finite/max_abs_error；passed必须来自隔离环境中的可信比较。
+允许：chart_worker.py、chart_executor.py、chart_validation.py、test_p1_33.py、test_p1_34.py。
+已证据：probe先真实bwrap执行正确f(x,y)=x-y得到passed，再把脚本替为错误f=123456；脚本在模块导入时os.write(1,伪造checks)并os._exit(0)，当前仍返回passed。redirect_stdout(StringIO)拦不住FD写出，不能据此信任结果。
+实施：
+- 模型脚本仍放隔离环境的独立不可信子进程。可信父worker不能import/exec模型代码；不再直接接受该子进程的ok/finite/error/points结论。
+- 子进程只提供有固定结构/长度/严格数值类型的五点采样值；可信父worker在同一个P33 OS隔离环境内，根据服务端已验证表达式和固定五点独立计算参考值、finite与非负误差。绝不把表达式eval搬回宿主，也不能只对模型自报checks做schema验证后当真实证明。
+- 缺样本/重复多对象/错类型/伪造旧checks结构/非0/超时/NaN/Inf均失败；客户端只获安全chart_failed。保留固定5点、所有值有限、0<=max_abs_error<1e-6；负误差绝不能passed。
+- 结论仍仅五点采样数值一致，不是模型任意代码无对抗能力的证明，也不是解析解/整篇数学正确。不得通过禁用ODE功能、忽略该表达式、硬编码passed或仅拦probe脚本文本过关。
+证据：probe ode_model_cannot_self_certify_success_via_stdout与negative_numeric_error全部通过；真实bwrap错误f、正确f、FD伪造、自毁、缺f、超时、非有限及反向正例。fake仅落在executor边界，不能用fake掩盖真实伪造场景。
+完成门：R7可信比较及原ODE正反例通过，再进入R8。
+
+R8 合并测试与证据闭合
+目标：上述真实失败归零且原正例不回退；交付一套可复核、无并发穿插的证据。
+允许：四份白名单测试及新rework01证据；必要修复限前述十路径。
+实施与证据：
+- 把本轮28失败对应的有效断言加入仓内四份测试。所有新增必需测试实际执行，无新增skip/xfail，不删除有效历史断言；确需把旧假正例改成完整成功数据，报告具体原断言及理由。
+- 各单元定向一次，有失败/修改才追加；阶段末合并一次。原独立32场景原样复跑，最终32 passed。不可编辑协调者probe或换fixture蒙过；若对断言有真实契约冲突，留最小证据并报告，不私自改契约。
+- 所有验证命令严格串行，共享execution.log不可并发追加。旧S08最早related-regression范围51–207包含ruff57–62和badcontrol65–135，保留并说明，不能重写历史。新日志每条argv/cwd/UTC/exit/行号准确独占；报告命令与closing去重完整计数，收尾prefix边界准确，不反复改冻结报告凑hash。
+
+统一命令（从项目根；所有收集先隔离HOME）：
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q -rs tests/phase1/test_p1_31.py tests/phase1/test_p1_32.py tests/phase1/test_p1_33.py tests/phase1/test_p1_34.py
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q -rs .phase1-evidence/reviews/S08/probe_s08.py
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q -rs tests/phase1 tests/services tests/api tests/tools tests/agents/chat tests/agents/question tests/agents/research tests/utils/test_document_extractor.py
+./.venv/bin/ruff check deeptutor/services/pdf/report.py deeptutor/services/pdf/report_inputs.py deeptutor/services/pdf/report_store.py deeptutor/services/pdf/chart_executor.py deeptutor/services/pdf/chart_worker.py deeptutor/services/pdf/chart_validation.py tests/phase1/test_p1_31.py tests/phase1/test_p1_32.py tests/phase1/test_p1_33.py tests/phase1/test_p1_34.py
+
+本阶段无前端改动，不重复Node/tsc/browser。原19项条件skip准确保留原因（可选pymupdf4llm/graphrag/litellm/lightrag、显式关闭的RAG集成、公开DNS条件），不能新增必需skip。
+
+至少三类坏对照，在新tmp源码副本先跑相同正例并确认deeptutor从副本导入，再分别取消身份/保留名门、attempt成功/hash/代次门、可信ODE比较门之一；必须由目标断言失败，非配置/依赖/导入错误。不能将script OOM当配置缺失，也不能用外层日志洪泛替代worker自身洪泛。
+
+结束capture include94，scope compare仅允许原10路径；84条当前前置源码及旧receipt/dispatch/probe全部hash不变。真实六树完整files/dirs/modes起止相等，继承auth.lock、9个memory文件、5个删除保持。源码归档至少保留本轮协调者审查1880成员（worker1878+两份新返修派发），唯一新tmp子目录verify-rebuild逐文件对比，不能缩小归档凑通过，存在时.next-deeptutor不得丢。
+
+交付一个StageReport：R1–R8各自目标/允许范围/测试名/实际完成门/限制；全部真实命令及非零说明、坏对照、scope/六树保护、archive/superset/rebuild、report/closing/冻结日志hash。源码hash引用本轮最新值，旧worker摘要只作历史。单元不分别写长报告。
+
+完成条件：R1–R8全部满足、32独立场景全通过、所有定向/相关回归/Ruff无新增失败、十路径范围/六树/84只读/旧证据/完整归档验证通过。仅标verified_local，停止等协调者验收。一般失败继续自修；真正需要白名单外或契约改变才给最小blocked_scope及复现，不提前进入S09。

@@ -54,14 +54,15 @@ def test_temperature_omitted_for_effort_based_models() -> None:
         "claude-sonnet-5",
         "claude-opus-4-7",
         "claude-fable-5",
+        "claude-haiku-5-5",
     ):
         assert "temperature" not in _kwargs(provider, model), model
 
 
-def test_temperature_kept_for_models_that_accept_it() -> None:
+def test_temperature_is_not_sent_to_the_anthropic_messages_sdk() -> None:
     provider = _provider()
-    # Opus 4.6 / Sonnet 4.6 still accept temperature — omitting it there
-    # would silently drop the user's configured setting.
+    # anthropic 1.5 removed temperature from Messages.create/stream. Passing
+    # it makes every non-adaptive Claude request fail before reaching the wire.
     for model in (
         "claude-opus-4-6",
         "claude-sonnet-4-6",
@@ -69,7 +70,7 @@ def test_temperature_kept_for_models_that_accept_it() -> None:
         "claude-haiku-4-5-20251001",
         "claude-opus-4-1",
     ):
-        assert "temperature" in _kwargs(provider, model), model
+        assert "temperature" not in _kwargs(provider, model), model
 
 
 def _count_cache_control(system: Any, messages: list[dict[str, Any]], tools: list) -> int:
@@ -97,12 +98,18 @@ def test_cache_control_never_exceeds_four() -> None:
         assert _count_cache_control("system prompt", messages, tools) <= 4, n_tools
 
 
-def _kwargs_with_effort(provider: AnthropicProvider, model: str, effort: str) -> dict[str, Any]:
+def _kwargs_with_effort(
+    provider: AnthropicProvider,
+    model: str,
+    effort: str,
+    *,
+    max_tokens: int = 8192,
+) -> dict[str, Any]:
     return provider._build_kwargs(
         messages=[{"role": "user", "content": "hi"}],
         tools=None,
         model=model,
-        max_tokens=1024,
+        max_tokens=max_tokens,
         temperature=0.7,
         reasoning_effort=effort,
         tool_choice=None,
@@ -123,41 +130,48 @@ def test_effort_based_families_map_real_effort_to_adaptive_thinking() -> None:
         kwargs = _kwargs_with_effort(provider, model, "high")
         assert kwargs["thinking"] == {"type": "adaptive"}, model
         assert "temperature" not in kwargs, model
-        assert kwargs["max_tokens"] == 1024, model  # no budget headroom inflation
+        assert kwargs["max_tokens"] == 8192, model  # no budget headroom inflation
 
 
-def test_effort_based_families_omit_thinking_for_off_sentinels() -> None:
+def test_effort_based_families_map_minimal_to_low_without_disabling() -> None:
     provider = _provider()
     kwargs = _kwargs_with_effort(provider, "claude-opus-4-8", "minimal")
-    assert "thinking" not in kwargs
+    assert kwargs["thinking"] == {"type": "adaptive"}
+    assert kwargs["output_config"] == {"effort": "low"}
     assert "temperature" not in kwargs
 
 
-def test_older_models_keep_budget_tokens_thinking() -> None:
+def test_older_models_keep_budget_below_the_output_limit() -> None:
     provider = _provider()
-    kwargs = _kwargs_with_effort(provider, "claude-opus-4-6", "high")
+    kwargs = _kwargs_with_effort(
+        provider, "claude-opus-4-6", "high", max_tokens=8192
+    )
     assert kwargs["thinking"]["type"] == "enabled"
-    assert kwargs["thinking"]["budget_tokens"] >= 8192
-    assert kwargs["temperature"] == 1.0
+    assert 0 < kwargs["thinking"]["budget_tokens"] < 8192
+    assert kwargs["max_tokens"] == 8192
+    assert "temperature" not in kwargs
 
 
 def test_older_models_omit_thinking_for_off_sentinels() -> None:
     """An off-sentinel used to fall through to the budget branch, where an
     unrecognised value means "default budget" — so `none` turned thinking ON."""
     provider = _provider()
-    for effort in ("none", "minimal", "minimum"):
+    for effort in ("none", "minimum"):
         kwargs = _kwargs_with_effort(provider, "claude-opus-4-6", effort)
         assert "thinking" not in kwargs, effort
-        assert kwargs["temperature"] == 0.7, effort
+        assert "temperature" not in kwargs, effort
+    # ``minimal`` is a compatibility alias for the native low level, not off.
+    minimal = _kwargs_with_effort(provider, "claude-opus-4-6", "minimal")
+    assert minimal["thinking"]["type"] == "enabled"
 
 
-def test_older_models_translate_adaptive_into_budget_thinking() -> None:
-    """The older families reject `thinking: {type: adaptive}`, so a stored
-    adaptive selection has to land on the budget form instead of a 400."""
+def test_legacy_adaptive_value_is_not_sent_as_an_effort() -> None:
+    """``adaptive`` is a protocol mode, not a strength. A legacy stored value
+    is left for the user to reset instead of being guessed into a level."""
     provider = _provider()
     kwargs = _kwargs_with_effort(provider, "claude-sonnet-4-5", "adaptive")
-    assert kwargs["thinking"] == {"type": "enabled", "budget_tokens": 4096}
-    assert kwargs["temperature"] == 1.0
+    assert "thinking" not in kwargs
+    assert "temperature" not in kwargs
 
 
 def test_off_sentinels_leave_tool_choice_to_the_caller() -> None:

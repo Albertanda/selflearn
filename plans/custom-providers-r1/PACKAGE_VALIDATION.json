@@ -1,0 +1,33 @@
+{
+  "stage": "CP-R1",
+  "status": "planned_not_implemented",
+  "date": "2026-10-24",
+  "cards": 8,
+  "dag_ok": true,
+  "source_files": 34,
+  "key_excerpts": 29,
+  "source_hashes_match": true,
+  "current_support_tests": {
+    "passed": 13,
+    "log": ".phase1-evidence/planning/CP-R1-20261024/current-custom-support-tests.log"
+  },
+  "local_live_api": {
+    "ports": [
+      8001,
+      3782
+    ],
+    "providers": 38,
+    "custom_entries_present": true
+  },
+  "real_data_unchanged_during_planning": true,
+  "live_vendor_calls": 0,
+  "documents": {
+    "README.md": "bc0e97b4d10a8df9a51bb5b2333c436b4affb8996b6a2fcdb01b19c147461061",
+    "CONTRACTS.md": "7ce85b277e79304f313469f3d15bf742fff1c8bf9f768d461f3b46f995aaf743",
+    "TASKS.json": "e44650c22c5b71810d5ab2dcaaa1386add0f0244dc3ae9791a59247155f7083b",
+    "ACCEPTANCE.md": "0e8aa0bd336ce0dd09b7ec104a1555c3ee5df902f01e350eaf3f02b93411886e",
+    "EXPLORATION.md": "8b038cbbe8931c1895ef7cc4fa9dfd1465923334b62597c607efc336335025d8",
+    "SOURCE_INDEX.json": "9100711112bafbd4d6eeb77346bae686df1a9d465a7d88b32431917438d02c53",
+    "START_CP_R1.txt": "efa0abc1ced4f4e1106643e4d6c046e540df7ab93ee939ada7a4f4905b7d1dba"
+  }
+}

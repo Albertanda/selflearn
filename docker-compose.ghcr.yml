@@ -1,8 +1,10 @@
 # ============================================
 # DeepTutor Docker Compose — Pre-built GHCR Image
 # ============================================
-# Run DeepTutor using the official pre-built image from GitHub Container Registry.
-# No local build required — the image is pulled automatically.
+# Run DeepTutor using the official upstream pre-built image from GitHub Container
+# Registry. No local build is required. This image is NOT this fork's build and
+# does not contain this fork's S12 changes; build docker-compose.yml locally if
+# you need the fork's code. The GHCR tag remains the upstream image.
 #
 # Usage:
 #   python scripts/docker_compose.py -f docker-compose.ghcr.yml up -d
@@ -51,7 +53,9 @@ services:
       # This used to mount only data/user, data/memory and data/knowledge_bases,
       # which left data/system (auth secret, accounts, grants, per-owner Codex
       # tokens), data/users, data/partners and data/cli-apps in the container's
-      # writable layer — discarded on every recreate. Upgrading from that
+      # writable layer — discarded on every recreate. data/partners is historical
+      # (partner features are retired here); keep it in this migration path so
+      # old data is copied rather than deleted. Upgrading from that
       # layout needs a one-time copy out of the running container first; see
       # CONTAINERIZATION.md → "One-time migration".
       - ./data:/app/data

@@ -68,5 +68,5 @@ def _parse(raw: str) -> tuple[str, list[str]]:
             continue
         if line.startswith("- ") or line.startswith("摘要"):
             summary_lines.append(line.lstrip("- ").strip())
-    summary = "\n".join(l for l in summary_lines if l)
+    summary = "\n".join(summary_line for summary_line in summary_lines if summary_line)
     return summary, facts

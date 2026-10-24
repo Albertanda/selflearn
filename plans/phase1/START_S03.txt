@@ -1,0 +1,101 @@
+现在执行 S03：科目存储与持久化接入（一次阶段会话）。
+工作目录：/home/albert/selflearn/selflearn
+
+S02 已在 Harness rework01 基础上由协调者补修并验收。最新有效签收是 .phase1-evidence/stages/S02/review.json，指向 .phase1-evidence/reviews/S02-final/review.json。旧 reviews/S02/review.json 的 changes_requested 属于历史。
+先核对最新 receipt 和 source_artifacts；不得恢复旧版 errors/model_output/S01 helpers，不重做 S00–S02。
+最新 S02 receipt 还覆盖协调者为 S03 修正的 S01 科目 fixture（helpers.py/test_p1_01.py）：默认标签“科目A/B”保留展示名，但返回的 subject_id 是合法 slug，knowledge.json 初始为空，created_at 为固定整数秒。以该最新 receipt 的哈希为准，不因旧 S01 receipt 哈希不同而恢复旧样本。
+
+本次按 P1-10 → P1-11 → P1-12 → P1-13 → P1-14 串行完成，单元内自修和定向测试，阶段末一次交接。不要逐卡请求批准，不进入 S04，不实施第二阶段新功能。
+读取 STAGE_WORKFLOW.md、stages/S03.md、这五张小卡，以及 C01/C02/C03/C05/C06/C10 和附录A的相关条目。小卡的旧 completion 提示以阶段流程为准；无需再遍历全部仓库和57卡。
+
+一、授权范围
+
+只允许修改以下11个路径：
+- deeptutor/subjects/json_store.py
+- deeptutor/subjects/store.py
+- deeptutor/subjects/wrong_book.py
+- deeptutor/subjects/exam_points.py
+- deeptutor/subjects/knowledge_points.py
+- deeptutor/subjects/profile.py
+- tests/phase1/test_p1_10.py
+- tests/phase1/test_p1_11.py
+- tests/phase1/test_p1_12.py
+- tests/phase1/test_p1_13.py
+- tests/phase1/test_p1_14.py
+另允许写 .phase1-evidence/stages/S03/ 的共享执行证据。
+
+仍遵守每卡符号范围，不能借并集顺手修改其他业务。S02 的 file_io/errors/model_output/generation 和 S01 的 helpers/conftest 保持只读，仅复用其接口。
+不改 routes/LLM factory/任务包/Schema/真实 data/settings，不迁移历史目录，不批量补 schema_version、不修复/删除坏数据，不安装/升级/提交/推送/启动真实服务或重建真实索引。
+本阶段不做 PATCH 的省略/清空语义（P1-15）、科目删除的两树产物策略（P1-54）、模型批改/考点检测接入（S04）、知识点 aggregate 新语义（P1-39）或自动 LLM 画像抽取。
+
+二、共同存储契约与接口
+
+附录A必须保留的接口：
+read_list(path: Path) -> list[dict]
+read_object(path: Path, *, default: dict) -> dict
+json_transaction(lock_dir: Path) -> context manager
+current_subject_paths() -> PathService
+可以增加私有或必要的 update callback/写入 helper，但这些不是模型/HTTP可传任意路径的入口。
+
+集合仍为旧顶层数组，profile 仍为对象；不改成统一 envelope。缺失返回约定默认；已存在但坏 JSON、错顶层/记录类型、非标准数字或拒读必须明确抛 StorageCorruptError/StorageIOError，不能返回空集合。非法输入则用明确业务错误，不能依赖泛型 ValueError 被 mapper 猜成400。
+复用 S02 的 atomic_write_json，同目录临时文件、flush/fsync、replace失败不能声称保存成功。保留旧文件字节与未知历史字段。读旧 legacy float 秒、不重写旧时间；新写时间整数秒，bool 不能冒充数值。
+严格读取应拒绝 NaN/Infinity 及解成非有限数的溢出值；错误不能被随后一次保存覆盖。只校验本模块会使用到的字段及确定类型/兼容默认，不给整份旧数据套新响应Schema而拒绝未知历史字段。
+profile 默认值不能以共享可变 dict/list 跨调用泄漏。损坏诊断只在服务端保留相对文件/记录序号；对外沿用已验收的固定安全投影，不回显整条记录、API key或任意宿主路径。
+
+三、五个内部单元
+
+P1-10：严格加载与可重入事务锁基础
+目标：提供可诊断读取、原子写和被锁保护的完整读改写，供后续四卡复用。
+范围：json_store.py、test_p1_10.py；本单元不改消费者。
+实施：registry root 独立锁，各 subject 独立锁；同一路径规范化为同一个锁键。线程重入锁配合 Linux/WSL flock；锁实例/FD/嵌套计数不能每次调用重新生成。外层 transaction 持有期间，内层 _save 不能提前释放锁或重新取得冲突的 flock FD。
+锁文件和 JSON 路径不能经 symlink 逃逸；消费者负责可信作用域边界，低层也不能盲目打开符号链接锁文件。异常必须释放锁。不支持且未验证的锁平台明确报 unsupported，不静默无锁。
+证据：缺失默认、损坏/错顶层/拒读/非有限数的独立用例；两个线程及两个 spawn 子进程各追加 N 条最终2N且id唯一；嵌套不死锁；内层退出后另一个调用者仍被外层锁阻挡；异常退出后能重新取得锁；不同科目同时操作且互不阻塞。
+并发测试用 barrier/event 确实制造重叠，不能仅顺序调用两次。证明锁承重的一个受控坏对照应暴露丢更新；使用等待超时/join和进程退出码判断，不用不确定的长 sleep。子进程配置及数据都是 tmp，spawn 不能只依赖父进程 monkeypatch。
+完成：读改写全程互斥、嵌套只有外层释放、异常恢复、不同科目并行；不能仅证明最后 write 原子。跨进程结果必须是真实 OS 锁测试，不用 fake锁替代。
+
+P1-11：注册表/知识库记录接入与严格当前用户路径
+目标：并发创建不重名/丢注册项；knowledge 记录保留未知字段；作用域解析失败不访问默认管理员树。
+范围：store.py 的 load/save/create/update/knowledge record 路径及 test_p1_11.py；delete 的产物行为留P1-54。
+实施：创建的加载、生成唯一id、追加、保存在同一个 registry transaction 内；创建目录失败明确可诊断，不返回已创建成功。knowledge upsert 在 subject transaction 内完成。提供 current_subject_paths() 并供 subject/output helper复用，直接使用当前用户 PathService，不能调用会吞异常回退管理员的通用 helper。
+保留中文 slug；使用完整字符串校验，末尾 LF/CRLF/空格、分隔符、百分号、非法类型均不能当合法id。实际路径 resolve 后检查作用域，不只是校验字符串；科目/锁/数据 symlink 不能引向另一科、另一用户、管理员或外部目录。
+证据：同名并发创建全部 unique 且都在 index；坏 registry 不创建新科/覆盖；upsert保留其他条目及未知字段；中文正例和独立路径反例；模拟当前用户路径解析异常时，管理员路径的读取/写入 spy计数为0；tmp普通用户A/B与tmp管理员的数据相互隔离。
+完成：注册表和知识记录读改写均受正确锁保护，路径辅助严格失败，不写真实数据或迁移目录。尚未实施的 delete竞态/产物策略不要宣称已经修复，留后续卡处理。
+
+P1-12：错题与attempt事务、掌握度一致
+目标：并发作答不丢 attempt，原舍入策略保留，损坏记录不能变空后覆盖。
+范围：wrong_book.py 的 load/_save/add_entry/record_attempt/archive/delete及 test_p1_12.py；不改API或模型批改逻辑。
+实施：使用同 subject transaction 覆盖完整读改写；attempt.correct 必须实际 bool，字符串"false"不能转成True、整数1不能冒充True。无attempt保持0/untracked；使用现有 MASTERY_PRECISION，不新造评分公式。保留未知字段及归档/删除现有字段/旧时间。
+证据：N个并发attempt全部保存；False+True+True+True得到0.8/mastered；错误correct类型拒绝且旧字节不变；坏文件不变[]、不覆盖；归档/删目标记录不动其他题或别科。
+完成：正确分数/状态、无竞态丢题、兼容旧记录，不引入自动重试/新题目匹配算法。
+
+P1-13：考点集合事务与整批提交
+目标：确认/追加不互相覆盖，add_many整批验证后只写一次；历史 inferred兼容。
+范围：exam_points.py 的 load/save/add/add_many/confirm/delete及 test_p1_13.py；批量业务去重接入留P1-08。
+实施：单项和批量均复用storage adapter及subject锁。add_many先验证整批，再一次提交；后半项非法不能留下前半项。保留manual/inferred/explicit原规则和未知字段，不擅自全确认。
+证据：confirm与add确实并发且两个修改保留；坏批次文件字节保持、合法批次只一次权威写；历史inferred读取；missing和corrupt不同；删点不碰别科。
+完成：读改写锁、批量原子失败、旧字段兼容成立。不触发真实模型识别，不修改检测提示词或考点策略。
+
+P1-14：知识点和画像剩余存储接入
+目标：两模块统一原子/并发/明确读取失败，保留既有facts和link策略。
+范围：knowledge_points.py、profile.py 的 load/save/add/link/profile update/facts写入及 test_p1_14.py；aggregate语义留P1-39。
+实施：同subject transaction；profile缺失有独立默认对象，已存在坏profile不能退默认后覆盖；保留未知字段。facts去重/20条上限与原字段默认保持，link重复不重加。
+证据：并发add/link不丢记录；profile缺失默认、损坏错误、拒读错误有独立用例；旧未知字段保留；facts去重/20条策略和link幂等；不调用真实LLM或自动抽取。
+完成：单权威集合写入/错误传播/锁一致。不要把此存储阶段扩成多文件数据库事务、重建aggregate或自动画像流程。
+
+四、测试与阶段证据
+
+1. 开始 capture/protect-data 到 S03。--include 必须包含S01/S02 accepted receipt的已批准新增源码/测试以及本阶段11个路径，新增文件尚不存在也列 include；旧基线和归档保持只读。
+2. 每单元改完运行其定向命令，完成后阶段末合并：
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q tests/phase1 tests/services/test_file_io.py tests/services/test_codebuddy_credentials.py tests/services/rag/test_llamaindex_document_loader.py
+存储底层影响API/消费者，再做一次相关目录回归：
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q tests/phase1 tests/services tests/api
+两条均为 tmp配置/数据，不是全仓库基线。使用 S01已验收 fixture；不修改启动器，不复制真实settings，不让子进程落回仓库实际root。P1-10跨进程行为额外必须在tmp上真实运行。
+fixtures 的 p1_subjects 字典键是展示标签；构造路径/ref/API请求应使用 SubjectPaths.subject_id，不把字典键直接当id。知识库目录/marker只是测试布局，不等于已注册/索引就绪的真实知识库；各场景按业务接口建立必要的合法记录或受控假索引。
+3. 对本阶段实际创建/改动的11个路径做 Ruff，不运行全仓库 --fix，不新增 skip/xfail、不删有效断言或改冻结契约过关。
+4. 真实三树及 supplementary global KB/memory/system与阶段起点无新变化；历史memory trace保留不删不解析。所有业务写入和并发压力只在tmp，禁止“试写一条再还原”真实数据。
+5. execution.log实时追加完整真实命令、cwd、时间、原输出和exit code；失败、返修复测保留。命令id/标签是记录字段，不要当可执行文件名传给shell；命令不得含scope占位符。报告区分选择文件、全目录、协调者与执行者运行结果，不再混算覆盖。
+6. 阶段末 source/data比对：--allow逐个列本阶段11个路径；一份最终归档/sidecar，verify-rebuild在新的tmp目录。report.json用现有StageReport，五个card_results引用共同命令/日志，写输入、预期、实际和测试名、源码hash、scope/data/归档结果、限制。不要为每卡建长报告/每次测试建tar。
+
+完成条件：五单元必证场景成立，真实线程/进程锁及严格用户路径有有效正反例；旧数组/对象/字段/时间和已验收上游语义兼容；相关回归、Ruff、范围、数据与恢复归档通过。只报告 verified_local，由协调者签收。
+普通失败在本阶段内自修复测，无需逐卡转发。真实数据保护失败立即停；确需越白名单或改契约，列最小 blocked_scope，不私自修改已验收基础模块。
+完成 S03 后停止等待复核，不能自动进入 S04。

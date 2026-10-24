@@ -12,6 +12,17 @@ import pytest
 
 from deeptutor.api.routers import voice as voice_router
 from deeptutor.services.voice import VoiceProviderError
+from deeptutor.services.voice.adapters.qwen_asr import QwenAudioLimitError
+
+
+def test_stt_qwen_audio_limit_is_413(client, monkeypatch):
+    async def too_large(*args, **kwargs):
+        raise QwenAudioLimitError("请使用课程录音上传，由系统自动切片。")
+
+    monkeypatch.setattr(voice_router, "transcribe_audio", too_large)
+    response = client.post("/api/v1/voice/stt", files={"file": ("a.webm", b"audio", "audio/webm")})
+    assert response.status_code == 413
+    assert "切片" in response.json()["detail"]
 
 
 @pytest.fixture()

@@ -1,0 +1,26 @@
+现在按阶段执行第一阶段。P1-00已由协调者复核并直接修补，原始证据保持；不重新执行P1-00，不恢复旧snapshot脚本或旧Schema。先读其review receipt确认当前工具hash。
+
+工作目录：/home/albert/selflearn/selflearn。
+本次授权阶段S01：按顺序完成P1-01和P1-02。完成01的本地测试后直接继续02，不逐卡询问，不另开卡会话，不生成两份长报告。阶段结束停止并提交一次汇总，等待协调者复核；不进入S02。
+
+读取 plans/phase1/STAGE_WORKFLOW.md、stages/S01.md、相应两张小卡和C01/C14。stages.json是阶段顺序，tasks.json是单元依赖；历史“一张卡一会话/完成一卡停止”的提示已被阶段流程2.0替换。
+
+允许修改仅为S01两卡白名单并集：
+- tests/phase1/__init__.py
+- tests/phase1/conftest.py
+- tests/phase1/helpers.py
+- tests/phase1/test_p1_01.py
+- tests/phase1/test_p1_02.py
+- tests/services/test_codebuddy_credentials.py
+以及 .phase1-evidence/stages/S01/ 的共享执行证据。不得改生产代码、根tests/conftest.py、任务包、真实settings/data或P1-00原始证据。
+
+先留本阶段source/data起点记录。快照工具v2通过--include把当前和已完成阶段的批准新源码纳入恢复快照；原baseline和归档保持只读。缺未来夹具不是P1-01的阻塞理由，P1-01就是创建它的工作。
+
+P1-01：隔离PathService、多用户roots、manager/model缓存，恢复时不泄漏；提供tmp用户/科目/同名多科KB、模型/ASR/embedding stub、失败注入和状态比较。未stub的外网必须被拦截；不读真实密钥。用有效正例和独立反例证明隔离，而非只断言fixture被调用。
+P1-02：冻结凭证测试时钟，保留毫秒解析与expiry/skew边界；不改生产过期逻辑、不把日期改远未来、不删有效测试。
+
+运行两卡各自定向命令；新增测试夹具可能影响原P1-00测试，因此也回归 tests/phase1/test_p1_00.py。遇一般失败在本阶段内自修复测。不要重跑整个项目基线，不提前做后续业务卡，不升级/安装依赖、不提交/推送、不启动真实服务或供应商请求。
+
+只交付一份阶段report.json和一份追加式execution.log；report中包含两卡结果、实际命令与退出码、测试标识、修改文件及hash、scope/data核验、限制。按schemas.json的StageReport，状态verified_local，不自签accepted。不必逐卡建completion文件；日志保留失败尝试，不能用“pytest通过”的文字代替原输出。
+
+若确需白名单外生产修改、契约调整或真实环境，记录具体blocked及最小建议；否则直接完成。阶段结束简要报告目标结果、证据路径和残余限制，不再复述整体项目。

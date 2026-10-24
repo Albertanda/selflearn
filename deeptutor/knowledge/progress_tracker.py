@@ -4,6 +4,7 @@ Progress Tracker - Tracks knowledge base initialization progress
 
 import asyncio
 from collections.abc import Callable
+import copy
 from datetime import datetime
 from enum import Enum
 import json
@@ -41,6 +42,12 @@ class ProgressTracker:
         self.progress_file = self.kb_dir / ".progress.json"
         self._callbacks: list = []  # Support multiple callbacks
         self.task_id: str | None = None  # Task ID (for log identification)
+        # This run's image coverage (P1-27), remembered so the *later* updates of
+        # the same run — including the final COMPLETED event written by the
+        # caller — keep it instead of overwriting it with a coverage-less dict.
+        self._image_coverage: dict | None = None
+        self._image_coverage_warning: str | None = None
+        self._image_coverage_task: str | None = None
 
     def set_callback(self, callback: Callable[[dict], None]):
         """Set progress callback function (can be called multiple times to add multiple callbacks)"""
@@ -51,6 +58,28 @@ class ProgressTracker:
         """Remove progress callback function"""
         if callback in self._callbacks:
             self._callbacks.remove(callback)
+
+    def record_image_coverage(self, coverage: dict | None, warning: str | None = None) -> None:
+        """Remember this run's image coverage for its later progress updates."""
+        self._image_coverage = copy.deepcopy(coverage) if isinstance(coverage, dict) else None
+        self._image_coverage_warning = warning or None
+        self._image_coverage_task = self.task_id
+
+    def reset_image_coverage(self) -> None:
+        """Forget any remembered coverage — called when a new run starts."""
+        self._image_coverage = None
+        self._image_coverage_warning = None
+        self._image_coverage_task = self.task_id
+
+    def _remembered_image_coverage(self) -> tuple[dict, str | None] | None:
+        if self._image_coverage is None:
+            return None
+        if self._image_coverage_task != self.task_id:
+            # Another task owns this tracker now; its numbers must never be
+            # attributed to the previous run.
+            self.reset_image_coverage()
+            return None
+        return copy.deepcopy(self._image_coverage), self._image_coverage_warning
 
     def _notify(self, progress: dict):
         """Notify progress update (call all callbacks)"""
@@ -118,6 +147,8 @@ class ProgressTracker:
                     "indexed_count": progress.get("indexed_count"),
                     "index_changed": progress.get("index_changed"),
                     "index_action": progress.get("index_action"),
+                    "image_coverage": progress.get("image_coverage"),
+                    "image_coverage_warning": progress.get("image_coverage_warning"),
                 },
             )
         except Exception as e:
@@ -145,6 +176,8 @@ class ProgressTracker:
         indexed_count: int | None = None,
         index_changed: bool | None = None,
         index_action: str | None = None,
+        image_coverage: dict | None = None,
+        image_coverage_warning: str | None = None,
     ):
         """Update progress"""
         progress = {
@@ -164,6 +197,17 @@ class ProgressTracker:
             progress["index_changed"] = index_changed
         if index_action:
             progress["index_action"] = index_action
+
+        # Additive image coverage (P1-27): a supplied value becomes this run's
+        # memory, and every following update of the same task re-attaches it so
+        # the final COMPLETED snapshot/event cannot silently drop it.
+        if image_coverage is not None or image_coverage_warning is not None:
+            self.record_image_coverage(image_coverage, image_coverage_warning)
+        remembered = self._remembered_image_coverage()
+        if remembered is not None:
+            progress["image_coverage"] = remembered[0]
+            if remembered[1]:
+                progress["image_coverage_warning"] = remembered[1]
 
         if error:
             progress["error"] = error

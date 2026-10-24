@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from deeptutor.agents.math_animator.request_config import (
     MathAnimatorRequestConfig,
@@ -22,7 +22,36 @@ _RUNTIME_ONLY_KEYS = {
     # capability's public config schema; stripped here so it never trips
     # ``extra="forbid"`` (turn_runtime carries it through to the turn config).
     "subagent_consult_budget",
+    # Subject scope (composer SubjectSelector). The composer builds the whole
+    # turn config, so the selected subject rides in ``config`` — but it is not
+    # a capability parameter, and ``ChatRequestConfig`` declares no fields with
+    # ``extra="forbid"``, so an unlisted key rejects the entire turn. Stripped
+    # here and read back out of the turn config by ``turn_runtime``, which
+    # drives the M5 subject context injection.
+    "subject_id",
 }
+
+
+class ReasoningOverride(BaseModel):
+    """The formal per-turn reasoning selection.
+
+    ``inherit`` and ``provider_default`` are selection modes, not vendor
+    effort strings.  Only ``effort`` may carry a level.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["inherit", "provider_default", "effort"] = "inherit"
+    effort: str | None = Field(default=None, max_length=32)
+
+    @model_validator(mode="after")
+    def _validate_effort(self) -> "ReasoningOverride":
+        if self.mode == "effort":
+            if not isinstance(self.effort, str) or not self.effort.strip():
+                raise ValueError("reasoning_override.effort is required when mode=effort")
+        elif self.effort not in (None, ""):
+            raise ValueError("reasoning_override.effort is only valid when mode=effort")
+        return self
 
 
 class ChatRequestConfig(BaseModel):
@@ -103,6 +132,29 @@ def validate_chat_request_config(raw_config: dict[str, Any] | None) -> ChatReque
     return _validate_model(ChatRequestConfig, raw_config, label="chat")
 
 
+def validate_reasoning_override(value: Any) -> dict[str, Any]:
+    """Validate the formal turn field and return its normalized shape."""
+
+    if value is None:
+        return {"mode": "inherit"}
+    if isinstance(value, ReasoningOverride):
+        return value.model_dump(exclude_none=True)
+    if not isinstance(value, dict):
+        raise ValueError("reasoning_override must be an object.")
+    try:
+        model = ReasoningOverride.model_validate(value)
+    except ValidationError as exc:
+        details = "; ".join(
+            f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
+            for error in exc.errors()
+        )
+        raise ValueError(f"Invalid reasoning_override: {details}") from exc
+    normalized = model.model_dump(exclude_none=True)
+    if normalized.get("effort") == "":
+        normalized.pop("effort", None)
+    return normalized
+
+
 def validate_deep_solve_request_config(
     raw_config: dict[str, Any] | None,
 ) -> DeepSolveRequestConfig:
@@ -152,7 +204,10 @@ def validate_capability_config(
         return _clean_public_config(raw_config)
     model = validator(raw_config)
     if isinstance(model, BaseModel):
-        return model.model_dump(exclude_none=True)
+        normalized = model.model_dump(exclude_none=True)
+    if normalized.get("effort") == "":
+        normalized.pop("effort", None)
+    return normalized
     return _clean_public_config(raw_config)
 
 
@@ -166,6 +221,7 @@ __all__ = [
     "ChatRequestConfig",
     "DeepQuestionRequestConfig",
     "DeepSolveRequestConfig",
+    "ReasoningOverride",
     "VisualizeRequestConfig",
     "build_request_schema",
     "get_capability_request_schema",
@@ -173,5 +229,6 @@ __all__ = [
     "validate_chat_request_config",
     "validate_deep_question_request_config",
     "validate_deep_solve_request_config",
+    "validate_reasoning_override",
     "validate_visualize_request_config",
 ]

@@ -1,4 +1,12 @@
-import { Bot } from "lucide-react";
+import {
+  Bot,
+  Cloud,
+  FlaskConical,
+  Network,
+  School,
+  Server,
+} from "lucide-react";
+import type { ProviderIconSpec } from "@/lib/custom-providers";
 
 /**
  * Vendor logos for LLM/embedding providers, keyed by binding name
@@ -43,12 +51,6 @@ const PROVIDER_ICONS: Record<string, { file: string; mono?: boolean }> = {
   qianfan: { file: "baiducloud-color.svg" },
   cohere: { file: "cohere-color.svg" },
   jina: { file: "jina.svg", mono: true },
-  // Search providers (see SEARCH_PROVIDERS in
-  // deeptutor/services/config/provider_runtime.py). brave/duckduckgo/searxng
-  // come from simple-icons with the brand color baked in. Keys shared with an
-  // LLM binding above (zhipu, qianfan) already resolve and are not repeated.
-  // A search provider with no vendored logo falls back to the generic Bot mark
-  // rather than borrowing an unrelated brand's.
   tavily: { file: "tavily-color.svg" },
   perplexity: { file: "perplexity-color.svg" },
   exa: { file: "exa-color.svg" },
@@ -56,26 +58,72 @@ const PROVIDER_ICONS: Record<string, { file: string; mono?: boolean }> = {
   duckduckgo: { file: "duckduckgo.svg" },
   searxng: { file: "searxng.svg" },
   baidu: { file: "baidu-color.svg" },
-  // Doubao is Volcengine's own model line, so it carries the Ark mark.
   doubao: { file: "volcengine-color.svg" },
   aliyun_iqs: { file: "qwen-color.svg" },
 };
 
+const BUILTIN_ICONS = {
+  bot: Bot,
+  server: Server,
+  school: School,
+  flask: FlaskConical,
+  cloud: Cloud,
+  network: Network,
+} as const;
+
+function BuiltinIcon({
+  value,
+  size,
+  className,
+}: {
+  value: keyof typeof BUILTIN_ICONS;
+  size: number;
+  className: string;
+}) {
+  const Icon = BUILTIN_ICONS[value] ?? Bot;
+  return (
+    <Icon
+      data-provider-icon={`builtin:${value}`}
+      size={size}
+      strokeWidth={1.7}
+      className={`shrink-0 ${className}`.trim()}
+    />
+  );
+}
+
 export default function ProviderIcon({
   provider,
+  icon,
   size = 13,
   className = "",
 }: {
   provider?: string | null;
+  icon?: ProviderIconSpec | null;
   size?: number;
   className?: string;
 }) {
+  if (icon?.kind === "builtin") {
+    return <BuiltinIcon value={icon.value} size={size} className={className} />;
+  }
+  if (icon?.kind === "emoji") {
+    return (
+      <span
+        data-provider-icon={`emoji:${icon.value}`}
+        aria-hidden
+        className={`inline-flex shrink-0 items-center justify-center ${className}`.trim()}
+        style={{ width: size, height: size, fontSize: size, lineHeight: 1 }}
+      >
+        {icon.value}
+      </span>
+    );
+  }
   const spec = provider
     ? PROVIDER_ICONS[provider.trim().toLowerCase()]
     : undefined;
   if (!spec) {
     return (
       <Bot
+        data-provider-icon="fallback:bot"
         size={size}
         strokeWidth={1.7}
         className={`shrink-0 ${className}`.trim()}
@@ -85,6 +133,7 @@ export default function ProviderIcon({
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
+      data-provider-icon={spec.file}
       src={`/provider-icons/${spec.file}`}
       alt=""
       aria-hidden

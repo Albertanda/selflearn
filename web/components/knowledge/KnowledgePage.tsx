@@ -36,7 +36,6 @@ export default function KnowledgePage() {
     reindex,
     retry,
     deleteKb,
-    connectObsidian,
     connectLinkedFolder,
     connectLightRagServer,
     connectIma,
@@ -57,20 +56,9 @@ export default function KnowledgePage() {
     initialEngine,
   );
   const [createOpen, setCreateOpen] = useState(false);
-  const [createPreset, setCreatePreset] = useState<{
-    mode: "new" | "link";
-    source?: string;
-  } | null>(null);
   const [pipelineOpen, setPipelineOpen] = useState(false);
 
   const openCreate = useCallback(() => {
-    setCreatePreset(null);
-    setCreateOpen(true);
-  }, []);
-  // Obsidian lives in the engines grid for discoverability but routes through
-  // the unified create flow, pre-set to "link existing → Obsidian".
-  const openObsidian = useCallback(() => {
-    setCreatePreset({ mode: "link", source: "obsidian" });
     setCreateOpen(true);
   }, []);
   // Lands on the Overview console unless deep-linked to a KB or an engine.
@@ -256,7 +244,6 @@ export default function KnowledgePage() {
               onOpenKb={openKb}
               onOpenEngine={openEngine}
               onCreate={openCreate}
-              onConnectObsidian={openObsidian}
             />
           ) : view === "engine" && selectedProvider ? (
             <EngineDetail
@@ -276,7 +263,6 @@ export default function KnowledgePage() {
               onOpenKb={openKb}
               onOpenEngine={openEngine}
               onCreate={openCreate}
-              onConnectObsidian={openObsidian}
             />
           ) : (
             <KnowledgeBaseDetail
@@ -304,11 +290,8 @@ export default function KnowledgePage() {
         uploadPolicy={uploadPolicy}
         onCreate={handleCreate}
         onConnectLinkedFolder={connectLinkedFolder}
-        onConnectObsidian={connectObsidian}
         onConnectLightRagServer={connectLightRagServer}
         onConnectIma={connectIma}
-        initialMode={createPreset?.mode}
-        initialSource={createPreset?.source}
         onConfigureProvider={() => {
           setCreateOpen(false);
           setPipelineOpen(true);

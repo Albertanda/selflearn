@@ -1,6 +1,7 @@
 import { apiFetch, apiUrl } from "@/lib/api";
 import { invalidateClientCache, withClientCache } from "@/lib/client-cache";
 import type { LLMSelection, StreamEvent } from "@/lib/unified-ws";
+import type { ReasoningOverride } from "@/lib/reasoning-controls";
 
 export interface SessionMessage {
   id: number;
@@ -33,6 +34,8 @@ export interface SessionPreferences {
   knowledge_bases?: string[];
   language?: string;
   llm_selection?: LLMSelection | null;
+  /** Per-model per-turn reasoning choices, keyed by profile:model. */
+  reasoning_preferences?: Record<string, ReasoningOverride>;
   /** Persistent mastery state associated with this conversation. */
   mastery_path_id?: string;
   /** Session-level persona preference; "" / absent = Default (no persona). */

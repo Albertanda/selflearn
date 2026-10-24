@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import logging
+import threading
 from typing import Any, Dict, List, Optional
 
 from deeptutor.services.config.embedding_endpoint import (
@@ -36,6 +38,48 @@ def _resolve_adapter_class(binding: str) -> type[BaseEmbeddingAdapter]:
 
 class EmbeddingClient:
     """Unified embedding client for RAG and retrieval services."""
+
+    # Process-wide posting throttle (ported from upstream v1.5.17). LlamaIndex
+    # reindexes from a thread pool and each thread runs its own event loop, so
+    # the lock has to be a threading lock: an asyncio.Lock is bound to the loop
+    # it was created on and neither excludes nor survives across loops.
+    _spacing_lock: Any = None
+    _last_request_monotonic: float = 0.0
+    #: Guard for the lazy ``_spacing_lock`` creation, built **once at class
+    #: definition time**. Creating it inside the first call let two racing
+    #: threads hold two different guards, so both could pass the double-check
+    #: and install two different "global" locks — after which the throttle no
+    #: longer excluded anything.
+    _thread_guard: Any = threading.Lock()
+
+    @classmethod
+    def _global_spacing_lock(cls):
+        if cls._spacing_lock is None:
+            with cls._thread_guard:
+                if cls._spacing_lock is None:
+                    cls._spacing_lock = threading.Lock()
+        return cls._spacing_lock
+
+    @staticmethod
+    @asynccontextmanager
+    async def _hold_spacing_lock():
+        """Acquire the cross-thread posting lock without blocking the loop.
+
+        The lock is a ``threading.Lock`` shared by every thread and every event
+        loop in this process; it is always released in ``finally``, so an
+        exception or a cancellation inside the guarded section cannot leave the
+        throttle permanently held. ``batch_delay == 0`` means "no *extra*
+        configured delay" — the post is still serialized by this lock.
+        """
+        import asyncio
+
+        lock = EmbeddingClient._global_spacing_lock()
+        while not lock.acquire(blocking=False):
+            await asyncio.sleep(0.05)
+        try:
+            yield
+        finally:
+            lock.release()
 
     def __init__(self, config: Optional[EmbeddingConfig] = None):
         self.config = config or get_embedding_config()
@@ -111,7 +155,22 @@ class EmbeddingClient:
                 input_type=role,
             )
             try:
-                response = await self.adapter.embed(request)
+                # Process-wide posting throttle: a thread-level lock serializes
+                # "wait out the interval + post" across threads *and* across
+                # event loops. LlamaIndex reindexes from a thread pool, each
+                # thread running its own loop, and an asyncio.Lock is bound to
+                # the loop it was created on — across loops it neither excludes
+                # nor survives. Non-blocking polling avoids same-loop callers
+                # deadlocking on acquire().
+                from time import monotonic as _mono
+
+                async with EmbeddingClient._hold_spacing_lock():
+                    if batch_delay > 0:
+                        elapsed = _mono() - EmbeddingClient._last_request_monotonic
+                        if elapsed < batch_delay:
+                            await asyncio.sleep(batch_delay - elapsed)
+                    EmbeddingClient._last_request_monotonic = _mono()
+                    response = await self.adapter.embed(request)
             except Exception as exc:
                 # Capture batch context so the task log stream / KB diagnostics
                 # show actionable info instead of a bare exception string.

@@ -58,3 +58,36 @@ test("upload proxy streams the original body and preserves the backend response"
   assert.equal(response.headers.has("connection"), false);
   assert.equal(await response.text(), '{"task_id":"kb_init_1"}');
 });
+
+test("ASR job list GET is forwarded without inventing a body", async () => {
+  const request = new Request(
+    "http://frontend.test/api/v1/subjects/sub-1/asr/jobs?limit=20",
+    {
+      method: "GET",
+      headers: {
+        cookie: "deeptutor_session=token",
+        host: "frontend.test",
+      },
+    },
+  );
+
+  const response = await forwardBackendUpload(request, {
+    apiBaseUrl: "http://127.0.0.1:8123",
+    fetchImpl: async (input, init) => {
+      assert.equal(
+        String(input),
+        "http://127.0.0.1:8123/api/v1/subjects/sub-1/asr/jobs?limit=20",
+      );
+      assert.equal(init?.method, "GET");
+      assert.equal(init?.body, null);
+      assert.equal(new Headers(init?.headers).get("cookie"), "deeptutor_session=token");
+      return new Response('{"jobs":[]}', {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    },
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), '{"jobs":[]}');
+});

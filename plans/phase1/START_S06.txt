@@ -1,0 +1,74 @@
+在 /home/albert/selflearn/selflearn 执行第一阶段 S06「文档图像索引与覆盖」。本条一次授权整个 S06：P1-26 → P1-27 → P1-28，串行完成后一次交付，不逐卡停下请求批准，不进入 S07 或第二阶段新功能。
+
+一、起点、预读与范围
+
+S05 已经协调者最终补修并验收。先读取 .phase1-evidence/stages/S05/review.json 指针，核验其 receipt_sha256，再读取所指 S05-final accepted receipt。以该 receipt 的 48 条 source_artifacts 为当前合并源码真值；不能拿 S04 或 S05 初次/worker 返修的旧 hash 恢复文件。S05 最终证据：197 项定向、2811 项相关目录/18 历史 skip、33 方法独立探针、Ruff、六树保护及归档核验通过。
+
+先读本指令、S06_EXPLORATION.md（已探索的文件清单+关键片段）、STAGE_WORKFLOW.md 的证据规则、DATA_CONTRACTS.md 的 C02/C04/C07/C09 和附录 A。只对片段涉及的当前文件算 hash；吻合则直接复用定位，编辑附近/确需新增依赖时定向补读。不要重读全仓库、全部历史交接和全部小卡。AGENTS.md 是上游架构背景，已裁剪功能不能照搬。exploration 包为本次派发时的真实源码摘录，生成和自检位置由最新 receipt 记录。小卡与索引已同步本节的最小范围扩展。
+
+本阶段允许更改以下 11 条路径；文件获准不等于可重写其中其他功能：
+1. deeptutor/services/rag/pipelines/llamaindex/image_description.py（新建）
+2. deeptutor/services/rag/pipelines/llamaindex/document_loader.py
+3. deeptutor/services/rag/pipelines/llamaindex/pipeline.py（仅初始化的节点/coverage 投影）
+4. deeptutor/knowledge/initializer.py（仅接收本次 coverage、并入 metadata 和最终进度）
+5. deeptutor/knowledge/progress_tracker.py（仅加法式 coverage/warning 透传、保存和最终事件保留）
+6. deeptutor/utils/document_images.py（只修 P1-28 边界测试确实证明的问题）
+7. deeptutor/utils/document_extractor.py（同上）
+8. tests/phase1/test_p1_26.py（新建）
+9. tests/phase1/test_p1_27.py（新建）
+10. tests/phase1/test_p1_28.py（新建）
+11. tests/services/rag/test_llamaindex_document_loader.py（仅图像 fixture/旧跳过断言适配，保留 S01 隔离与 parser/to_thread/多模态回归）
+
+后三项范围补充中的生产投影接缝 initializer/progress_tracker，是为兑现 P1-27 原定“KB metadata/进度最终结果”而补齐；旧 loader 测试则含“text embedding 必须跳图”的过时断言及 6 字节图片，必须迁移为有效图片和“无可用 vision 才跳过”。不得为了旧断言保留缺陷、关闭预算或调用真实配置。S05 receipt 48 条中除 pipeline.py 和上述旧 loader 测试外的 46 条只读。旧 receipt、日志、归档、协调者探针及调度文档均只读。阶段新证据写 .phase1-evidence/stages/S06/；不覆盖其他阶段证据，不写 accepted/review.json，不修改共享 fixture、依赖、settings、前端、路由、manager 状态机或 embedding 配置。
+
+必须保留 S05 的 ContextVar 稳定进度分发、原子安装/注销锁、600 秒 stall / 5 秒 polling 默认、同 KB 活 worker 门禁、线程未退出不放行、取消/异常清理；不得为图像功能绕开源指纹门禁、回滚、任务身份或 S04 Unicode 输出校验。
+
+二、冻结的数据契约与判断
+
+P1-26 接口固定：async describe_image_for_index(image_path, *, source_file, page=None, location=None)。返回 dataclass 或 dict 均可，投影字段严格为 text/content_kind/source_file/page/location/asset_ref/skip_reason，符合 schemas.json 的 ImageDescription；content_kind=image_description。成功 text 非空且前缀明确“来自图像”，skip_reason=null；跳过 text=""，skip_reason 为 C09 五枚举之一。source_file 为可信原文件名；page 仅 parser 真实页索引（保持其语义、不猜 0/1 基），缺失 null；location 缺失 null。拒绝错误类型，不把任意对象 str() 成来源。不在 metadata 存 base64、密钥、绝对缓存路径、异常原文或半截回答。parser 资产标识由 loader 对受约束 asset root 求真实相对路径；独立图片用文件名。不能拿 asset 文件名猜页码。
+
+沿用 settings/vision_strategy.py 的现有语义，不改 schema：auto 先能力允许的 main，明确不支持则 dedicated；main optimistic 图片请求被供应商拒绝时可尝试一次已配置 dedicated，再失败则 vision_failed，不静默生成无图文字。prefer_dedicated 与 dedicated_only 在当前代码是同义策略：只用 dedicated，缺配置 vision_unavailable，不能回 main。使用 resolve_vision_runtime_config() 取 dedicated，用现有 main config/capability resolver 判断 main。已有 LLMClient.complete() 只返回字符串，会丢失 finish_reason；新 helper 使用现有 factory.complete_response(...image_data/image_mime_type/image_filename...)，复用 validate_subject_response，再投影结果，不改 SDK/配置模块。限制输出预算、超时和候选尝试次数，不无限重试。空、正文截断、空截断、超时、供应商异常都不能作为成功文本节点；公开为 vision_failed，内部测试/固定诊断可区分，不返回异常原文。配置不可用归 vision_unavailable，预算归 budget，格式/损坏图片归 unsupported_image；取消仍向上传播。
+
+文本 embedding 分支产出普通文本 Document，经现有文本 embedding/index/search 流程检索；不能把描述当成 image vector，也不更换模型、维度、signature 或全局 LlamaIndex 配置。原 multimodal embedding 的 ImageNode 路径保留有效图片、真实 embedding 和来源。现有 parser 选择和 asyncio.to_thread 保留；没有资产的 parser 只作覆盖不确定记录，不强行调用其他引擎/安装工具/重复解析补全全部图。loader.load() 保持 list 兼容；coverage 与单次 load 结果绑定，例如附带元信息的 list 兼容结果，不用跨请求 last_coverage 可变共享字段。原来返回普通 list 的测试替身仍应兼容，不能为新接口改坏 S05 测试。
+
+每次 load 的 image_coverage 固定五字段：text_sources, images_seen, images_indexed, images_skipped, skip_reasons；整数非负，shape 符合 ImageCoverage。text_sources 按非空正文的原文件计数，图描述不算正文来源。images_seen 按实际观察到的去重资产计数，包含因预算/格式/vision 被跳过者；每图只计一个最终原因，images_seen=images_indexed+images_skipped。按文档/来源做预算，不能把每次调用都重新计数而突破 12 张。parser 无资产只增加 skip_reasons.parser_no_assets（单位为无法验证的源文档数），不凭空增加 images_seen/skipped；其他四类原因单位为实际跳过的图，所以全部 skip_reasons 之和不必等于 images_skipped。重复图的同一资产只处理一次、文本位置标记保留；不同源文档各自归属，不能串来源。无资产不等于“确定没有图/完全覆盖”。image_coverage_warning 是外层独立的固定安全提示（有跳过或 parser_no_assets 时必须可见）；不要向五字段对象塞额外键而破坏 schema。
+
+每文档 12 张、单张 <=4*1024*1024 字节、<1200 字节跳过、单文档图片合计 <=12*1024*1024；聊天每轮 16 张/12*1024*1024，按原始 bytes 而非 base64 长度。边界值含等号明确。先 stat/限量读取/验证，再编码或请求模型；受限的 parser assets 不跟随软链接或越过资产根。不能改变 reading_image_budget() 的 120 张/60MiB/每页4张特殊用途。不要引入缓存、并行描述、批量 OCR、实际 KB 重建或 ZIP 上传功能。
+
+P1-27 必须贯通：load 的局部 coverage → pipeline 本次 initialize 结果 → initializer → metadata.json 以及 ProgressTracker 的最终保存/任务事件。可通过可选 image_coverage_callback 传递，原两参数 embedding 进度回调与 bool initialize 返回值保持。metadata 合并保留旧字段，采用既有安全原子写/短事务，不把长期模型调用放进锁。最终 COMPLETED 事件、.progress.json 和 kb_config 对外 progress 均保留本次 coverage/warning；不能仅打印日志，不能在后续完成事件中被覆盖丢失，也不能带入上次任务数据。只改这条加法式投影，不重写全局 progress/manager 生命周期。initializer.py 中 CLI convenience initialize_knowledge_base 的最终 progress 合并也不能覆盖掉 coverage；测试至少覆盖科目任务最终事件和该便捷入口。有正文+图片失败允许成功但有警告；只有图且全失败/所有 parser 失败/零有效节点必须失败，不写 ready/新成功版本，旧成功版本和 S05 last_ready 保留。失败时清理本次未成功版本，不能切换当前版本后再返回失败。
+
+三、执行单元（单元内自修，单元间不交接）
+
+P1-26 目标：独立 helper 在有限预算下选择正确 vision、验证完整响应和真实来源。允许范围：image_description.py、test_p1_26.py。
+证据：dedicated+text embedding 生成描述；auto main 成功/明确不支持转 dedicated/optimistic 拒绝后有限 fallback；两种 dedicated 策略缺配置都不调用 main；空/有字截断/空截断/超时/普通失败/取消；1199/1200、4MiB/超1字节及非法格式；page/location 缺失和合法值、非法类型；不泄漏异常/绝对资产路径/base64。fixture 使用有效图片，fake provider 在真正 factory 请求接缝，断言选择/请求参数/返回字段，不只断言 helper 被调用。
+完成：返回符合契约，成功/负例均有行为断言，P26 定向通过后继续 P27。
+
+P1-27 目标：默认文本 embedding 真实索引/检索图像描述，覆盖报告贯通，零节点拒绝。允许范围：loader、pipeline 的初始化投影、initializer/progress_tracker 的有限投影、test_p1_27.py、旧 loader 图像测试适配；可在 P26 helper 已授权符号中修集成问题，不能扩大功能。
+证据：构造只在图中出现的唯一标记，fake vision 返回该内容；调用真实 loader→普通 Document→实际 LlamaIndex 文本 index/retriever（可用离线确定性 embedding）→查询命中带来源的描述。不得把整个 index/search 替换成预制答案，不能只断言 Document 构造。原 multimodal ImageNode 真实向量路径仍通过。多源/连续两次/并发隔离的 coverage，不串 KB；部分失败守恒、parser_no_assets 警告；最终 metadata/.progress/task event 的五字段和警告与本次计数一致。文本+失败图成功、纯图全失败/空解析失败，失败不发布版本/ready。S05 同 KB 门禁、线程取消及 ContextVar 归属继续通过。
+完成：P27、原 loader 测试及关联 S05 回归通过，默认文本路径可检索且状态/来源正确，再继续 P28。
+
+P1-28 目标：实际 bytes 的 DOCX/PPTX/PDF 抽图、位置/附件映射、跳过/预算有完整回归。允许范围：test_p1_28.py；document_images.py/document_extractor.py 只修本单元测试揭示的缺陷，不重写下游多模态框架。
+证据：三格式使用已有 python-docx/python-pptx/PyMuPDF/Pillow 或最小有效 OOXML fixture；每格式非空正文+有效图，断言 [图片 N] 标记和实际 image record 的 filename/id/bytes、源文档对应和位置顺序。注意现在 updated_records 的图记录在其 document record 前，不能把这种既有组织误判为“必须文档在前”；真正要保留的是文内位置与附件编号/源的对应。12/13 每文档、16/17 每轮、1199/1200、4MiB/超1字节、12MiB/超1字节、两个文档共享 turn 额度、重复资产复用且重复位置标记、非支持/矢量图、坏 ZIP/坏 XML/外部和穿越关系。保证不解压到宿主任意路径、不发网络。保留无图文本和 reading 专用预算行为。统计要断言真实 emitted image bytes/count 和 extracted_chars，与实际返回一致，不能只调用 try_admit() 代替三格式贯通。
+完成：P28 与原 extractor/rag 回归通过；无证据不做额外重构，完成后进入阶段收尾。
+
+四、统一验收与交付
+
+开始前新建唯一 S06 source/data baseline；capture include 为最新 48 条 receipt 产物与本阶段 11 路径并集（57 条，尚不存在也列入）；保留既有 dirty 和删除文件。真实数据只用 phase1_snapshot v2 不透明哈希，不解析 settings/历史 memory trace。三强制树之外还要独立比较 supplementary 三树的完整 files/dirs/modes；真实六树不新增 lock。不要运行应用/真实供应商/真实索引；不要安装升级依赖、提交、推送、重启服务。
+
+使用 p1_runtime/p1_providers 等显式隔离夹具，在业务 import/调用之前生效；额外 singleton/cache 用本测试 monkeypatch 清理，不改共享 fixtures。旧 tests/services loader 不能直接申请 phase1 子目录局部夹具，必要时使用 tests.phase1.helpers.isolated_runtime。所有跨目录 pytest 必须在收集前设置临时 DEEPTUTOR_HOME 并初始化临时 settings，复用只读的 S01 run_regression_tmp_home.py；不得用实际配置兜底。不能新增 skip、删有效断言，不能用依赖未装跳过必需场景并声称完成。
+
+单元定向：
+./.venv/bin/python -m pytest -q tests/phase1/test_p1_26.py
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q tests/phase1/test_p1_27.py tests/services/rag/test_llamaindex_document_loader.py
+./.venv/bin/python -m pytest -q tests/phase1/test_p1_28.py
+
+阶段末一次合并：
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q tests/phase1/test_p1_26.py tests/phase1/test_p1_27.py tests/phase1/test_p1_28.py tests/services/rag/test_llamaindex_document_loader.py tests/utils/test_document_extractor.py
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q tests/phase1 tests/services tests/api tests/utils/test_document_extractor.py
+./.venv/bin/ruff check deeptutor/services/rag/pipelines/llamaindex/image_description.py deeptutor/services/rag/pipelines/llamaindex/document_loader.py deeptutor/services/rag/pipelines/llamaindex/pipeline.py deeptutor/knowledge/initializer.py deeptutor/knowledge/progress_tracker.py deeptutor/utils/document_images.py deeptutor/utils/document_extractor.py tests/phase1/test_p1_26.py tests/phase1/test_p1_27.py tests/phase1/test_p1_28.py tests/services/rag/test_llamaindex_document_loader.py
+
+没有前端改动，不重复 node/tsc/browser。高风险行为至少做两条独立坏对照：在新建临时副本关闭文本图描述分支→唯一标记检索断言失败；移除零节点/覆盖缺失门禁→相应状态/最终进度断言失败。先证明合法正例同一路径通过；坏对照非0必须是目标断言失败，不是导入/路径/配置错误，记录准确命令/实际输出。不得修改原树/旧证据来做坏对照。
+
+全部命令记录实际 argv/cwd/时间/退出码和共享 execution.log 准确行号；串行写日志，不使用外层 exit0 隐藏内层失败，失败尝试保留。普通代码/测试失败自行修好；仅确需白名单外改动、契约变更或环境缺失时给最小 blocked_*，不要为阶段内下一张卡停下。
+
+结束：source scope compare 仅允许上述 11 文件，46 条只读前置产物 hash 不变；三强制与三 supplementary 数据起止零变化；保存唯一 source archive/sidecar，在唯一新临时子目录 verify-rebuild，保留 baseline 原有全部合格产物/已删状态（包括存在时的 .next-deeptutor），不能缩小归档凑通过。阶段 report.json 满足 StageReport，分别列 P26/P27/P28 目标/测试名/完成门/限制，准确列 source/evidence hash、全部命令/日志范围、scope、六树数据、归档、坏对照和失败自修。可以追加精简汇总，不生成每卡长报告，不写协调者 receipt。所有完成门通过后只标 verified_local，阶段末停止等待独立审查；不自行进入 S07。

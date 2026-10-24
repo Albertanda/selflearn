@@ -63,6 +63,7 @@ import {
   useUnifiedChat,
   type MessageAttachment,
   type MessageRequestSnapshot,
+
 } from "@/context/UnifiedChatContext";
 import { useAppShell } from "@/context/AppShellContext";
 import type { FilePreviewSource } from "@/components/chat/preview/previewerFor";
@@ -107,6 +108,7 @@ import {
 import { downloadChatMarkdown } from "@/lib/chat-export";
 import { buildChatOutline } from "@/lib/chat-outline";
 import { isPlaceholderSessionTitle } from "@/lib/session-title";
+import { mergeSubjectIntoConfig } from "@/lib/subject-scope";
 import type { SpaceMemoryFile } from "@/lib/space-items";
 import {
   selectedBooksToPayload,
@@ -354,8 +356,10 @@ export default function ChatPage() {
     setCapability,
     setKBs,
     setLLMSelection,
+    setReasoningOverride,
     setMasteryPathId,
     setPersonaSelection,
+    setSubjectId,
     sendMessage,
     cancelStreamingTurn,
     submitUserReply,
@@ -385,6 +389,7 @@ export default function ChatPage() {
   const agentPreselectDoneRef = useRef(false);
   const {
     options: llmOptions,
+    hiddenOptions: hiddenLLMOptions,
     activeDefault: activeLLMDefault,
     loading: llmOptionsLoading,
     error: llmOptionsError,
@@ -1118,9 +1123,17 @@ export default function ChatPage() {
   }, [refreshUserEnabledTools]);
 
   useEffect(() => {
-    if (state.llmSelection || !activeLLMDefault) return;
+    // Do not seed the global default while a stored session is still loading:
+    // its own (possibly hidden) selection must win, and a stale null state must
+    // not overwrite it after the load resolves.
+    if (sessionLoading || state.llmSelection || !activeLLMDefault) return;
     setLLMSelection(activeLLMDefault);
-  }, [activeLLMDefault, setLLMSelection, state.llmSelection]);
+  }, [
+    activeLLMDefault,
+    sessionLoading,
+    setLLMSelection,
+    state.llmSelection,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1532,7 +1545,15 @@ export default function ChatPage() {
   // M0 trim: connected subagents were removed; keep the selector API surface
   // inert (selectedAgent always null) so the composer stays type-safe.
   const selectedAgent = useMemo(() => null as string | null, []);
-  const [subjectId, setSubjectId] = useState("");
+  // P1-25: the chosen subject is per-session state in UnifiedChatContext, so it
+  // is restored from the session's preferences on load, cleared when switching
+  // sessions, and never carried from one conversation into another.
+  const subjectId = state.subjectId ?? "";
+  const subjectHydrated = state.subjectHydrated;
+  // Libraries this session's last turn could not mount. Bounded (the context
+  // caps and sanitizes them) and shown inline, so a partial subject is never
+  // presented as fully searchable without the learner seeing why.
+  const subjectKbWarnings = state.subjectKbWarnings;
   const [subjectOptions, setSubjectOptions] = useState<{ id: string; name: string }[]>([]);
   useEffect(() => {
     let cancelled = false;
@@ -1566,6 +1587,10 @@ export default function ChatPage() {
         state.isStreaming
       )
         return;
+      // The session's stored subject is not known yet: sending now would either
+      // drop it or send the wrong one. Wait for hydration (the composer shows
+      // the pending state) instead of guessing.
+      if (!subjectHydrated) return;
 
       let extraAttachments = attachments.map((a) => ({
         type: a.type,
@@ -1574,9 +1599,6 @@ export default function ChatPage() {
         mime_type: a.mimeType,
       }));
       let config: Record<string, unknown> | undefined;
-      if (subjectId) {
-        config = { ...(config ?? {}), subject_id: subjectId };
-      }
 
       if (isQuizMode) {
         config = buildQuizWSConfig(quizConfig);
@@ -1605,6 +1627,11 @@ export default function ChatPage() {
       if (selectedAgent && subagentBudget) {
         config = { ...(config ?? {}), subagent_consult_budget: subagentBudget };
       }
+      // The subject is merged LAST: quiz / visualize / research built their own
+      // config object above, and merging before them silently dropped the
+      // subject (their config replaced it). An empty selection stays an explicit
+      // ``null`` so "无科目" reaches the server as a clear.
+      config = mergeSubjectIntoConfig(config, subjectId);
 
       const memoryPayload = [...memoryReferencesPayload];
       const messageContent =
@@ -1658,6 +1685,8 @@ export default function ChatPage() {
       researchConfig,
       researchValidation,
       selectedAgent,
+      subjectHydrated,
+      subjectId,
       selectedHistorySessions.length,
       selectedAgentSessions.length,
       selectedMemoryFiles.length,
@@ -2079,13 +2108,16 @@ export default function ChatPage() {
               activeCap={activeCap}
               knowledgeBases={kbOptions}
               llmOptions={llmOptions}
+              hiddenLLMOptions={hiddenLLMOptions}
               activeLLMDefault={activeLLMDefault}
               llmSelection={state.llmSelection}
               llmOptionsLoading={llmOptionsLoading}
               llmOptionsError={llmOptionsError}
+              reasoningOverride={state.reasoningOverride}
+              onSelectReasoning={setReasoningOverride}
               subjects={subjectOptions}
               subjectId={subjectId}
-              onSubjectChange={setSubjectId}
+              onSubjectChange={(id) => setSubjectId(id)}
               onRefreshLLMOptions={() =>
                 void refreshLLMOptions({ force: true })
               }
@@ -2146,6 +2178,32 @@ export default function ChatPage() {
                 it through the normal send path: this page is already a draft
                 session when it has no messages, so that both creates the
                 session and starts it on the topic. */}
+            {/* Attached libraries this turn could not use (not ready / no
+                longer available). Rendered inline next to the composer rather
+                than in a new surface: the model already knows it cannot search
+                them, and the learner must know too. Per-session state, so a
+                notice never follows them into another conversation. */}
+            {subjectKbWarnings.length > 0 ? (
+              <div
+                role="status"
+                className="mx-3 mb-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300"
+              >
+                <div className="font-medium">
+                  {t(
+                    "部分知识库本轮不可检索",
+                    "Some knowledge bases are unavailable this turn",
+                  )}
+                </div>
+                <ul className="mt-1 space-y-0.5">
+                  {subjectKbWarnings.slice(0, 5).map((warning) => (
+                    <li key={`${warning.kbRef}:${warning.status}`}>
+                      <span className="font-mono">{warning.kbRef}</span>
+                      {warning.status ? ` — ${warning.status}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             {!hasMessages ? (
               <StarterSuggestions
                 onPick={(prompt) => void handleSend(prompt)}

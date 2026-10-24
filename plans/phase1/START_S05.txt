@@ -1,0 +1,108 @@
+工作目录：/home/albert/selflearn/selflearn
+授权阶段：S05。日期：2026-10-14。
+顺序：P1-16 → P1-17 → P1-18 → P1-29 → P1-19 → P1-30。
+
+现在直接实现、测试、自修并提交整个阶段，不先交orientation报告，不逐卡请求批准。六卡是串行编码单元，阶段末只停一次等待独立审查；不进入S06或第二阶段功能。
+
+一、入口与前置
+
+先读本文件及 S05_EXPLORATION.md；核对其中源码hash。hash未变则复用已探索清单、符号和原样片段，直接实施，只定向补读缺少的上下文。不要重读全仓库、HANDOVER历史正文、57卡或重做项目分析。
+再读 STAGE_WORKFLOW.md、stages/S05.md、六卡的目标/范围/完成条件、DATA_CONTRACTS.md的C01/C02/C07/C14，以及schemas.json的UploadResponse/MaterialManifest/ErrorResponse/StageReport。旧卡的逐卡completion规则已由阶段流程2.1替代。
+
+核验 .phase1-evidence/stages/S04/review.json 指向 .phase1-evidence/reviews/S04-final/review.json，状态accepted，指针hash与receipt相符；再核receipt的37个source_artifacts。这是合并S01–S04的最新源码基准，优先于历史receipt。S04补修后协调者又修了不可UTF-8编码的模型字符串导致“先写attempt后HTTP500”的问题，并增加12项测试；检测返回的raw正文也已在保存前验证UTF-8编码。必须保留，不能恢复worker旧hash。旧S04 changes_requested、初次report和rework01 report保留作历史。
+hash变化只查最小差异，不reset、不覆盖恢复旧版本。确有未解释并发改动时准确报告blocked_dependency。两个新模块和六份测试尚不存在属于计划内新建。
+
+二、允许更改范围
+
+只允许下列12条源码/测试路径，且仅限本阶段符号和接线：
+deeptutor/api/routers/subjects.py
+deeptutor/services/asr/transcribe.py
+deeptutor/services/embedding/client.py
+deeptutor/services/rag/pipelines/llamaindex/pipeline.py
+deeptutor/subjects/material_manifest.py
+deeptutor/subjects/uploads.py
+tests/phase1/test_p1_16.py
+tests/phase1/test_p1_17.py
+tests/phase1/test_p1_18.py
+tests/phase1/test_p1_19.py
+tests/phase1/test_p1_29.py
+tests/phase1/test_p1_30.py
+
+subjects.py只改TYPE_BY_EXTENSION、upload_subject_knowledge、list_subject_knowledge、subject_kb_status及必要的局部helper/导入。保留S04批改、检测、PATCH、统一错误包装；query/chat/report/export/delete和自动画像策略留原阶段。
+pipeline.py只限索引worker守卫及与其忙状态判定必要的最小接线，先测试当前dirty实现，只修证实的生命周期缺陷；embedding/client.py只限共享锁初始化、退出与相关说明，不改协议/模型/速率默认值。
+证据只写 .phase1-evidence/stages/S05/，一份report.json、append-only execution.log及一份最终恢复归档。plans/**、reviews/**、旧证据、共享fixture、errors/json_store/store、全局knowledge router/manager/initializer/FileTypeRouter/DocumentValidator均只读。真正必须越界才报最小blocked_scope，不借大文件范围重构全局系统。
+不提交/推送，不安装/升级，不启动实际服务、不重建实际索引、不使用真实provider、不读取密钥正文、不写后还原真实数据。业务与故障测试均在tmp隔离根。
+
+三、冻结的契约及实施决定
+
+1. C07区分操作：文档成功包含operation=index及旧kb_name/type/files/task_id/message，只有确实排队才返回task_id；转写成功严格为operation=transcribe、type=lecture、files、transcripts、message，不伪造KB或task_id。Transcript是{file,text,model}，text可空字符串，不扩展为静音检测功能。
+2. 安全名称：先检查原始文件名，拒绝绝对路径、..路径分量、/、反斜杠、控制字符、不可UTF-8编码字符等，再用现有DocumentValidator局部扩展策略规范命名。不能依赖validator静默取basename来拒绝恶意名称。整批预检规范化后的重名（包括NFC、扩展名小写）与派生产物冲突；既有音频转写名保持“原音频文件名.transcript.txt”。目录、目标叶、manifest及被枚举文件的symlink/非普通文件均在写入/读取前拒绝，不读写其他用户、科目或global目录。
+3. 限额复用DocumentValidator.MAX_FILE_SIZE（当前200MiB），保存和ASR发送均分块/流式；不增加全局文档白名单。音频白名单局部覆盖当前已声明mp3/m4a/wav/flac/ogg/aac/amr/wma，并匹配正确MIME。非音频采用当前FileTypeRouter实际支持集合；当前引擎不支持的格式明确400，不能保存后宣传已可索引。auto仍按现有类别映射、未知但实际支持的文档后缀归textbook；整批auto类别必须一致。显式非lecture可保留人工类别覆盖，但禁止音频混入；显式lecture必须全部音频。
+4. 本阶段不新增ZIP/目录上传。subject当前白名单不支持ZIP，仍整批400；C07的压缩路径拒绝不意味着授权新增解压功能。不要复用全局ZIP分支扩大入口。
+5. materials/<type>是权威资料，knowledge_bases/<kb>/raw是索引源。manifest写在KB根subject_sources.json，绝不置于raw。严格遵守MaterialManifest schema：{schema_version:1,subject_id,kb_name,files:[{path,size,sha256}]}；两级additionalProperties=false。size是真正非负int，非bool；sha256为64位小写hex；path受控相对路径，拒绝绝对/穿越/重复/越界，身份必须当前科目/KB。未知旧manifest不能静默覆盖，坏现有manifest映射storage_corrupt。
+6. 没有manifest的旧库只读计算并比较materials/raw；首次成功上传才建立manifest，不批量迁移真实六科。既有manifest/raw/materials缺失、多余、size/hash不符，在下一次本阶段索引入口返回409/material_out_of_sync，不静默用旧raw或上传顺手掩盖原有差异。真正全新空库允许首次上传。
+7. 同库排队、正在索引、超时后仍活着的同步worker必须一并考虑：TaskIDManager终态error不等于线程已退出。busy判定先于正式资料覆盖；同科目/KB锁内完成检查、受控提交、状态/任务预留与排队，消除“请求已接受但worker尚未开始”的重复窗口。key使用完整受控KB路径，不能仅为textbook-kb。不同科目同名KB和global不串写、不误互斥。不要持有flock/RLock跨异步等待而阻塞event loop；选择最小同步临界区/安全offload接线，不引入新调度系统。
+8. 旧索引ready只证明旧资料版本。上传后明确rebuilding/stale+task_id，只有对应当前资料状态的后台任务真正成功才ready；失败可见。不能只改一个status字符串、仅按文件数或TaskIDManager.completed判定当前版本已完成；不改引擎index version schema/embedding签名。
+9. C02安全出口：InvalidInputError、KB_BUSY、material_out_of_sync及storage/LLM/timeout映射复用现有errors/SubjectRoute。不要给普通HTTPException塞原始异常detail（wrapper为兼容性会保留无明确cause的HTTPException）。客户端message固定且有界，不能含provider文本、异常、路径、密钥或唯一虚构标记；诊断/cause保留服务端。ASR配置读取也放进受控失败边界，供应商JSON必须包含真实string text，不能str(dict)/原JSON当转写。网络超时、供应商错误、坏返回不返回空成功；合法空转写仍兼容。
+
+四、六个单元：目标、允许符号、证据、完成条件
+
+P1-16：安全音频保存与ASR流式发送。
+范围：uploads.py保存/验证helper、subject上传ASR分支、asr.transcribe、test_p1_16.py。
+整批预检后写私有staging，完成所有必要读取/转写才发布正式音频及转写文本；异常清理本次临时物，既有同名文件不能因后项失败被删除/部分覆盖。保持STT profile/provider选择、language和300秒默认timeout，不调用真实供应商。multipart使用受控打开的文件流及正确MIME，正确关闭；禁止upload.read()无界和audio_path.read_bytes()。
+证据：合法wav/m4a/flac及各MIME；恶意名/目录和叶symlink不越界；小限额monkeypatch测试恰好限额与+1；中途read/ASR失败无发布、无残留、旧bytes保持；HTTP非2xx满足C02且虚构错误标记不回显；转写Schema通过且不带KB/task_id。失败判定不能只mock helper返回值，应经实际HTTP入口及文件状态。
+完成：上述行为测试通过，ASR不二次整文件入内存，不保留失败的半批正式文件，不改变真实配置。
+
+P1-17：完整batch分类与操作标识。
+范围：uploads.py预检、TYPE_BY_EXTENSION/upload_subject_knowledge、test_p1_17.py。
+在正式mkdir/保存/注册/任务之前检查空batch、所有文件名、扩展、规范化冲突、自动类别或显式audio规则；不能只看第一个文件。派生转写名和输入名也不得冲突。
+证据：同类auto成功；png+docx的auto、pdf+mp3、lecture+txt均400，磁盘/records/queue零正式变化；显式非lecture人工分类仍合法；空batch/同批重名/规范化重名/ZIP/不支持扩展先拒绝。两种成功完整响应分别用UploadResponse schema验证。
+完成：整批失败没有前缀保存与幽灵任务；operation含义与实际执行相同，不自动拆多KB或让文档进入ASR。
+
+P1-18：同名替换、manifest与提交边界。
+范围：uploads.py文档stage/commit、material_manifest.py、subject上传接线、test_p1_18.py。
+私有staging/backup必须在raw之外（FileTypeRouter会递归收集受支持后缀，.bak.txt也会误入索引）。同库受控锁内验证旧一致性、提交新materials/raw、流式校验hash、提交manifest，之后才排索引。同名必须替换两处，不能保留if not dst.exists。普通异常回滚到旧一致对和旧manifest；注册/records/排队在worker启动前失败也不能给成功或留下本次半提交。只保证常规异常回滚，不声称跨目录崩溃原子；回滚自身失败必须显式报错并禁止索引。
+复用既有json_transaction/原子JSON接口；不改共享基础。subject路径先经严格store接口，再约束KB/raw/manifest所有叶；resolve_kb_dir可能返回linked external_path，不能把subject写入口变成外部库写入器。全局_save_uploaded_files_off_loop失败会删除已覆盖旧文件，不能直接拿它向正式materials写；若复用只能向私有stage。
+证据：same.txt old→new两处及manifest摘要均new；第二处replace/manifest提交故障恢复old、队列空；首传失败无幽灵record/ready/task；预置缺失/多余/hash差异409且不调用index；坏manifest无覆盖；没有manifest的合法旧库GET不写、成功上传才建立；同KB并发无混合对/重复任务，别科同名KB/global完全不变。对“第二处replace失败仍保留旧对”和“同名raw确实更新”做有效坏对照。
+完成：正式发布的数据和即将索引的数据一致，任何不一致先失败；无跨科、无静默修复真实坏数据、无新全局版本协议。
+
+P1-29：索引worker生命周期。
+范围：pipeline._run_with_stall_guard/_INDEX_WORKERS及必要的最小忙状态接口、test_p1_29.py。
+先为已存在守卫写行为证据，再只修证实缺陷。默认无进度600秒、poll5秒保留，测试用可控clock/events短时模拟。超时/取消后同步线程仍活着，同key仍busy；只有真正退出才释放marker，释放按identity，晚到callback静默，晚到异常要被消费。subject排队预留与该守卫不能互相误判为自己的重复任务；不要手动释放尚活线程来让测试通过。
+证据：成功、heartbeat、stall且worker仍活、同key拒绝/异key成功、退出后恢复、错误/取消/callback静默及无unretrieved exception；用thread Events控制而非600秒睡眠。每次测试finally释放并等待所建线程，隔离所有registry和TaskIDManager singleton，不能污染目录回归。
+完成：超时可诊断且不伪装强制杀线程；API排队期和超时后重试均不覆盖活任务的源，退出后能重试。
+
+P1-19：计数和当前源版本状态。
+范围：list_subject_knowledge/subject_kb_status、上传状态接线、material_manifest.py、test_p1_19.py。
+documents按当前raw实际可索引普通源文件数计算，不是chunks、上传次数、manifest或stage个数；GET只读，不创建manifest、排任务或调用自动注册式manager.list_knowledge_bases。保留列表{knowledge:[{...record,status:<dict>}]}及status接口{kb_name,status,progress,updated_at,...}既有形状，可加task_id/documents。兼容旧库但不把有差异的新源标成ready。保存record保持原kb_id/created_at/未知字段。
+可复用现有base_dir已正确的run_initialization_task/run_reindex_task、ProgressTracker、TaskIDManager，在subject局部加必要包装和安全状态投影；不改全局manager状态机。现有全局后台函数会catch错误并将原始诊断存progress，subject公共投影必须净化，不按函数无抛错就认定成功，不直接回传raw error文本。
+证据：1文件documents=1，同名仍1，加第二份=2且rebuilding；保留旧已发布index也不能提前ready；受控后台实际成功才ready、失败可见；error但同步线程仍活时409、线程退出可重试；排队尚未起worker期间重复请求也409；同名其他科/global不受影响；GET无写入、错误响应及progress无虚构敏感标记。
+完成：UI收到的计数/状态不误报新资料已可查，任务、数据版本与忙生命周期一致；不提前实施S07查询策略。
+
+P1-30：embedding进程共享锁。
+范围：EmbeddingClient共享guard/spacing lock创建及_hold_spacing_lock退出、test_p1_30.py。
+guard在类定义时一次建立或等价确定方案，首次并发不能各建一把guard。保留跨event loop threading.Lock语义、异常/取消finally释放和batch_delay；delay=0仍串行实际post，只是不额外加配置delay。不要改provider请求、encoding_format、dimensions、重试、签名或默认模型。
+证据：多个真实线程通过barrier首次获取同一identity，跨线程event loop互斥，异常/取消后下个请求可进，delay=0没有额外配置delay且不并发post，现有tests/services/embedding/test_client_runtime.py通过。不得调用真实embedding网络。
+完成：竞态消失，已有runtime行为保持。
+
+五、测试、证据与停点
+
+开始前用scripts/phase1_snapshot.py v2 capture/protect-data留S05起点。capture --include为最新receipt37条产物与本阶段12条的并集；新增尚不存在也列入，不覆盖旧baseline/tar。对真实data仅运行保护哈希工具；compare-data只覆盖三强制树，另比较supplementary_roots的完整files/dirs/mode记录。历史memory trace保留、不解析，真实data不应新增lock文件。
+显式申请p1_runtime/p1_route_client/p1_providers，应用导入/调用前隔离生效；p1_subjects用SubjectPaths.subject_id，不把展示标签作路径。跨目录pytest收集必须先设隔离DEEPTUTOR_HOME。线程/任务测试自行monkeypatch并还原其新使用的singleton，不改共享fixture。TestClient自动运行BackgroundTasks，需用可控假任务/捕获队列证明queued状态，再在测试中显式驱动成功/失败；不能把mock排队当实际完成。
+
+每单元改完立即运行对应测试，失败先在阶段内自修，再继续下一单元：
+./.venv/bin/python -m pytest -q tests/phase1/test_p1_16.py
+./.venv/bin/python -m pytest -q tests/phase1/test_p1_17.py
+./.venv/bin/python -m pytest -q tests/phase1/test_p1_18.py
+./.venv/bin/python -m pytest -q tests/phase1/test_p1_29.py
+./.venv/bin/python -m pytest -q tests/phase1/test_p1_19.py
+./.venv/bin/python -m pytest -q tests/phase1/test_p1_30.py tests/services/embedding/test_client_runtime.py
+
+阶段末做一次六卡合并测试、一次相关目录回归及12路径Ruff：
+./.venv/bin/python -m pytest -q tests/phase1/test_p1_16.py tests/phase1/test_p1_17.py tests/phase1/test_p1_18.py tests/phase1/test_p1_29.py tests/phase1/test_p1_19.py tests/phase1/test_p1_30.py tests/services/embedding/test_client_runtime.py
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q tests/phase1 tests/services tests/api
+./.venv/bin/ruff check deeptutor/api/routers/subjects.py deeptutor/services/asr/transcribe.py deeptutor/services/embedding/client.py deeptutor/services/rag/pipelines/llamaindex/pipeline.py deeptutor/subjects/material_manifest.py deeptutor/subjects/uploads.py tests/phase1/test_p1_16.py tests/phase1/test_p1_17.py tests/phase1/test_p1_18.py tests/phase1/test_p1_19.py tests/phase1/test_p1_29.py tests/phase1/test_p1_30.py
+
+未改前端，不重复node/tsc/browser；不把S05局部离线验收说成全项目真实供应商/浏览器验收。历史18skip不新增，不删测试/弱化有效断言。所有命令记录真实argv、cwd、时间、stdout/stderr、exit code和日志行号。命令按序写共享日志，不多进程交错追加、不嵌套wrapper再使用同一日志。保留失败尝试，不能伪造统计或手写“pytest→0”。
+收尾：capture结束source、精确12路径scope compare、数据起止比较、生成唯一阶段source tar及sidecar，用唯一新tmp目录verify-rebuild。tar必须保留生产.next-deeptutor等原baseline批准产物；不排除来凑通过。report.json满足StageReport，六卡分别列目标/完成条件/测试名，记录准确source/evidence hash、命令区间、范围、六树保护、归档、失败自修及残余限制；只标verified_local，accepted由协调者写review。不要写协调者receipt或另产每卡长报告。
+必要完成门：六卡行为证据、相关回归、Ruff、scope、真实六树保护、归档重建均通过，前置只读产物保留，未越界。普通实现/测试失败继续自修；确需范围/契约/环境变化才报告最小blocked_*。完成整个S05后停止等审查，不自行探索/实施S06。

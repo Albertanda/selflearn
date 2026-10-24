@@ -8,9 +8,7 @@ Use this skill when the user wants to:
 - Set up or configure DeepTutor
 - Chat with DeepTutor or run a capability (deep solve, quiz generation, deep research, visualize, math animation, mastery path)
 - Create, manage, or search knowledge bases
-- Create, manage, or run Partners (IM-connected companions)
 - Search, install, or manage skills from a hub (ClawHub)
-- Inspect or maintain interactive Books
 - View or manage learning memory, sessions, or notebooks
 - Start the DeepTutor API server or the full Web app
 
@@ -21,6 +19,10 @@ Use this skill when the user wants to:
 - Run `deeptutor init` for first-time interactive setup. It walks a guided wizard (ports → LLM → embedding → search → review) and writes the same settings as the Web Settings page under `data/user/settings`. Add `--cli` to skip the ports step for CLI-only use, or `--home <path>` to target a specific workspace.
 
 ## Commands
+
+> This fork does not ship the Partner (IM companion) or Book commands or their
+> extras. Use upstream DeepTutor for those; everything listed here is registered
+> in this tree.
 
 ### Chat & Capabilities
 
@@ -69,20 +71,6 @@ deeptutor kb set-default <name>                     # Set as default KB
 deeptutor kb delete <name> [--force]                # Delete a knowledge base
 ```
 
-### Partners
-
-Partners are IM-connected learning companions (the former "TutorBot").
-
-```bash
-deeptutor partner list                              # List all partners
-deeptutor partner create <id> -n "My Tutor"         # Create and start a new partner
-#   -n/--name <text>   Display name
-#   -s/--soul <md>     Soul markdown (the persona)
-#   -m/--model <id>    Model override
-deeptutor partner start <id>                        # Start a partner
-deeptutor partner stop <id>                         # Stop a running partner
-```
-
 ### Skills
 
 Install and manage skills, including packages from external hubs (ClawHub).
@@ -93,16 +81,6 @@ deeptutor skill search "flashcards" [--hub clawhub] [--limit 10]
 deeptutor skill install clawhub:some-skill[@1.2.0] [--name local-name] [--force] [--allow-unverified]
 deeptutor skill list                                # List local skills (with hub provenance)
 deeptutor skill remove <name>                       # Remove a user-layer skill
-```
-
-### Books
-
-Maintenance commands for the BookEngine (authoring/reading is via the Web app).
-
-```bash
-deeptutor book list                                 # List all books (flags stale pages)
-deeptutor book health <book_id>                     # Inspect KB drift + log.md health
-deeptutor book refresh-fingerprints <book_id>       # Re-snapshot KB fingerprints
 ```
 
 ### Memory

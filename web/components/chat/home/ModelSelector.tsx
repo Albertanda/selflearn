@@ -1,16 +1,36 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Bot, Check, ChevronDown } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowLeft,
+  Bot,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Search,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useLingerExpand } from "@/hooks/use-linger-expand";
 import ProviderIcon from "@/components/common/ProviderIcon";
 import type { LLMSelection } from "@/lib/unified-ws";
 import {
+  llmOptionLabel,
+  llmOptionTitle,
   llmSelectionKey,
   sameLLMSelection,
   type LLMOption,
 } from "@/lib/llm-options";
+import {
+  connectionLabelText,
+  localizeProviderLabel,
+} from "@/lib/custom-providers";
+import {
+  findOptionGroup,
+  groupLLMOptions,
+  modelOptionSource,
+  searchLLMOptions,
+  type LLMOptionGroup,
+} from "@/lib/model-picker-groups";
 
 function formatContextWindow(value?: number) {
   if (!value) return "";
@@ -19,69 +39,75 @@ function formatContextWindow(value?: number) {
   return `${value} ctx`;
 }
 
-function providerLabel(option: LLMOption) {
-  return (
-    option.provider_label || option.provider || option.profile_name || "LLM"
-  );
-}
-
 function ModelOptionRow({
   option,
   selected,
+  hidden = false,
   onSelect,
 }: {
   option: LLMOption;
   selected: boolean;
+  hidden?: boolean;
   onSelect: () => void;
 }) {
   const { t } = useTranslation();
-  // Official model ID as the primary label (what gets sent to the API),
-  // per design. The user-given nickname and profile live in the tooltip.
-  const modelLabel = option.model || option.model_name;
+  const modelLabel = llmOptionLabel(option);
+  const source = localizeProviderLabel(modelOptionSource(option), t, option.custom_provider_id);
   const contextWindow = formatContextWindow(option.context_window);
-  // Long model ids ("google/gemini-3-flash-preview") get ellipsized by the
-  // inline layout; hovering the row reveals the full id as an overlay. The
-  // scrollWidth check at mouseenter time keeps the overlay away from rows
-  // that aren't actually truncated.
   const nameRef = useRef<HTMLSpanElement>(null);
   const [revealFull, setRevealFull] = useState(false);
   return (
     <button
       type="button"
-      title={`${option.model_name} | ${option.profile_name}`}
+      role="menuitemradio"
+      aria-checked={selected}
+      title={llmOptionTitle(option)}
+      data-testid="llm-option-row"
+      data-model-id={option.model_id}
+      data-model-value={option.model}
       onClick={onSelect}
       onMouseEnter={() => {
         const el = nameRef.current;
         setRevealFull(!!el && el.scrollWidth > el.clientWidth + 1);
       }}
       onMouseLeave={() => setRevealFull(false)}
-      className={`relative flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors active:bg-[var(--muted)]/70 ${
+      className={`relative flex w-full items-center gap-2 px-3 py-2 text-left transition-colors active:bg-[var(--muted)]/70 ${
         selected ? "bg-[var(--primary)]/[0.06]" : "hover:bg-[var(--muted)]/45"
       }`}
     >
       <ProviderIcon
         provider={option.provider}
+        icon={option.provider_icon}
         size={14}
         className={
           selected ? "text-[var(--primary)]" : "text-[var(--muted-foreground)]"
         }
       />
-      <span
-        ref={nameRef}
-        className="min-w-0 truncate text-[12.5px] font-medium text-[var(--foreground)]"
-      >
-        {modelLabel}
-      </span>
-      {option.is_active_default && (
-        <span className="shrink-0 rounded-full bg-[var(--muted)] px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
-          {t("Default")}
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span
+            ref={nameRef}
+            className="min-w-0 truncate text-[12.5px] font-medium text-[var(--foreground)]"
+          >
+            {modelLabel}
+          </span>
+          {option.is_active_default && (
+            <span className="shrink-0 rounded-full bg-[var(--muted)] px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+              {t("Default")}
+            </span>
+          )}
+          {hidden && (
+            <span className="shrink-0 rounded-full bg-amber-500/10 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+              {t("Hidden")}
+            </span>
+          )}
         </span>
-      )}
-      <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--muted-foreground)]">
-        {providerLabel(option)}
+        <span className="truncate text-[10.5px] leading-tight text-[var(--muted-foreground)]">
+          {source}
+        </span>
       </span>
       {contextWindow ? (
-        <span className="shrink-0 text-[11px] text-[var(--muted-foreground)]">
+        <span className="shrink-0 text-[10.5px] tabular-nums text-[var(--muted-foreground)]">
           {contextWindow}
         </span>
       ) : null}
@@ -103,6 +129,7 @@ function ModelOptionRow({
 
 export default function ModelSelector({
   options,
+  hiddenOptions = [],
   activeDefault,
   value,
   loading,
@@ -116,6 +143,7 @@ export default function ModelSelector({
   onRefresh,
 }: {
   options: LLMOption[];
+  hiddenOptions?: LLMOption[];
   activeDefault: LLMSelection | null;
   value: LLMSelection | null;
   loading: boolean;
@@ -130,19 +158,65 @@ export default function ModelSelector({
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  const [view, setView] = useState<"providers" | "models">("providers");
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
-  const { expanded, linger, triggerProps: lingerProps } = useLingerExpand(open);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const selectedSelection = allowSystemDefault
     ? value
     : (value ?? activeDefault);
+  const selectedProfileId = selectedSelection?.profile_id;
+  const selectedModelId = selectedSelection?.model_id;
+  const groups = useMemo(
+    () => groupLLMOptions(options, hiddenOptions.filter((option) =>
+      option.profile_id === selectedProfileId && option.model_id === selectedModelId,
+    )),
+    [hiddenOptions, options, selectedProfileId, selectedModelId],
+  );
   const selectedKey = llmSelectionKey(selectedSelection);
-  const selectedOption = useMemo(
+  const selectedVisibleOption = useMemo(
     () =>
       options.find((option) => sameLLMSelection(option, selectedSelection)) ??
       null,
     [options, selectedSelection],
   );
+  const selectedHiddenOption = useMemo(
+    () =>
+      selectedVisibleOption
+        ? null
+        : (hiddenOptions.find((option) =>
+            sameLLMSelection(option, selectedSelection),
+          ) ?? null),
+    [hiddenOptions, selectedSelection, selectedVisibleOption],
+  );
+  const selectedOption = selectedVisibleOption ?? selectedHiddenOption;
+  const selectedIsHidden = Boolean(selectedHiddenOption);
+  const selectedGroup = useMemo(
+    () => findOptionGroup(groups, selectedSelection),
+    [groups, selectedSelection],
+  );
+  const activeGroup =
+    groups.find((group) => group.profileId === activeGroupId) ?? null;
+  const searchHits = useMemo(
+    () => searchLLMOptions(groups, query),
+    [groups, query],
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    const frame = requestAnimationFrame(() => {
+      if (view === "models" && !query) {
+        rootRef.current
+          ?.querySelector<HTMLElement>('[data-testid="llm-option-row"]')
+          ?.focus();
+      } else {
+        searchRef.current?.focus();
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeGroupId, open, query, view]);
 
   useEffect(() => {
     if (!open) return;
@@ -150,20 +224,26 @@ export default function ModelSelector({
       const target = event.target as Node;
       if (rootRef.current && !rootRef.current.contains(target)) {
         setOpen(false);
-        linger();
       }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [open, linger]);
+  }, [open]);
 
   const defaultLabel = systemDefaultLabel || t("System default");
   const defaultDetail =
     systemDefaultDetail || t("Use the active default model from Settings");
   const canRefresh = error && Boolean(onRefresh);
-  const disabled =
-    loading ||
-    (!canRefresh && (error || (options.length === 0 && !allowSystemDefault)));
+  const disabled = loading || (!canRefresh && error);
+  const modelLabel = selectedOption ? llmOptionLabel(selectedOption) : "";
+  const sourceLabel = selectedGroup
+    ? connectionLabelText(
+        selectedGroup.providerLabel,
+        selectedGroup.profileName,
+        t,
+        selectedGroup.customProviderId,
+      )
+    : "";
   const label = loading
     ? t("Loading models")
     : error
@@ -172,35 +252,88 @@ export default function ModelSelector({
         : t("Models unavailable")
       : allowSystemDefault && !selectedSelection
         ? defaultLabel
-        : // Official model ID, consistent with the dropdown rows.
-          selectedOption?.model ||
-          selectedOption?.model_name ||
-          t("Select model");
+        : selectedOption
+          ? `${sourceLabel} · ${modelLabel}${
+              selectedIsHidden ? ` ${t("(hidden)")}` : ""
+            }`
+          : t("Select model");
   const menuPlacementClass =
     placement === "bottom" ? "top-full mt-1.5" : "bottom-full mb-1.5";
 
+  const openPicker = () => {
+    setView("providers");
+    setQuery("");
+    setActiveGroupId(selectedGroup?.profileId ?? null);
+    setOpen(true);
+  };
+
+  const selectOption = (option: LLMOption) => {
+    onChange({ profile_id: option.profile_id, model_id: option.model_id });
+    setOpen(false);
+    setView("providers");
+    setQuery("");
+  };
+
+  const chooseGroup = (group: LLMOptionGroup) => {
+    // Choosing a connection only opens its model list; it never changes the
+    // current model or the saved default.
+    setActiveGroupId(group.profileId);
+    setView("models");
+    setQuery("");
+  };
+
+  const handleMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      if (view === "models") {
+        setView("providers");
+      } else {
+        setOpen(false);
+      }
+      return;
+    }
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    const focusable = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>(
+        "button:not([disabled]), input:not([disabled])",
+      ),
+    );
+    if (focusable.length === 0) return;
+    event.preventDefault();
+    const index = focusable.indexOf(document.activeElement as HTMLElement);
+    const delta = event.key === "ArrowDown" ? 1 : -1;
+    const next = focusable[(index + delta + focusable.length) % focusable.length];
+    next?.focus();
+  };
+
   return (
     <div ref={rootRef} className="relative">
-      {/* Same resting/expanded treatment as PersonaSelector: the brand
-          icon is the whole control at rest; hovering (or opening) slides
-          the model name out with a max-width animation and lingers ~1.2s
-          after leave/selection before collapsing. */}
       <button
         type="button"
         disabled={disabled}
+        data-selected-model={selectedKey}
+        data-selected-hidden={selectedIsHidden ? "true" : "false"}
+        data-testid="llm-selector-button"
         onClick={() => {
           if (canRefresh) {
             setOpen(false);
             onRefresh?.();
             return;
           }
-          setOpen((current) => !current);
+          if (open) setOpen(false);
+          else openPicker();
         }}
         aria-label={canRefresh ? t("Refresh models") : t("Select model")}
-        title={canRefresh ? t("Refresh models") : undefined}
+        title={
+          canRefresh
+            ? t("Refresh models")
+            : selectedOption
+              ? llmOptionTitle(selectedOption)
+              : undefined
+        }
         aria-expanded={open}
-        {...lingerProps}
-        className={`inline-flex h-8 shrink-0 items-center rounded-lg px-2 text-[14px] font-medium transition-[background-color,color,transform] duration-150 active:scale-[0.97] ${
+        aria-haspopup="menu"
+        className={`inline-flex h-8 max-w-[260px] shrink-0 items-center gap-1.5 rounded-lg px-2 text-[12.5px] font-medium transition-[background-color,color,transform] duration-150 active:scale-[0.97] ${
           disabled
             ? "cursor-not-allowed text-[var(--border)]"
             : open
@@ -209,91 +342,253 @@ export default function ModelSelector({
         }`}
       >
         {error ? (
-          <AlertCircle size={16} strokeWidth={1.7} className="shrink-0" />
+          <AlertCircle size={15} strokeWidth={1.7} className="shrink-0" />
         ) : (
-          <ProviderIcon provider={selectedOption?.provider} size={16} />
-        )}
-        <span
-          className={`flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap transition-[max-width,opacity,margin-left] duration-300 ease-out ${
-            expanded
-              ? "ml-1.5 max-w-[180px] opacity-100"
-              : "ml-0 max-w-0 opacity-0"
-          }`}
-        >
-          <span className="min-w-0 truncate">{label}</span>
-          <ChevronDown
-            size={13}
-            className={`shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
+          <ProviderIcon
+            provider={selectedOption?.provider}
+            icon={selectedOption?.provider_icon}
+            size={15}
           />
-        </span>
+        )}
+        <span className="min-w-0 truncate">{label}</span>
+        <ChevronDown
+          size={13}
+          className={`shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
+        />
       </button>
 
       {open && !disabled && (
         <div
-          className={`absolute right-0 z-50 ${menuPlacementClass} w-[min(280px,calc(100vw-32px))] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--popover)] shadow-lg backdrop-blur-md`}
+          role="menu"
+          data-testid="llm-picker-menu"
+          data-view={query ? "search" : view}
+          onKeyDown={handleMenuKeyDown}
+          className={`absolute right-0 z-50 ${menuPlacementClass} w-[min(340px,calc(100vw-32px))] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--popover)] shadow-lg backdrop-blur-md`}
         >
-          {helperText ? (
-            <div className="border-b border-[var(--border)]/50 px-3 py-1.5 text-[11px] text-[var(--muted-foreground)]">
-              {helperText}
+          <div className="border-b border-[var(--border)]/50 p-2">
+            <div className="relative">
+              <Search
+                size={13}
+                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
+              />
+              <input
+                ref={searchRef}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                data-testid="llm-picker-search"
+                aria-label={t("Search models across connections")}
+                placeholder={t("Search models across connections")}
+                className="h-8 w-full rounded-lg border border-[var(--border)]/60 bg-[var(--background)] pl-8 pr-2 text-[12px] text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)]/60 focus:border-[var(--ring)]"
+              />
             </div>
-          ) : null}
-          <div className="max-h-[280px] overflow-y-auto py-1">
-            {allowSystemDefault && (
-              <button
-                type="button"
-                title={defaultDetail}
-                onClick={() => {
-                  onChange(null);
-                  setOpen(false);
-                  linger();
-                }}
-                className={`flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors active:bg-[var(--muted)]/70 ${
-                  selectedKey === ""
-                    ? "bg-[var(--primary)]/[0.06]"
-                    : "hover:bg-[var(--muted)]/45"
-                }`}
-              >
-                <Bot
-                  size={14}
-                  strokeWidth={1.7}
-                  className={`shrink-0 ${
-                    selectedKey === ""
-                      ? "text-[var(--primary)]"
-                      : "text-[var(--muted-foreground)]"
-                  }`}
-                />
-                <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-[var(--foreground)]">
-                  {defaultLabel}
-                </span>
-                {selectedKey === "" && (
-                  <Check
-                    size={14}
-                    strokeWidth={2}
-                    className="shrink-0 text-[var(--primary)]"
-                  />
-                )}
-              </button>
-            )}
-            {options.map((option) => {
-              const optionSelection = {
-                profile_id: option.profile_id,
-                model_id: option.model_id,
-              };
-              const optionKey = llmSelectionKey(optionSelection);
-              return (
-                <ModelOptionRow
-                  key={optionKey}
-                  option={option}
-                  selected={optionKey === selectedKey}
-                  onSelect={() => {
-                    onChange(optionSelection);
-                    setOpen(false);
-                    linger();
-                  }}
-                />
-              );
-            })}
+            {helperText ? (
+              <div className="mt-1.5 px-0.5 text-[10.5px] leading-snug text-[var(--muted-foreground)]">
+                {helperText}
+              </div>
+            ) : null}
           </div>
+
+          {query ? (
+            <div className="max-h-[320px] overflow-y-auto py-1">
+              <div className="px-3 py-1 text-[10.5px] uppercase tracking-wide text-[var(--muted-foreground)]/70">
+                {t("Search results")}
+              </div>
+              {searchHits.length === 0 ? (
+                <div className="px-3 py-4 text-center text-[12px] text-[var(--muted-foreground)]">
+                  {t("No models match this search.")}
+                </div>
+              ) : (
+                searchHits.map((hit) => {
+                  const optionSelection = {
+                    profile_id: hit.option.profile_id,
+                    model_id: hit.option.model_id,
+                  };
+                  return (
+                    <button
+                      key={`${llmSelectionKey(optionSelection)}:${hit.hidden ? "hidden" : "visible"}`}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={
+                        llmSelectionKey(optionSelection) === selectedKey
+                      }
+                      data-testid="llm-search-result"
+                      data-source={hit.source}
+                      onClick={() => selectOption(hit.option)}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--muted)]/45"
+                    >
+                      <ProviderIcon
+                        provider={hit.option.provider}
+                        icon={hit.option.provider_icon}
+                        size={14}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[12.5px] font-medium text-[var(--foreground)]">
+                          {llmOptionLabel(hit.option)}
+                        </span>
+                        <span className="block truncate text-[10.5px] text-[var(--muted-foreground)]">
+                          {connectionLabelText(
+                            hit.group.providerLabel,
+                            hit.group.profileName,
+                            t,
+                            hit.group.customProviderId,
+                          )}
+                          {hit.hidden ? ` · ${t("Hidden")}` : ""}
+                        </span>
+                      </span>
+                      {llmSelectionKey(optionSelection) === selectedKey && (
+                        <Check
+                          size={14}
+                          className="shrink-0 text-[var(--primary)]"
+                        />
+                      )}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          ) : view === "providers" ? (
+            <>
+              <div className="flex items-center justify-between px-3 pb-1 pt-2">
+                <span
+                  data-testid="llm-picker-title"
+                  className="text-[10.5px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]/70"
+                >
+                  {t("Providers & connections")}
+                </span>
+                <span className="text-[10.5px] text-[var(--muted-foreground)]/60">
+                  {t("{{count}} connections", { count: groups.length })}
+                </span>
+              </div>
+              <div className="max-h-[320px] overflow-y-auto py-1">
+                {allowSystemDefault && (
+                  <button
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={selectedKey === ""}
+                    title={defaultDetail}
+                    onClick={() => {
+                      onChange(null);
+                      setOpen(false);
+                    }}
+                    className={`flex w-full items-center gap-2 px-3 py-2 text-left ${
+                      selectedKey === ""
+                        ? "bg-[var(--primary)]/[0.06]"
+                        : "hover:bg-[var(--muted)]/45"
+                    }`}
+                  >
+                    <Bot
+                      size={14}
+                      strokeWidth={1.7}
+                      className={
+                        selectedKey === ""
+                          ? "text-[var(--primary)]"
+                          : "text-[var(--muted-foreground)]"
+                      }
+                    />
+                    <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-[var(--foreground)]">
+                      {defaultLabel}
+                    </span>
+                    {selectedKey === "" && (
+                      <Check
+                        size={14}
+                        className="text-[var(--primary)]"
+                      />
+                    )}
+                  </button>
+                )}
+                {groups.map((group) => (
+                  <button
+                    key={group.profileId}
+                    type="button"
+                    role="menuitem"
+                    data-testid="llm-provider-group"
+                    data-profile-id={group.profileId}
+                    data-provider={group.provider}
+                    onClick={() => chooseGroup(group)}
+                    className={`flex w-full items-center gap-2 px-3 py-2 text-left transition-colors ${
+                      group.profileId === selectedGroup?.profileId
+                        ? "bg-[var(--primary)]/[0.04]"
+                        : "hover:bg-[var(--muted)]/45"
+                    }`}
+                  >
+                    <ProviderIcon
+                      provider={group.provider}
+                      icon={group.providerIcon}
+                      size={15}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[12.5px] font-medium text-[var(--foreground)]">
+                        {connectionLabelText(
+                          group.providerLabel,
+                          group.profileName,
+                          t,
+                          group.customProviderId,
+                        )}
+                      </span>
+                      <span className="block truncate text-[10.5px] text-[var(--muted-foreground)]">
+                        {group.profileName} ·{" "}
+                        {t("{{count}} models", { count: group.count })}
+                      </span>
+                    </span>
+                    <ChevronRight
+                      size={14}
+                      className="shrink-0 text-[var(--muted-foreground)]/60"
+                    />
+                  </button>
+                ))}
+                {groups.length === 0 && (
+                  <div className="px-3 py-6 text-center text-[12px] text-[var(--muted-foreground)]">
+                    {t("No models are available for this account.")}
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-2 border-b border-[var(--border)]/40 px-2 py-2">
+                <button
+                  type="button"
+                  data-testid="llm-picker-back"
+                  onClick={() => setView("providers")}
+                  aria-label={t("Back to providers")}
+                  className="inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-[11.5px] text-[var(--muted-foreground)] hover:bg-[var(--muted)]/50 hover:text-[var(--foreground)]"
+                >
+                  <ArrowLeft size={13} />
+                  {t("Back")}
+                </button>
+                <span className="min-w-0 flex-1 truncate text-right text-[11.5px] font-medium text-[var(--foreground)]">
+                  {activeGroup
+                    ? connectionLabelText(
+                        activeGroup.providerLabel,
+                        activeGroup.profileName,
+                        t,
+                        activeGroup.customProviderId,
+                      )
+                    : ""}
+                </span>
+              </div>
+              <div className="max-h-[300px] overflow-y-auto py-1">
+                {activeGroup?.options.map((option) => (
+                  <ModelOptionRow
+                    key={llmSelectionKey(option)}
+                    option={option}
+                    selected={sameLLMSelection(option, selectedSelection)}
+                    onSelect={() => selectOption(option)}
+                  />
+                ))}
+                {selectedHiddenOption &&
+                  activeGroup &&
+                  activeGroup.profileId === selectedHiddenOption.profile_id && (
+                    <ModelOptionRow
+                      option={selectedHiddenOption}
+                      selected
+                      hidden
+                      onSelect={() => selectOption(selectedHiddenOption)}
+                    />
+                  )}
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

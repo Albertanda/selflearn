@@ -1,10 +1,10 @@
 """RAG pipeline factory.
 
-Selects a KB's index/retrieve engine by provider name. Three pipelines ship
+Selects a KB's index/retrieve engine by provider name. The supported pipelines ship
 today:
 
 * ``llamaindex`` (default) — local vector retrieval with hybrid BM25 fusion.
-* ``pageindex``           — hosted, vectorless reasoning retrieval (needs an
+* ``pageindex``           — hosted document outlines, without passage retrieval (needs an
                             API key configured under Knowledge → RAG settings).
 * ``graphrag``            — local knowledge-graph retrieval (microsoft/graphrag);
                             optional dependency, ``pip install 'deeptutor[graphrag]'``.
@@ -232,7 +232,7 @@ def list_pipelines() -> List[Dict[str, Any]]:
         {
             "id": PAGEINDEX_PROVIDER,
             "name": "PageIndex",
-            "description": "Hosted, vectorless engine: the chat agent reads documents through the PageIndex MCP tools. Requires an API key; PDF, Office, text and Markdown formats.",
+            "description": "Hosted document outlines (titles, pages and section summaries); passage-level retrieval is unavailable in this build. Requires an API key; PDF, Office, text and Markdown formats.",
             "configured": pageindex_ready,
             "requires_api_key": True,
         },

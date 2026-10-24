@@ -416,6 +416,33 @@ class KnowledgeBaseManager:
             }
 
         kb_config = self.config["knowledge_bases"][name]
+
+        # The measured image coverage is a *stable* fact about the last run, so
+        # it survives the ready-state cleanup below (which drops the transient
+        # progress banner on purpose). Values are re-validated here, the warning
+        # is derived from the counts, and a different task's numbers are never
+        # attributed to the incoming run.
+        if isinstance(progress, dict):
+            from deeptutor.subjects import material_manifest as _manifest
+
+            incoming_task = progress.get("task_id")
+            stored_task = kb_config.get("image_coverage_task_id")
+            if stored_task is not None and incoming_task != stored_task:
+                kb_config.pop("image_coverage", None)
+                kb_config.pop("image_coverage_warning", None)
+                kb_config.pop("image_coverage_task_id", None)
+            coverage = _manifest.sanitize_image_coverage(progress.get("image_coverage"))
+            if "image_coverage" in progress and coverage is None:
+                # Explicit unmeasured state is a run boundary even when a CLI
+                # run has no task id or a caller reuses the same task id.
+                kb_config.pop("image_coverage", None)
+                kb_config.pop("image_coverage_warning", None)
+                kb_config.pop("image_coverage_task_id", None)
+            if coverage is not None:
+                kb_config["image_coverage"] = coverage
+                kb_config["image_coverage_warning"] = _manifest.image_coverage_warning(coverage)
+                kb_config["image_coverage_task_id"] = incoming_task
+
         kb_config["status"] = status
         kb_config["updated_at"] = datetime.now().isoformat()
         index_changed = False

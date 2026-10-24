@@ -29,9 +29,9 @@ dependencies = [
     "typer>=0.9.0",
     "rich>=13.0.0",
     "prompt_toolkit>=3.0.36",
-    # MCP client. This distribution ships `deeptutor.services.mcp`, including the
-    # built-in PageIndex MCP server that is injected whenever a PageIndex API key
-    # is configured, so it needs the client too (issue #792).
+    # MCP SDK (compatibility pending review). Kept because shared MCP modules
+    # still import it; PageIndex overview runs through the existing RAG outline
+    # pipeline, not an auto-injected client.
     "mcp>=1.26.0,<2.0.0",
     "anthropic>=0.30.0",
     "dashscope>=1.14.0",

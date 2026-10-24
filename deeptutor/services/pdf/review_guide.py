@@ -7,15 +7,16 @@ Pipeline: aggregate data -> LLM writes Markdown (Unicode math, no LaTeX)
 
 from __future__ import annotations
 
-import json
-import subprocess
-import time
+import logging
 from pathlib import Path
-import re
+import subprocess
 
 from deeptutor.services.llm.config import get_llm_config
-from deeptutor.services.llm.factory import complete
-from deeptutor.subjects import exam_points as ep_mod, knowledge_points, wrong_book
+from deeptutor.subjects import exam_points as ep_mod
+from deeptutor.subjects import knowledge_points, wrong_book
+from deeptutor.subjects.generation import complete_subject_text
+
+logger = logging.getLogger(__name__)
 
 GUIDE_PROMPT = """你是一名大学课程助教，为一名学生编写【期末复习指南】。下面给出该科目的：确认过的期末考点、错题集（含知识点与掌握状态）、知识点索引。请编写一份中文复习指南。
 
@@ -32,7 +33,7 @@ def _aggregate(subject_id: str, term: str) -> dict:
     if term:
         exam_points = [p for p in exam_points if p["term"] == term]
     wrongs = [e for e in wrong_book.load(subject_id) if not e.get("archived")]
-    points = knowledge_points.aggregate(subject_id)
+    points = knowledge_points.aggregate(subject_id, term=term or None)
     return {"exam_points": exam_points, "wrong_entries": wrongs, "knowledge_points": points}
 
 
@@ -55,27 +56,60 @@ def _format_input(data: dict) -> str:
     lines.append("")
     lines.append("## 知识点索引")
     for p in data["knowledge_points"][:15]:
-        lines.append(f"- {p['name']}（错题 {p['wrong_count']} 道，掌握度 {p['mastery']}）")
+        lines.append(
+            f"- {p['name']}（错题 {p['wrong_count']} 道，"
+            f"掌握度 {knowledge_points.format_mastery(p['mastery'])}）"
+        )
     return "\n".join(lines)
 
 
 async def generate_guide_markdown(subject_id: str, term: str = "") -> str:
-    """LLM-generated review guide (Markdown subset)."""
+    """LLM-generated review guide (Markdown subset).
+
+    Raises ``LLMReasoningBudgetExhausted`` when the provider stopped at an
+    output cap (the reasoning model burned the budget), or
+    ``LLMEmptyResponseError`` for any other empty result: a blank guide must
+    never be rendered into a PDF/DOCX that looks like a successful generation.
+    """
     data = _aggregate(subject_id, term)
     if not data["exam_points"] and not data["wrong_entries"]:
         return "# 期末复习指南\n\n该科目暂无已确认的考点与错题，请先上传材料并确认考点。"
     cfg = get_llm_config()
-    raw = await complete(
+    return await complete_subject_text(
         prompt=GUIDE_PROMPT + "\n\n## 科目数据\n" + _format_input(data),
         system_prompt="你是课程助教，输出 Markdown 复习指南。",
         model=cfg.model,
         api_key=cfg.api_key,
         base_url=cfg.base_url,
     )
-    return raw.strip()
 
 
 # ---------------------- renderers ----------------------
+
+
+#: Typst markup specials that must be escaped in plain body text. The report
+#: and guide generators are told to write math as Unicode text, so bodies
+#: routinely contain ``<``/``>`` (inequalities such as ``0<a<1``). Typst reads
+#: ``<…>`` as a *label*, so one unmatched ``<`` aborts the whole compile with
+#: "unclosed label" — previously surfacing as an opaque render failure.
+_TYPST_ESCAPES = {
+    "\\": "\\\\",
+    "#": "\\#",
+    "$": "\\$",
+    "<": "\\<",
+    ">": "\\>",
+    "@": "\\@",
+    "[": "\\[",
+    "]": "\\]",
+    "`": "\\`",
+    "*": "\\*",
+    "_": "\\_",
+}
+
+
+def _escape_typst(text: str) -> str:
+    """Escape Typst markup specials in a run of plain text."""
+    return "".join(_TYPST_ESCAPES.get(ch, ch) for ch in text)
 
 
 def _md_to_typst(md: str) -> str:
@@ -93,29 +127,34 @@ def _md_to_typst(md: str) -> str:
             if in_list:
                 out.append("")
                 in_list = False
-            out.append(f"== {stripped[4:].strip()}")
+            out.append(f"== {_escape_typst(stripped[4:].strip())}")
         elif stripped.startswith("## "):
             if in_list:
                 out.append("")
                 in_list = False
-            out.append(f"= {stripped[3:].strip()}")
+            out.append(f"= {_escape_typst(stripped[3:].strip())}")
         elif stripped.startswith("# "):
             if in_list:
                 out.append("")
                 in_list = False
-            out.append(f"#align(center)[#text(size: 22pt, weight: \"bold\")[{stripped[2:].strip()}]]")
+            title = _escape_typst(stripped[2:].strip())
+            out.append(f'#align(center)[#text(size: 22pt, weight: "bold")[{title}]]')
         elif stripped.startswith("- ") or stripped.startswith("* "):
             if not in_list:
                 out.append("")
                 in_list = True
-            item = stripped[2:].strip()
-            item = item.replace("**", "")
+            item = _escape_typst(stripped[2:].strip().replace("**", ""))
             out.append(f"- {item}")
         else:
             if in_list:
                 out.append("")
                 in_list = False
-            out.append(stripped.replace("**", ""))
+            body = _escape_typst(stripped.replace("**", ""))
+            # A body line opening with "=" or "+" would be read as a Typst
+            # heading / list marker rather than text.
+            if body[:1] in ("=", "+") and body[1:2] == " ":
+                body = "\\" + body
+            out.append(body)
     return "\n".join(out)
 
 

@@ -131,6 +131,24 @@ def test_build_settings_bridges_models() -> None:
             "deepseek",
             "deepseek-v4-pro",
             None,
+            {},
+        ),
+        (
+            "deepseek",
+            "deepseek-flash",
+            None,
+            {},
+        ),
+        (
+            "dashscope",
+            "qwen3.8-max",
+            None,
+            {},
+        ),
+        (
+            "deepseek",
+            "deepseek-v4-pro",
+            "high",
             {
                 "reasoning_effort": "high",
                 "extra_body": {"thinking": {"type": "enabled"}},
@@ -138,21 +156,27 @@ def test_build_settings_bridges_models() -> None:
         ),
         (
             "deepseek",
-            "deepseek-v4-flash",
-            None,
-            {"extra_body": {"thinking": {"type": "disabled"}}},
+            "deepseek-flash",
+            "minimal",
+            {
+                "reasoning_effort": "low",
+                "extra_body": {"thinking": {"type": "enabled"}},
+            },
         ),
         (
             "dashscope",
-            "qwen3-235b-a22b",
-            None,
-            {"extra_body": {"enable_thinking": True}},
+            "qwen3.8-max",
+            "high",
+            {
+                "reasoning_effort": "xhigh",
+                "extra_body": {"enable_thinking": True},
+            },
         ),
         (
             "custom",
             "deepseek-v4-pro",
             "minimal",
-            {"extra_body": {"thinking": {"type": "disabled"}}},
+            {},
         ),
     ],
 )

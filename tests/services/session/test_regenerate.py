@@ -30,7 +30,14 @@ async def _noop_refresh(**_kwargs):
 
 
 @pytest.fixture
-def store(tmp_path: Path) -> SQLiteSessionStore:
+def store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SQLiteSessionStore:
+    # These orchestration tests replace start_turn with a recorder. Model the
+    # preceding KB validation boundary too; real resolver integration lives in
+    # tests/phase1/test_p1_21.py.
+    monkeypatch.setattr(
+        "deeptutor.services.session.turn_runtime.mount_turn_knowledge_bases",
+        lambda refs, _subject: (list(refs or []), []),
+    )
     return SQLiteSessionStore(db_path=tmp_path / "regenerate.db")
 
 
@@ -392,7 +399,8 @@ class TestRegenerateLastTurn:
                         "tools": ["web_search"],
                         "knowledge_bases": [],
                         "language": "zh",
-                        "config": {"temperature": 0.2},
+                        "capability": "deep_question",
+                        "config": {"difficulty": "medium"},
                     },
                 )
             )
@@ -401,7 +409,8 @@ class TestRegenerateLastTurn:
         assert payload["tools"] == ["web_search"]
         assert payload["knowledge_bases"] == []
         assert payload["language"] == "zh"
-        assert payload["config"]["temperature"] == 0.2
+        assert payload["capability"] == "deep_question"
+        assert payload["config"]["difficulty"] == "medium"
         # Runtime flags must still be set even when overrides supply config.
         assert payload["config"]["_persist_user_message"] is False
         assert payload["config"]["_regenerate"] is True

@@ -1,0 +1,73 @@
+仅执行第一阶段 S12「启动、文档和 lint 收尾」。P1-47 → P1-48 连续完成，阶段末统一交付；不逐卡请示，不进入 S13 或第二阶段。
+
+工作目录 /home/albert/selflearn/selflearn。先读本指令、S12_EXPLORATION.md 已探索文件清单+关键片段、P47/P48 和 C01/C13/C14；核 hash 后按符号直达，必要时补读相邻代码，不重做全仓 orientation。
+
+一、开工门和基线
+
+读取 .phase1-evidence/stages/S11/review.json，须 accepted、goal_met=true、next_stage_authorized=true、next_stage=S12，指向 .phase1-evidence/reviews/S11-final/review.json。核完整 receipt SHA、133 条当前 source_artifacts、两份 dispatch hash。以协调者补修后的当前工作区为准，不恢复成原 worker 版本或 HEAD。
+
+S11 最终49项扩展定向、3843项相关目录/19既有条件skip、477项Node、全CLI66 passed/1既有IUTF8条件skip及tsc/限定Ruff通过。这些集合有重叠，不相加，不代表全仓或最终浏览器验收。S11 附修已解决页面对象协议、类型/进度投影、同名库跨科状态、过期请求/画像残留、PageIndex catalog 和 CLI 文档验证假阴性；这些不是 S12 待办。MCP SDK 保留，不新增 MCP client。
+
+S12 原16个范围模式不扩大，展开32条具体路径(29现存、3个待新增)；完整具体列表见探索包及 .phase1-evidence/reviews/S11-final/s12_expanded_scope.json。133条前置中20条有受限重叠权限，其余113条只读；capture include 并集145条见 s12_capture_paths.json。文件允许不代表其全部业务逻辑允许改。
+
+P47范围：README.md、HANDOVER.md、AGENTS.md、CONTAINERIZATION.md、docker-compose.yml、docker-compose.ghcr.yml、plans/phase1/ENVIRONMENT.md、scripts/start_selflearn.sh、tests/phase1/test_p1_47.py。
+P48范围：deeptutor/api/routers/chat.py、deeptutor/api/routers/subjects.py、deeptutor/services/pdf/review_guide.py、deeptutor/services/session/summarize.py、deeptutor/services/session/turn_runtime.py、deeptutor/services/storage/attachment_store.py、deeptutor/subjects/*.py。后者仅现存该层文件的 I001/E741 修复，禁止借通配符新增业务模块。
+
+新建 .phase1-evidence/stages/S12/，保存独立起止source/data。保留当前dirty、全部旧证据与8条tracked deletion(原5条+S11退役requirements三镜像)，不恢复删除文件。六真实树 files/dirs/modes 及 supplementary 起止相等；仅不透明hash，不解析/展示settings或memory内容，不新建真实锁，保留auth.lock及9个memory文件。
+
+禁止提交推送、安装升级、下载工具/字体、真实供应商/索引调用、真实服务启动/重启、真实科目上传/导出/删除、改系统策略。测试 wrapper 必须在 tmp 复制品配 fake CLI 上运行，不调用真实 .venv/bin/deeptutor start。缺工具明确报告，不自行安装。
+
+二、P1-47：固定启动入口和活跃文档
+
+目标：从任意cwd调用本fork推荐入口都使用此checkout的既有数据根；用户能分清已实现能力、依赖条件和待验收门。
+
+实现：
+1. 新 scripts/start_selflearn.sh 是本fork专用 Bash start wrapper。由脚本实际文件位置确定仓库根，正确处理空格和符号链接；覆盖继承的 DEEPTUTOR_HOME 为该根，cd 到该根，exec 该根 .venv/bin/deeptutor start --home 该根，再转发其余参数。--dev 等参数保持边界和原样值；禁止 eval、拼接shell文本或使用系统PATH里的其他CLI。
+2. 调用者提供 --home 或 --home= 必须明确非零拒绝，避免Typer显式参数覆盖固定home。缺venv、缺CLI或CLI不可执行必须具名报错且不安装/回退；CLI退出码由exec原样传回。脚本具备可执行权限，不创建数据树、不读settings去拼启动参数。
+3. README推荐wrapper，保留必要的分开启动说明并显式固定正确workspace root；对照实际源码确认API方法/路径和CLI命令。解释底层runtime/home.py仍默认cwd，安全性来自新增入口，不宣称改了全局行为。runtime/home.py、launcher、CLI main只读。
+4. 活跃文档明确当前fork差异：IM/book退役；MCP SDK兼容依赖保留；PageIndex通过既有rag提供outline，非query-grounded passage；文档与音频转写分支不同；图片coverage未知/跳过不能说完整；知识点无证据为未评估；科目资料/学习记录导出不含聊天且不提供恢复导入。
+5. 图表代码必须通过现有report-only合格OS边界，缺失固定503、无宿主回退；普通共享runner不构成报告隔离证明。ODE仅固定五点一致性，RLIMIT不等于整个进程树cgroup。最终OS/HTTP-WS/浏览器门仍是S13/P50、S14、S15，不把本机能力探测/Node/ASGI替身称为最终验收。事实提取入口差异按当前chat/session源码如实写，不为统一说明改业务。
+6. CONTAINERIZATION/两个Compose只改注释和说明，不改任何运行配置、mount、网络、image、security或环境项。解释共享runner与报告边界区别；上游GHCR镜像不能被描述为已包含本fork改动。旧数据迁移说明保留防丢数据信息，不因伙伴已退役就指导删除历史目录。UPSTREAM.md和assets/README保持字节不变。
+7. 新 ENVIRONMENT.md 记录执行当时实际版本、发现方式/路径及Typst/字体完整hash和缺失项。可用 sys.version、node --version、tools/bin/typst --version、importlib.metadata 和静态hash；不导入业务配置来打印真实设置，不复制二进制/字体，不冻结全依赖或升级。可参考S11-final environment-observation及探索包，不能把历史版本当新的执行结果。
+8. HANDOVER保留历史自述和原测试数字，在前部加本次准确进度、能力限制及签收入口；不篡改历史结论去制造前后始终一致。
+
+证据：test_p1_47.py 运行真实shell wrapper复制品和fake CLI，观察真实argv/cwd/DEEPTUTOR_HOME及退出码。至少覆盖无关cwd、含空格路径、符号链接、继承错误home、--dev转发、非零退出透传、缺venv/不可执行CLI、--home和--home=拒绝，且失败无新data树。fake环境不能误用真实CLI。文档命令对照真实CLI/当前接口，合法命令和历史文档保留；Compose前后解析后的运行数据完全相同，只有注释变化。
+
+完成条件：上述行为全部执行且无新增skip/xfail；入口不会落新空数据根；活跃说明没有不存在的能力承诺；真实数据与只读文件保持。随后直接继续P48。
+
+三、P1-48：只清理实际lint问题
+
+目标：明确业务目录 Ruff 退出0，保留全部业务行为、延迟导入与既有修复。
+
+当前基线是3 I001 +1 E741，不是历史12项：
+- deeptutor/api/routers/chat.py：两处局部import排序(当前149、180附近)。
+- deeptutor/services/storage/attachment_store.py：import re的排序(当前44附近)。
+- deeptutor/services/session/summarize.py：summary comprehension局部变量 l(当前71附近)。
+
+先重跑只读Ruff确认当前结果，仅在P48白名单内排序或局部重命名；保持局部导入仍在原try/函数作用域，不搬到模块顶层。其他已经干净的subjects/report/session文件保持；不为凑变更改它们。禁止全仓autofix、业务重构、改pyproject规则/ignore、删除有效测试或增加skip。
+
+证据：完整 .venv/bin/ruff check deeptutor deeptutor_cli 退出0；git diff --check通过；API冷启动/导入分层、launcher和既有session/attachment相关回归保持。范围检查除P47行为外只出现import排序/变量重命名，Ruff配置hash不变。
+
+完成条件：4个已知问题清零，无新增业务改动，全部指定验证通过后统一交付。若更广目录出现新的越界问题，给实际失败和最小补充范围，不改契约/规则绕过。
+
+四、阶段统一验证与交付
+
+所有命令严格串行，记录实际argv/cwd/UTC/exit和准确不交错日志行区间；保留失败和自修，不生成逐卡长报告。Python使用已有临时HOME launcher：
+.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q -rs tests/phase1/test_p1_47.py tests/runtime tests/api/test_imports.py tests/services/test_path_service_runtime_home.py tests/services/session tests/cli tests/test_packaging_metadata.py tests/test_matrix_requirements.py tests/scripts/test_docker_compose.py
+
+相关目录回归：
+.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q -rs tests/phase1 tests/services tests/api tests/tools tests/agents/chat tests/agents/question tests/agents/research tests/utils/test_document_extractor.py tests/runtime tests/cli tests/test_packaging_metadata.py tests/test_matrix_requirements.py tests/scripts/test_docker_compose.py
+
+其它门：
+.venv/bin/ruff check deeptutor deeptutor_cli
+.venv/bin/ruff check tests/phase1/test_p1_47.py
+.venv/bin/python plans/phase1/validate_package.py
+git diff --check
+
+本阶段无前端源码变更，复用S11-final Node/tsc证据，不无故重复；全量pytest与最终Node门留S13/P49，浏览器留S15。既有条件skip逐项说明，包括可选依赖/集成开关/DNS和CLI IUTF8条件；新必需测试不能跳过或标xfail。
+
+至少三组独立坏对照：在tmp副本同副本正例先通过，核实际导入/脚本位置后，分别破坏固定home、--home绕过拒绝门、恢复一个真实lint问题；前两组必须目标行为断言失败，后一组由同一完整Ruff规则明确失败，不能用路径/fixture/缺依赖错误冒充。
+
+阶段末一个report.json、一个共享追加日志、起止source/data及scope/supplementary比较、恢复归档和逐文件verify-rebuild。include完整145条；核133条前置中113只读，20条重叠只按本卡微型权限改。归档保留S11-final所有1902成员，再加3个授权新文件，且8个tracked deletion仍缺失；如实际成员集不吻合先定位，不伪造hash/恢复删除项凑数。冻结前缀行数/字节/SHA一致，收尾命令真实完成后再停。
+
+交付只标 verified_local，不自行签 accepted；报告两单元结果、失败尝试、限制及必要scope request，完成后停止，等待独立审查。不要实施S13、OS门、第二阶段功能或实际部署。

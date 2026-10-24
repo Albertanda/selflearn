@@ -33,13 +33,12 @@ def test_typer_dependency_does_not_request_removed_all_extra(metadata_path: Path
     ],
 )
 def test_mcp_client_is_a_core_dependency(metadata_path: Path) -> None:
-    """`mcp` must install by default, not only via an extra (issue #792).
+    """`mcp` stays a core dependency (compatibility pending review).
 
-    Both distributions ship ``deeptutor.services.mcp``, and the connection
-    manager overlays the built-in PageIndex MCP server onto the config whenever
-    a PageIndex API key is set. That happens on a plain install, so an
-    extra-gated ``mcp`` leaves the connection task dying with
-    ``ModuleNotFoundError`` on every turn.
+    The shared MCP modules still import it, so a plain install must be able to
+    load them. This fork's PageIndex overview runs through the existing RAG
+    outline pipeline; the metadata must not claim an auto-injected PageIndex
+    MCP client.
     """
     with metadata_path.open("rb") as file:
         dependencies = tomllib.load(file)["project"]["dependencies"]
@@ -48,22 +47,25 @@ def test_mcp_client_is_a_core_dependency(metadata_path: Path) -> None:
     assert mcp_requirements == ["mcp>=1.26.0,<2.0.0"]
 
 
-def test_partners_extra_does_not_redeclare_the_core_mcp_client() -> None:
-    """The `partners` extra is IM channel SDKs only; `mcp` is core now."""
+def test_retired_partner_and_matrix_extras_are_absent() -> None:
+    """The partner runtime is gone, so its extra install surfaces are gone too."""
     with (REPOSITORY_ROOT / "pyproject.toml").open("rb") as file:
         extras = tomllib.load(file)["project"]["optional-dependencies"]
 
-    assert not [item for item in extras["partners"] if item.split(">")[0].strip() == "mcp"]
+    assert {"partners", "tutorbot", "matrix", "matrix-e2e"}.isdisjoint(extras)
+    assert extras["all"] == ["deeptutor[math-animator]", "deeptutor[dev]"]
 
 
 def test_requirements_mirror_the_core_mcp_client() -> None:
     """Docker/CI installs read requirements/, which must agree with pyproject."""
     requirements = REPOSITORY_ROOT / "requirements"
+    root_text = (REPOSITORY_ROOT / "requirements.txt").read_text(encoding="utf-8")
+    server_text = (requirements / "server.txt").read_text(encoding="utf-8")
     cli_text = (requirements / "cli.txt").read_text(encoding="utf-8")
-    partners_text = (requirements / "partners.txt").read_text(encoding="utf-8")
 
-    # cli.txt mirrors the core dependency set, so the client belongs there...
+    assert "-r requirements/server.txt" in root_text
+    assert "-r cli.txt" in server_text
     assert "mcp>=1.26.0,<2.0.0" in cli_text
-    # ...and partners.txt inherits it transitively rather than redeclaring it.
-    assert "-r server.txt" in partners_text
-    assert "mcp>=" not in partners_text
+    # The one non-transitive mirror is gone; no retired file is referenced.
+    assert not (requirements / "partners.txt").exists()
+    assert "partners.txt" not in root_text + server_text + cli_text

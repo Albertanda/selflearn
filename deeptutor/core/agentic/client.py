@@ -59,6 +59,7 @@ class LLMClientConfig:
     api_version: str | None = None
     extra_headers: dict[str, str] | None = None
     reasoning_effort: str | None = None
+    reasoning_protocol: str | None = None
 
 
 def _client_cache_key(
@@ -463,6 +464,7 @@ def build_completion_kwargs(
     max_tokens: int,
     binding: str | None = None,
     reasoning_effort: str | None = None,
+    reasoning_protocol: str | None = None,
 ) -> dict[str, Any]:
     """Compose temperature + per-model token-limit kwargs into one dict."""
     kwargs: dict[str, Any] = {"temperature": temperature}
@@ -473,6 +475,8 @@ def build_completion_kwargs(
             binding=binding,
             model=model,
             reasoning_effort=reasoning_effort,
+            reasoning_protocol=reasoning_protocol,
+            max_tokens=max_tokens,
         )
     )
     return kwargs
@@ -483,6 +487,8 @@ def build_provider_extra_kwargs(
     binding: str | None,
     model: str | None,
     reasoning_effort: str | None,
+    reasoning_protocol: str | None = None,
+    max_tokens: int = 4096,
 ) -> dict[str, Any]:
     """Return provider-specific kwargs for raw OpenAI-compatible agent calls.
 
@@ -497,6 +503,8 @@ def build_provider_extra_kwargs(
         binding=binding,
         model=model,
         reasoning_effort=reasoning_effort,
+        protocol=reasoning_protocol,
+        max_tokens=max_tokens,
     )
 
 

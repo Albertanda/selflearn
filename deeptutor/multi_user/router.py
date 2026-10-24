@@ -86,20 +86,15 @@ def _admin_skill_summary() -> list[dict[str, Any]]:
 
 
 def _admin_partner_summary() -> list[dict[str, Any]]:
-    """The partners an admin can assign. Partners are process-wide resources
-    anchored at the admin workspace, so this lists them all (identity only — no
-    channel wiring or model selection leaks into the assignable summary)."""
-    from deeptutor.services.partners import get_partner_manager
+    """The partners an admin can assign.
 
-    return [
-        {
-            "partner_id": str(item.get("partner_id") or ""),
-            "name": item.get("name") or item.get("partner_id") or "",
-            "description": item.get("description") or "",
-            "emoji": item.get("emoji") or "",
-        }
-        for item in get_partner_manager().list_partners()
-    ]
+    Always empty in this fork: partners were removed by the M0 trim along with
+    ``deeptutor.services.partners``. The upstream body listed them via
+    ``get_partner_manager()``, which made every admin-overview request fail with
+    ``ModuleNotFoundError``. Kept as a stable shape (an empty list) so the admin
+    payload does not lose the ``partners`` key.
+    """
+    return []
 
 
 def _require_assignable_user(user_id: str) -> tuple[str, dict[str, Any]]:

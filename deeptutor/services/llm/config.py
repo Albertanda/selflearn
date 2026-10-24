@@ -38,6 +38,7 @@ class LLMConfigUpdate(TypedDict, total=False):
     api_version: str | None
     extra_headers: dict[str, str]
     reasoning_effort: str | None
+    reasoning_protocol: str | None
     context_window: int | None
     max_tokens: int
     temperature: float
@@ -106,8 +107,10 @@ class LLMConfig:
     api_version: str | None = None
     extra_headers: dict[str, str] | None = None
     reasoning_effort: str | None = None
+    reasoning_protocol: str | None = None
     context_window: int | None = None
     max_tokens: int = 4096
+    max_output_tokens: int | None = None
     temperature: float = 0.7
     max_concurrency: int = 20
     requests_per_minute: int = 600
@@ -192,6 +195,8 @@ def _get_llm_config_from_resolver() -> LLMConfig:
         extra_headers=resolved.extra_headers,
         reasoning_effort=resolved.reasoning_effort,
         context_window=resolved.context_window,
+        max_tokens=resolved.max_tokens,
+        max_output_tokens=resolved.max_output_tokens,
     )
 
 
@@ -276,6 +281,28 @@ def uses_max_completion_tokens(model: str) -> bool:
     return False
 
 
+def resolve_output_token_budget(
+    *,
+    explicit: int | None,
+    configured: int | None,
+    provider_max: int | None,
+    fallback: int = 4096,
+) -> int:
+    """Business explicit > selected-model default > legacy 4096, capped by the
+    provider's declared maximum output.  A smaller caller budget is never
+    widened to the provider maximum.
+    """
+
+    def positive(value: int | None) -> int | None:
+        return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
+
+    value = positive(explicit) or positive(configured) or fallback
+    cap = positive(provider_max)
+    if cap is not None:
+        value = min(value, cap)
+    return max(1, value)
+
+
 def get_token_limit_kwargs(model: str, max_tokens: int) -> dict[str, int]:
     """
     Get the appropriate token limit parameter for the model.
@@ -300,4 +327,5 @@ __all__ = [
     "reload_config",
     "uses_max_completion_tokens",
     "get_token_limit_kwargs",
+    "resolve_output_token_budget",
 ]

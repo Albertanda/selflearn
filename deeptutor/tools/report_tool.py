@@ -1,32 +1,41 @@
-"""Report tool (M7+) — generate or review course reports inside chat.
+"""Report tool (M7+/P1-36) — generate or review course reports inside chat.
 
 Invoked when the learner asks for a report (optionally with the teacher's
-assignment file). ``action=create`` builds a chart-bearing report PDF;
-``action=review`` re-reads the full report text, has the model re-check
-math/content against the requirements, and renders a revised PDF.
+assignment file).  Both actions go through the same server-owned pipeline in
+:mod:`deeptutor.services.pdf.report`; this tool never picks a directory, never
+writes Markdown itself and never reads an arbitrary host path.
 
-The subject id is server-injected via ``_subject_id`` (never accepted from
-the model).
+The subject id and the attached-source index are server-injected (``_subject_id``
+/ ``_source_index``); neither can be contributed by the model.
 """
 
 from __future__ import annotations
 
 import logging
-import time
-from pathlib import Path
 from typing import Any
 
 from deeptutor.core.tool_protocol import BaseTool, ToolDefinition, ToolParameter, ToolResult
 
 logger = logging.getLogger(__name__)
 
-REVIEW_PROMPT = """你是一名严谨的课程助教，正在对一份课程报告做**核查与修复**。请逐条核对：
-1. 数学正确性（公式、解的推导、结论是否站得住；能代入验证的必须验证）；
-2. 图表与文字是否对应（图的内容是否支持对应章节的说法）；
-3. 结构完整性与题目要求覆盖度。
+_LATEST_ALIASES = frozenset({"latest", "recent", "最近", "最新", "last"})
 
-输出修复后的完整报告（Markdown，结构与要求同原报告；数学用 Unicode 表达；不引入新图，保留原图引用行 `![chart N](chart_N.png)`）。直接输出修复版全文，开头加一行 `<!-- reviewed -->`。
-"""
+
+def _attached_source_text(index: object, source_id: str) -> str:
+    """Read one attached source **by id** from the server-injected mapping.
+
+    ``source_id`` is a key in ``context.metadata['source_index']`` (the attached
+    full text), never a host path.  Unknown ids and malformed maps are
+    ``invalid_input`` before any file or provider access.
+    """
+    from deeptutor.subjects import json_store
+
+    if not isinstance(index, dict):
+        raise json_store.invalid_input("source_file 必须是当前回合已附件的 source_id")
+    value = index.get(source_id)
+    if not isinstance(value, str) or not value.strip():
+        raise json_store.invalid_input("source_file 必须是当前回合已附件的 source_id")
+    return value
 
 
 class ReportTool(BaseTool):
@@ -38,94 +47,110 @@ class ReportTool(BaseTool):
             description=(
                 "课程报告助手：用户要求【生成或核查课程报告】时必须调用本工具（不要自己用文字替代，"
                 "本工具产出排版好的 PDF 并给出下载链接）。"
-                "action=create：传入 title 与 requirements（可附教师题目文件路径 source_file、"
-                "微分方程 ode_rhs 如 'x**2 - y'）。"
-                "action=review：核查最近一次生成的报告并用 LLM 修复后重新渲染 PDF——"
-                "**无需也不允许传 report_path**（工具自动取最近报告），不要自行查找或读取报告文件。"
+                "action=create：传入 title 与 requirements；source_file 只接受当前回合已附件的 "
+                "source_id（由服务端提供，不是文件路径），ode_rhs 如 'x**2 - y'。"
+                "action=review：默认核查本科目最近一份报告；可传 report_id，或传同科已知旧报告的 "
+                "report_path（.md/.pdf）。工具拒绝任意宿主路径与跨科目路径。"
             ),
             parameters=[
                 ToolParameter(name="action", type="string", enum=["create", "review"], required=True),
                 ToolParameter(name="title", type="string", description="报告题目", required=False),
-                ToolParameter(name="requirements", type="string", description="分条列出的撰写要求", required=False),
+                ToolParameter(name="requirements", type="string", description="分条列出的撰写要求（review 时为额外核查要求）", required=False),
                 ToolParameter(name="ode_rhs", type="string", description="微分方程 f(x,y)（可选，图表数值校验基准，如 x**2 - y）", required=False),
-                ToolParameter(name="source_file", type="string", description="教师发出的题目文件路径（附件 manifest id 或本地路径）", required=False),
-                ToolParameter(name="report_path", type="string", description="要核查的报告路径（action=review）", required=False),
+                ToolParameter(name="source_file", type="string", description="当前回合附件的 source_id（不是本地路径）", required=False),
+                ToolParameter(name="report_id", type="string", description="要核查的报告 id（action=review，可选）", required=False),
+                ToolParameter(name="report_path", type="string", description="同科已知旧报告的 .md/.pdf 名称（action=review，可选）", required=False),
             ],
         )
 
-    async def execute(self, **kwargs: Any) -> ToolResult:
+    async def execute(self, **kwargs: Any) -> ToolResult:  # noqa: ANN401 - tool protocol
+        from deeptutor.services.pdf import report as report_mod
+        from deeptutor.subjects.errors import map_subject_exception, to_tool_result
+
         subject_id = str(kwargs.get("_subject_id", "") or "").strip()
-        action = str(kwargs.get("action") or "create").lower()
         if not subject_id:
             return ToolResult(content="此功能需要先选择一个科目（聊天工具栏的科目选择器）。", success=False)
 
-        # Deferred imports: builtin -> report_tool -> pdf.report -> subjects
-        # -> path_service -> runtime.registry -> builtin would otherwise cycle.
-        from deeptutor.services.path_service import get_path_service
-        from deeptutor.services.pdf import report as report_mod
+        action = str(kwargs.get("action") or "create").strip().lower()
+        subject_context = str(kwargs.get("_report_ctx_hint") or "").strip()
 
-        outputs_root = get_path_service().get_public_outputs_root()
-        out_dir = outputs_root / "subjects" / subject_id / "reports"
-        out_dir.mkdir(parents=True, exist_ok=True)
-
-        if action == "review":
-            report_path = str(kwargs.get("report_path") or "").strip()
-            if report_path in ("latest", "recent", "最近", "最新", "last"):
-                report_path = ""
-            if not report_path:
-                # No path given: review the most recent report for this subject.
-                candidates = sorted(out_dir.glob("report-*.md"))
-                if not candidates:
-                    return ToolResult(content="该科目还没有可核查的报告，请先创建一份。", success=False)
-                md_path = candidates[-1]
-            else:
-                md_path = Path(report_path).with_suffix(".md")
-            if not md_path.exists():
-                # Accept the .pdf path: look for the sibling .md.
-                return ToolResult(
-                    content=f"未找到报告正文 {md_path}；请确认路径来自本工具生成结果。", success=False
+        try:
+            requirements = str(kwargs.get("requirements") or "").strip()
+            source_id = str(kwargs.get("source_file") or "").strip()
+            if source_id:
+                requirements = (
+                    f"{requirements}\n\n（教师题目文件内容，来自附件 {source_id}：\n"
+                    f"{_attached_source_text(kwargs.get('_source_index'), source_id)}\n）"
+                ).strip()
+            if action == "review":
+                report_id = str(kwargs.get("report_id") or "").strip()
+                legacy_path = str(kwargs.get("report_path") or "").strip()
+                if report_id.lower() in _LATEST_ALIASES:
+                    report_id = ""
+                if legacy_path.lower() in _LATEST_ALIASES:
+                    legacy_path = ""
+                result = await report_mod.review_report(
+                    subject_id,
+                    report_id=report_id or None,
+                    legacy_path=legacy_path or None,
+                    instructions=requirements,
+                    subject_context=subject_context,
                 )
-            markdown = md_path.read_text(encoding="utf-8")
-            markdown = await report_mod._llm(
-                REVIEW_PROMPT + "\n\n## 原报告\n" + markdown,
-                "你是课程报告核查助手。",
+                return ToolResult(
+                    content=(
+                        f"已核查并修复报告，可下载：`{result['url']}`"
+                        f"\n\n（报告 id：{result['report_id']}，{result['chart_count']} 张保留图）"
+                        f"\n\n如需再次核查，请回复：核查这份报告。"
+                    ),
+                    metadata={
+                        "report_id": result["report_id"],
+                        "url": result["url"],
+                        "status": result["status"],
+                        "chart_count": result["chart_count"],
+                        **{key: result[key] for key in ("path", "markdown_tokens", "verification_status")
+                           if key in result},
+                    },
+                )
+
+            if action != "create":
+                from deeptutor.subjects import json_store
+
+                raise json_store.invalid_input("action 必须是 create 或 review")
+
+            title = str(kwargs.get("title") or "").strip()
+            if not title:
+                from deeptutor.subjects import json_store
+
+                raise json_store.invalid_input("请提供报告题目（title）")
+            ode_rhs = str(kwargs.get("ode_rhs") or "").strip()
+
+            result = await report_mod.generate_report(
+                subject_id,
+                title=title,
+                requirements=requirements,
+                ode_rhs=ode_rhs,
+                subject_context=subject_context,
             )
-            pdf_path = await report_mod._render_reviewed(markdown, out_dir, md_path)
-            if not pdf_path:
-                return ToolResult(content="报告核查后重新渲染失败，请重试。", success=False)
             return ToolResult(
                 content=(
-                    f"已核查并修复报告，可下载：`{pdf_path.name}`（url: "
-                    f"/api/outputs/subjects/{subject_id}/reports/{pdf_path.name}）"
-                )
+                    f"报告《{title}》已生成（{result['chart_count']} 张图表，"
+                    f"{result['markdown_tokens']} tokens）。"
+                    f"\n\n下载：`{result['url']}`"
+                    f"\n\n如需我核查修改，请回复：核查这份报告（或指出具体问题）。"
+                ),
+                metadata={
+                    "report_id": result["report_id"],
+                    "url": result["url"],
+                    "status": result["status"],
+                    "chart_count": result["chart_count"],
+                    **{key: result[key] for key in ("path", "markdown_tokens", "verification_status")
+                       if key in result},
+                },
             )
-
-        title = str(kwargs.get("title") or "").strip()
-        if not title:
-            return ToolResult(content="请提供报告题目（title）。", success=False)
-        requirements = str(kwargs.get("requirements") or "").strip()
-        ode_rhs = str(kwargs.get("ode_rhs") or "").strip()
-        # The teacher's assignment file may ride as an attachment content ref.
-        source_file = str(kwargs.get("source_file") or "").strip()
-        if source_file and requirements:
-            requirements = f"{requirements}\n（教师题目文件：{source_file}）"
-
-        result = await report_mod.generate_report(
-            subject_id, title=title, requirements=requirements, out_dir=out_dir, ode_rhs=ode_rhs
-        )
-        if not result["pdf_ok"]:
-            return ToolResult(content="报告渲染失败，请重试。", success=False)
-        pdf_path = Path(result["pdf_path"])
-        # Persist the markdown next to the PDF so `review` can re-read it.
-        md_name = pdf_path.with_suffix(".md").name
-        md_path = out_dir / md_name
-        md_path.write_text(result["markdown"], encoding="utf-8")
-        ts = int(time.time())
-        return ToolResult(
-            content=(
-                f"报告《{title}》已生成（{result['chart_count']} 张图表，{result['markdown_tokens']} tokens）。"
-                f"\n\n下载：`/api/outputs/subjects/{subject_id}/reports/{pdf_path.name}`"
-                f"\n\n如需我核查修改，请回复：核查这份报告（或指出具体问题）。"
-                f"\n\n（报告路径：{md_path}）"
+        except Exception as exc:  # noqa: BLE001 - C02 tool boundary: never leak
+            error = map_subject_exception(exc)
+            return ToolResult(
+                content=error.message,
+                success=False,
+                metadata=to_tool_result(error)["metadata"],
             )
-        )

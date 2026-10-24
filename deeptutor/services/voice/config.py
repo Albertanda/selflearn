@@ -5,6 +5,7 @@ These dataclasses are the read-side adapter between the model catalog
 shape of :class:`ResolvedEmbeddingConfig` so a single OpenAI-compatible
 adapter can cover OpenAI, Groq, SiliconFlow, OpenRouter, Azure OpenAI and
 local vLLM/LM Studio by swapping ``base_url`` + ``api_key`` + ``model``.
+Alibaba Qwen ASR uses a separate chat-audio adapter and request style.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ AUTH_TOKEN = "token"  # Authorization: Token <key>  (reserved for Deepgram-style
 # STT request encodings.
 STT_MULTIPART = "multipart"  # OpenAI/Groq/SiliconFlow/Azure: file upload + form fields
 STT_BASE64_JSON = "base64_json"  # OpenRouter: {model, input_audio:{data,format}}
+STT_QWEN_CHAT = "qwen_chat_audio"  # DashScope: messages[].content[].input_audio
 
 # OpenAI caps speech input at 4096 chars; keep a safe generic ceiling.
 DEFAULT_MAX_INPUT_CHARS = 4096
@@ -58,6 +60,7 @@ class STTConfig:
     extra_headers: dict[str, str] = field(default_factory=dict)
     language: str | None = None
     request_timeout: int = 120
+    profile_id: str = ""
 
 
 __all__ = [
@@ -66,6 +69,7 @@ __all__ = [
     "AUTH_TOKEN",
     "STT_MULTIPART",
     "STT_BASE64_JSON",
+    "STT_QWEN_CHAT",
     "DEFAULT_MAX_INPUT_CHARS",
     "TTSConfig",
     "STTConfig",

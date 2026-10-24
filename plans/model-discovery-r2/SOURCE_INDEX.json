@@ -1,0 +1,310 @@
+{
+  "date": "2026-10-24",
+  "root": "/home/albert/selflearn/selflearn",
+  "files": [
+    {
+      "path": "deeptutor/services/provider_registry.py",
+      "sha256": "a9cbafa46726d941d22ec8150145a64b1c283ecb22da88f5319bfe1265b6e347",
+      "start_line": 344,
+      "end_line": 357,
+      "anchor": "name=\"dashscope\"",
+      "note": "LLM供应商单一入口；阿里已有项，避免重复新增。"
+    },
+    {
+      "path": "deeptutor/services/model_discovery/types.py",
+      "sha256": "c73cc0b6b8760daab9590d98cc8bcaae9d5576187d0a92e558cafda580d453b4",
+      "start_line": 440,
+      "end_line": 453,
+      "anchor": "def canonicalize_binding",
+      "note": "当前混合身份与协议；需要独立provider identity，不靠扩alias列表绕过。"
+    },
+    {
+      "path": "deeptutor/services/model_discovery/types.py",
+      "sha256": "c73cc0b6b8760daab9590d98cc8bcaae9d5576187d0a92e558cafda580d453b4",
+      "start_line": 538,
+      "end_line": 551,
+      "anchor": "def adapter_kind",
+      "note": "只覆盖四个协议分支，普通供应商名字被本地拦截。"
+    },
+    {
+      "path": "deeptutor/services/model_discovery/types.py",
+      "sha256": "c73cc0b6b8760daab9590d98cc8bcaae9d5576187d0a92e558cafda580d453b4",
+      "start_line": 347,
+      "end_line": 360,
+      "anchor": "class DiscoveredModel",
+      "note": "目前只有可选context_window，新增参数、来源需序列化一致。"
+    },
+    {
+      "path": "deeptutor/services/model_discovery/service.py",
+      "sha256": "707c74a96a162e5555909ed226ecb12c16da7f0c2aec970d0c4a5a63dfa09593",
+      "start_line": 374,
+      "end_line": 387,
+      "anchor": "adapter = adapter_kind",
+      "note": "unsupported在真实目录请求之前返回；不属于上游失败。"
+    },
+    {
+      "path": "deeptutor/services/model_discovery/adapters.py",
+      "sha256": "4042d821d7d1aee182e13c61cf9fb0d69525240b876dfc9dd9024d2b1a0e959b",
+      "start_line": 530,
+      "end_line": 543,
+      "anchor": "async def fetch_openai_compatible",
+      "note": "默认按base拼models，使用有界请求；新协议复用预算。"
+    },
+    {
+      "path": "deeptutor/services/model_discovery/adapters.py",
+      "sha256": "4042d821d7d1aee182e13c61cf9fb0d69525240b876dfc9dd9024d2b1a0e959b",
+      "start_line": 629,
+      "end_line": 642,
+      "anchor": "async def fetch_catalog",
+      "note": "总30秒和全局并发gate，已有修复不能退化。"
+    },
+    {
+      "path": "deeptutor/services/model_discovery/compatibility.py",
+      "sha256": "eee266f21d93bc9e86eca5ef22b1d33387e2e0dd94063dcc7f4b6b9c332908f2",
+      "start_line": 390,
+      "end_line": 403,
+      "anchor": "def generic_services_for_model",
+      "note": "不能仅让DeepSeek走generic后仍把所有类别丢到unknown。"
+    },
+    {
+      "path": "deeptutor/services/model_discovery/compatibility.py",
+      "sha256": "eee266f21d93bc9e86eca5ef22b1d33387e2e0dd94063dcc7f4b6b9c332908f2",
+      "start_line": 281,
+      "end_line": 294,
+      "anchor": "model_info = raw.get(\"model_info\")",
+      "note": "阿里目前只取context，未贯通max_output等。"
+    },
+    {
+      "path": "deeptutor/services/model_discovery/cache.py",
+      "sha256": "5dd45106adbf40b1b9c7d11b6fd7818a465781707e96e10100debe7d5634c049",
+      "start_line": 114,
+      "end_line": 127,
+      "anchor": "context_window = item.get",
+      "note": "新参数必须round-trip，不可只修改网络响应。"
+    },
+    {
+      "path": "deeptutor/api/routers/settings.py",
+      "sha256": "9a62b5306eeb2b48d0cd06f7d78c1053cf2880dc3ac0ff7b35b086d38abf92e4",
+      "start_line": 438,
+      "end_line": 451,
+      "anchor": "def _provider_choices",
+      "note": "从registry派生LLM选项；label修正在共同接缝。"
+    },
+    {
+      "path": "deeptutor/services/config/provider_runtime.py",
+      "sha256": "f196875c80ca268a26b52a927189d0db0fce7a6ed07a164a6e3049fa95711b4c",
+      "start_line": 531,
+      "end_line": 544,
+      "anchor": "class ResolvedLLMConfig",
+      "note": "目前没有选中模型max_tokens/max_output容量通路。"
+    },
+    {
+      "path": "deeptutor/services/config/provider_runtime.py",
+      "sha256": "f196875c80ca268a26b52a927189d0db0fce7a6ed07a164a6e3049fa95711b4c",
+      "start_line": 748,
+      "end_line": 761,
+      "anchor": "context_window = _coerce_optional_int((model or {}).get",
+      "note": "目标模型上下文读取接缝；增加预算不得串model。"
+    },
+    {
+      "path": "deeptutor/services/llm/config.py",
+      "sha256": "661450b3a8446c58086098d3278928f9fb1155620880f13a5773043539e57bef",
+      "start_line": 94,
+      "end_line": 107,
+      "anchor": "class LLMConfig:",
+      "note": "全局旧默认4096；添加选中模型字段要贯通resolver与Update。"
+    },
+    {
+      "path": "deeptutor/services/llm/factory.py",
+      "sha256": "50a92d249593bbaeccd2e41483cad1896dc48d9c90ef0f6bbb63dfe08a6d0af8",
+      "start_line": 152,
+      "end_line": 165,
+      "anchor": "def _resolve_call_config",
+      "note": "显式字段重建config可能丢容量/预算；需匹配同一模型才继承。"
+    },
+    {
+      "path": "deeptutor/core/agentic/client.py",
+      "sha256": "26dce5d4e48eea32e4d796d53fc289e0952cac45a3878db944993513891be069",
+      "start_line": 284,
+      "end_line": 297,
+      "anchor": "max_tokens = kwargs.pop(\"max_completion_tokens\"",
+      "note": "主agentic调用的独立硬编码回退，不能仅修services factory。"
+    },
+    {
+      "path": "deeptutor/services/llm/context_window.py",
+      "sha256": "ed219e4a4a23d96518bc4cfc087eccd2133a974d7db7367fcc0b616c12a817b8",
+      "start_line": 5,
+      "end_line": 18,
+      "anchor": "DEFAULT_CONTEXT_WINDOW_FALLBACK",
+      "note": "项目安全cap不借机扩大；厂商原容量另保存。"
+    },
+    {
+      "path": "deeptutor/agents/chat/context_budget.py",
+      "sha256": "79ceabf8d0eb46bd6a98c686700d88bfce1fe7ce9bbb3baa11e9e8a2e79b4bad",
+      "start_line": 72,
+      "end_line": 85,
+      "anchor": "def resolve_window_info",
+      "note": "预算展示接缝，核对输入上限/总窗语义。"
+    },
+    {
+      "path": "deeptutor/services/config/context_window_detection.py",
+      "sha256": "08e0006436c629240f5dc462a114ab7e45cdc00a6da2ec40b130ac5732debead",
+      "start_line": 21,
+      "end_line": 34,
+      "anchor": "_CONTEXT_WINDOW_KEYS",
+      "note": "旧检测把不同上限视近似值；本阶段新元数据不能沿用递归猜第一个值。"
+    },
+    {
+      "path": "deeptutor/services/config/model_catalog.py",
+      "sha256": "abd66bea1bcc54213299e63f2216b136a97e9365996802e93a65df0b24bc0fea",
+      "start_line": 275,
+      "end_line": 288,
+      "anchor": "model.setdefault(\"dimension\"",
+      "note": "旧数据normalizer；不要增加读取即写入迁移。"
+    },
+    {
+      "path": "deeptutor/services/embedding/adapters/openai_compatible.py",
+      "sha256": "6004b1dfeab4c0e6a41eb8db0c3dee7028effaa32221e9f12509f5fafa3e233d",
+      "start_line": 362,
+      "end_line": 375,
+      "anchor": "def get_model_info",
+      "note": "已有维度映射但不代表实时官方参数；只读参照，勿擅改embedding推理。"
+    },
+    {
+      "path": "web/lib/model-discovery.ts",
+      "sha256": "0b314543e4ed42719d7846bc1fc1869d8447bb03ad9bcc1185661410b9c3b0bd",
+      "start_line": 33,
+      "end_line": 46,
+      "anchor": "export interface DiscoveryModel",
+      "note": "目前TS候选只有context；扩可选parameters兼容旧schema。"
+    },
+    {
+      "path": "web/lib/model-discovery.ts",
+      "sha256": "0b314543e4ed42719d7846bc1fc1869d8447bb03ad9bcc1185661410b9c3b0bd",
+      "start_line": 352,
+      "end_line": 364,
+      "anchor": "models.push({ id: internalId",
+      "note": "已确认导入只复制id/name/model，丢弃其他值。"
+    },
+    {
+      "path": "web/components/settings/SettingsContext.tsx",
+      "sha256": "db2e516988a1a2b2dd843beedcb2e1b061f7e153e3a3a1dc1fed7e12986ecd40",
+      "start_line": 41,
+      "end_line": 54,
+      "anchor": "export type CatalogModel",
+      "note": "类型需要max_tokens/provider_metadata/overrides等。"
+    },
+    {
+      "path": "web/components/settings/SettingsContext.tsx",
+      "sha256": "db2e516988a1a2b2dd843beedcb2e1b061f7e153e3a3a1dc1fed7e12986ecd40",
+      "start_line": 1036,
+      "end_line": 1049,
+      "anchor": "invalidateLLMOptionsCache();",
+      "note": "保存成功已有缓存失效；仍需处理旧pending写回和picker激活。"
+    },
+    {
+      "path": "web/components/settings/ServiceConfigEditor.tsx",
+      "sha256": "193970f1f160d986d2c039ca08cacf9a11a058a521f54f168cb1fb1d529ed8dc",
+      "start_line": 284,
+      "end_line": 297,
+      "anchor": "const commitModelRename",
+      "note": "名称保存正确；不要修改model调用ID来实现重命名。"
+    },
+    {
+      "path": "web/components/settings/ServiceConfigEditor.tsx",
+      "sha256": "193970f1f160d986d2c039ca08cacf9a11a058a521f54f168cb1fb1d529ed8dc",
+      "start_line": 739,
+      "end_line": 752,
+      "anchor": "value={activeModel.context_window",
+      "note": "新增官方参数/自动来源UI的位置参照。"
+    },
+    {
+      "path": "web/components/settings/ModelDiscoveryDialog.tsx",
+      "sha256": "78616df2b06fbffc5b5497d8ef1dccca15a4ba29c4c6651ea4507def539eb4cc",
+      "start_line": 78,
+      "end_line": 91,
+      "anchor": "export",
+      "note": "候选选择与draft导入界面；更新预览避免直接写saved。"
+    },
+    {
+      "path": "web/components/settings/useModelDiscovery.ts",
+      "sha256": "3db7cba967b1503202cb1b3e9e5f945e6ca4ef1a00cc81f1164467c27a6b31d0",
+      "start_line": 10,
+      "end_line": 23,
+      "anchor": "savedConnectionRevision",
+      "note": "已修mask凭据revision竞态；目录URL必须加入同一身份判定。"
+    },
+    {
+      "path": "web/components/chat/home/ModelSelector.tsx",
+      "sha256": "186d4697e14c50a60411b04c18e4ee83e0fcd2fc765c2ce55527c14bd510b998",
+      "start_line": 40,
+      "end_line": 53,
+      "anchor": "const modelLabel =",
+      "note": "两个显示优先级都要改，第二处selectedLabel见相邻定位。"
+    },
+    {
+      "path": "web/lib/llm-options.ts",
+      "sha256": "6059160b95a75001b8060cabfd67db295a7e80ecc6675aeb5c0783e051bfba08",
+      "start_line": 58,
+      "end_line": 71,
+      "anchor": "export async function listLLMOptions",
+      "note": "LLM options资源缓存；局部处理保存后旧请求回写。"
+    },
+    {
+      "path": "web/hooks/useLLMOptions.ts",
+      "sha256": "dbebf2f954e9ae99d59905447d87d0623a355a5c3e5ed9978f3acf2a26ba3a23",
+      "start_line": 17,
+      "end_line": 30,
+      "anchor": "export function useLLMOptions",
+      "note": "single-flight与late response保护应保留。"
+    },
+    {
+      "path": "deeptutor/services/model_selection/llm.py",
+      "sha256": "f60ff82ec24da6a9240d1774c91c0b0f3148f5d15e8855d19b40e538752bd26d",
+      "start_line": 90,
+      "end_line": 103,
+      "anchor": "\"model_name\":",
+      "note": "后端已返回别名；无须改授权/内部引用。"
+    },
+    {
+      "path": "deeptutor/multi_user/model_access.py",
+      "sha256": "88d13a223317c4703d397b952cede28119dbc9f3b3bf6c5150472e205f594575",
+      "start_line": 119,
+      "end_line": 132,
+      "anchor": "def allowed_llm_options",
+      "note": "普通用户沿用已有授权alias；不要显示其他模型。"
+    },
+    {
+      "path": "web/playwright.model-discovery.config.ts",
+      "sha256": "dfca3a291c0e894ed7a510bb5fdb85fbd391aadc6d1f796eaad3f59ba0989b54",
+      "start_line": 9,
+      "end_line": 22,
+      "anchor": "process.env.S15_EVIDENCE_DIR",
+      "note": "参考wrapper；R2用新路径和test match，不覆盖MD-R1。"
+    },
+    {
+      "path": "web/playwright.phase1.config.ts",
+      "sha256": "a3ce4099db498efe00867fa03c3c49f4f1f677a9c77fa428213936c1b495ad68",
+      "start_line": 367,
+      "end_line": 380,
+      "anchor": "MODEL_SERVER",
+      "note": "仅隔离model server可扩fixture；生产服务禁加后门。"
+    },
+    {
+      "path": "scripts/run_tests_isolated.py",
+      "sha256": "9e9827fd9ea911e6072993d04d02c845b66d8990407b2c58b37f99aad85cc2a6",
+      "start_line": 32,
+      "end_line": 45,
+      "anchor": "def main",
+      "note": "必须使用runner；保护六树，不直接pytest或绕guard。"
+    },
+    {
+      "path": "scripts/phase1_snapshot.py",
+      "sha256": "7dcaf3d0228a12f057698205f7b8152eaaa84c489ed8ce36508ed794c3ed7c7c",
+      "start_line": 88,
+      "end_line": 101,
+      "anchor": "PROTECTED_DATA_ROOTS",
+      "note": "只哈希真实数据，capture include_paths覆盖本阶段新源码。"
+    }
+  ]
+}

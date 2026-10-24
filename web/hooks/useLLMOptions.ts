@@ -63,6 +63,8 @@ export function useLLMOptions() {
 
   return {
     options: state.options,
+    hiddenOptions: state.hiddenOptions,
+    hasUsableModels: state.hasUsableModels,
     activeDefault: state.activeDefault,
     loading: state.status === "loading",
     error: state.status === "error",

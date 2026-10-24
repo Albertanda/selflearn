@@ -1,0 +1,794 @@
+{
+  "schema_version": 2,
+  "mode": "one authorized stage per executor session; serial units; one independent stage review",
+  "execution_agents": 1,
+  "reviewer_role": "coordinator",
+  "unit_count": 57,
+  "stage_count": 16,
+  "stage_order": [
+    "S00",
+    "S01",
+    "S02",
+    "S03",
+    "S04",
+    "S05",
+    "S06",
+    "S07",
+    "S08",
+    "S09",
+    "S10",
+    "S11",
+    "S12",
+    "S13",
+    "S14",
+    "S15"
+  ],
+  "next_stage": null,
+  "stages": [
+    {
+      "id": "S00",
+      "title": "已完成的基线修补审查",
+      "status": "accepted",
+      "cards": [
+        "P1-00"
+      ],
+      "depends_on_stages": [],
+      "allowed_files": [
+        ".gitignore",
+        "scripts/phase1_snapshot.py",
+        "tests/phase1/test_p1_00.py"
+      ],
+      "contracts": [
+        "C01",
+        "C14"
+      ],
+      "targeted_commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_00.py"
+      ],
+      "risk": "high",
+      "entry_path": "stages/S00.md"
+    },
+    {
+      "id": "S01",
+      "title": "测试隔离与可信测试基线",
+      "status": "accepted",
+      "cards": [
+        "P1-01",
+        "P1-02"
+      ],
+      "depends_on_stages": [
+        "S00"
+      ],
+      "allowed_files": [
+        "tests/phase1/__init__.py",
+        "tests/phase1/conftest.py",
+        "tests/phase1/helpers.py",
+        "tests/phase1/test_p1_01.py",
+        "tests/phase1/test_p1_02.py",
+        "tests/services/test_codebuddy_credentials.py",
+        "tests/services/rag/test_llamaindex_document_loader.py"
+      ],
+      "contracts": [
+        "C01",
+        "C14"
+      ],
+      "targeted_commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_01.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_02.py",
+        "./.venv/bin/python -m pytest -q tests/services/test_codebuddy_credentials.py"
+      ],
+      "risk": "normal",
+      "entry_path": "stages/S01.md",
+      "revision_entry": "REWORK_S01.txt",
+      "review_receipt": ".phase1-evidence/stages/S01/review.json"
+    },
+    {
+      "id": "S02",
+      "title": "错误、原子写与模型输出基础",
+      "status": "accepted",
+      "cards": [
+        "P1-03",
+        "P1-09",
+        "P1-55",
+        "P1-04"
+      ],
+      "depends_on_stages": [
+        "S01"
+      ],
+      "allowed_files": [
+        "deeptutor/services/file_io.py",
+        "deeptutor/subjects/errors.py",
+        "deeptutor/subjects/generation.py",
+        "deeptutor/subjects/model_output.py",
+        "tests/phase1/test_p1_03.py",
+        "tests/phase1/test_p1_04.py",
+        "tests/phase1/test_p1_09.py",
+        "tests/phase1/test_p1_55.py",
+        "tests/services/test_file_io.py"
+      ],
+      "contracts": [
+        "C01",
+        "C02",
+        "C04"
+      ],
+      "targeted_commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_03.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_09.py",
+        "./.venv/bin/python -m pytest -q tests/services/test_file_io.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_55.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_04.py"
+      ],
+      "risk": "normal",
+      "entry_path": "stages/S02.md",
+      "revision_entry": "REWORK_S02.txt",
+      "review_receipt": ".phase1-evidence/stages/S02/review.json"
+    },
+    {
+      "id": "S03",
+      "title": "科目存储与持久化接入",
+      "status": "accepted",
+      "cards": [
+        "P1-10",
+        "P1-11",
+        "P1-12",
+        "P1-13",
+        "P1-14"
+      ],
+      "depends_on_stages": [
+        "S02"
+      ],
+      "allowed_files": [
+        "deeptutor/subjects/exam_points.py",
+        "deeptutor/subjects/json_store.py",
+        "deeptutor/subjects/knowledge_points.py",
+        "deeptutor/subjects/profile.py",
+        "deeptutor/subjects/store.py",
+        "deeptutor/subjects/wrong_book.py",
+        "tests/phase1/test_p1_10.py",
+        "tests/phase1/test_p1_11.py",
+        "tests/phase1/test_p1_12.py",
+        "tests/phase1/test_p1_13.py",
+        "tests/phase1/test_p1_14.py"
+      ],
+      "contracts": [
+        "C01",
+        "C02",
+        "C03",
+        "C05",
+        "C06",
+        "C10"
+      ],
+      "targeted_commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_10.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_11.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_12.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_13.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_14.py"
+      ],
+      "risk": "high",
+      "entry_path": "stages/S03.md",
+      "revision_entry": "REWORK_S03.txt",
+      "review_receipt": ".phase1-evidence/stages/S03/review.json"
+    },
+    {
+      "id": "S04",
+      "title": "批改、考点和接口失败闭环",
+      "status": "accepted",
+      "cards": [
+        "P1-05",
+        "P1-06",
+        "P1-07",
+        "P1-08",
+        "P1-15",
+        "P1-56"
+      ],
+      "depends_on_stages": [
+        "S02",
+        "S03"
+      ],
+      "allowed_files": [
+        "deeptutor/api/routers/subjects.py",
+        "deeptutor/api/subject_route.py",
+        "deeptutor/subjects/exam_detection.py",
+        "deeptutor/subjects/exam_points.py",
+        "deeptutor/subjects/grading.py",
+        "deeptutor/subjects/wrong_book.py",
+        "tests/phase1/test_p1_05.py",
+        "tests/phase1/test_p1_06.py",
+        "tests/phase1/test_p1_07.py",
+        "tests/phase1/test_p1_08.py",
+        "tests/phase1/test_p1_15.py",
+        "tests/phase1/test_p1_56.py"
+      ],
+      "contracts": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "C06"
+      ],
+      "targeted_commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_05.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_06.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_07.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_08.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_15.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_56.py"
+      ],
+      "risk": "high",
+      "entry_path": "stages/S04.md",
+      "review_receipt": ".phase1-evidence/stages/S04/review.json"
+    },
+    {
+      "id": "S05",
+      "title": "安全上传、索引源与任务状态",
+      "status": "accepted",
+      "cards": [
+        "P1-16",
+        "P1-17",
+        "P1-18",
+        "P1-29",
+        "P1-19",
+        "P1-30"
+      ],
+      "depends_on_stages": [
+        "S01",
+        "S02",
+        "S03"
+      ],
+      "allowed_files": [
+        "deeptutor/api/routers/subjects.py",
+        "deeptutor/services/asr/transcribe.py",
+        "deeptutor/services/embedding/client.py",
+        "deeptutor/services/rag/pipelines/llamaindex/pipeline.py",
+        "deeptutor/subjects/material_manifest.py",
+        "deeptutor/subjects/uploads.py",
+        "tests/phase1/test_p1_16.py",
+        "tests/phase1/test_p1_17.py",
+        "tests/phase1/test_p1_18.py",
+        "tests/phase1/test_p1_19.py",
+        "tests/phase1/test_p1_29.py",
+        "tests/phase1/test_p1_30.py"
+      ],
+      "contracts": [
+        "C01",
+        "C02",
+        "C07"
+      ],
+      "targeted_commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_16.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_17.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_18.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_29.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_19.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_30.py",
+        "./.venv/bin/python -m pytest -q tests/services/embedding/test_client_runtime.py"
+      ],
+      "risk": "high",
+      "entry_path": "stages/S05.md",
+      "revision_entry": "REWORK_S05.txt",
+      "review_receipt": ".phase1-evidence/stages/S05/review.json",
+      "final_review_receipt": ".phase1-evidence/reviews/S05-final/review.json"
+    },
+    {
+      "id": "S06",
+      "title": "文档图像索引与覆盖",
+      "status": "accepted",
+      "cards": [
+        "P1-26",
+        "P1-27",
+        "P1-28"
+      ],
+      "depends_on_stages": [
+        "S01",
+        "S02"
+      ],
+      "allowed_files": [
+        "deeptutor/services/rag/pipelines/llamaindex/document_loader.py",
+        "deeptutor/services/rag/pipelines/llamaindex/image_description.py",
+        "deeptutor/services/rag/pipelines/llamaindex/pipeline.py",
+        "deeptutor/utils/document_extractor.py",
+        "deeptutor/utils/document_images.py",
+        "tests/phase1/test_p1_26.py",
+        "tests/phase1/test_p1_27.py",
+        "tests/phase1/test_p1_28.py",
+        "deeptutor/knowledge/initializer.py",
+        "deeptutor/knowledge/progress_tracker.py",
+        "tests/services/rag/test_llamaindex_document_loader.py",
+        "deeptutor/services/llm/factory.py",
+        "deeptutor/knowledge/manager.py",
+        "deeptutor/subjects/uploads.py",
+        "deeptutor/subjects/material_manifest.py"
+      ],
+      "contracts": [
+        "C02",
+        "C04",
+        "C07",
+        "C09"
+      ],
+      "targeted_commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_26.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_27.py",
+        "./.venv/bin/python -m pytest -q tests/services/rag/test_llamaindex_document_loader.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_28.py"
+      ],
+      "risk": "normal",
+      "entry_path": "stages/S06.md",
+      "execution_entry": "START_S06.txt",
+      "exploration_packet": "S06_REWORK_EXPLORATION.md",
+      "scope_amendment": "P27初次补入initializer/progress_tracker和旧loader测试；本次返修再补入factory严格逐调用图像策略、manager稳定coverage字段、uploads/material_manifest仅安全只读coverage投影。阶段15路径，返修14路径，extractor只读。",
+      "revision_entry": "REWORK_S06.txt",
+      "review_receipt": ".phase1-evidence/stages/S06/review.json",
+      "rework_allowed_files": [
+        "deeptutor/services/rag/pipelines/llamaindex/document_loader.py",
+        "deeptutor/services/rag/pipelines/llamaindex/image_description.py",
+        "deeptutor/services/rag/pipelines/llamaindex/pipeline.py",
+        "deeptutor/utils/document_images.py",
+        "tests/phase1/test_p1_26.py",
+        "tests/phase1/test_p1_27.py",
+        "tests/phase1/test_p1_28.py",
+        "deeptutor/knowledge/initializer.py",
+        "deeptutor/knowledge/progress_tracker.py",
+        "tests/services/rag/test_llamaindex_document_loader.py",
+        "deeptutor/services/llm/factory.py",
+        "deeptutor/knowledge/manager.py",
+        "deeptutor/subjects/uploads.py",
+        "deeptutor/subjects/material_manifest.py"
+      ]
+    },
+    {
+      "id": "S07",
+      "title": "科目聊天与知识库作用域",
+      "status": "accepted",
+      "cards": [
+        "P1-20",
+        "P1-21",
+        "P1-22",
+        "P1-23",
+        "P1-24",
+        "P1-25"
+      ],
+      "depends_on_stages": [
+        "S02",
+        "S03",
+        "S05"
+      ],
+      "allowed_files": [
+        "deeptutor/agents/chat/agentic_pipeline.py",
+        "deeptutor/agents/question/pipeline.py",
+        "deeptutor/agents/research/pipeline.py",
+        "deeptutor/api/routers/unified_ws.py",
+        "deeptutor/runtime/request_contracts.py",
+        "deeptutor/services/rag/pipelines/pageindex/pipeline.py",
+        "deeptutor/services/session/turn_runtime.py",
+        "deeptutor/subjects/kb_scope.py",
+        "deeptutor/tools/builtin/__init__.py",
+        "deeptutor/tools/rag_tool.py",
+        "tests/agents/chat/test_message_build.py",
+        "tests/api/test_unified_ws_turn_runtime.py",
+        "tests/phase1/test_p1_20.py",
+        "tests/phase1/test_p1_21.py",
+        "tests/phase1/test_p1_22.py",
+        "tests/phase1/test_p1_23.py",
+        "tests/phase1/test_p1_24.py",
+        "tests/tools/test_rag_tool.py",
+        "web/app/(workspace)/home/[[...sessionId]]/page.tsx",
+        "web/components/chat/home/SubjectSelector.tsx",
+        "web/context/UnifiedChatContext.tsx",
+        "web/lib/subject-scope.ts",
+        "web/tests/phase1-25.test.ts"
+      ],
+      "contracts": [
+        "C01",
+        "C02",
+        "C06",
+        "C08",
+        "C13"
+      ],
+      "targeted_commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_20.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_21.py",
+        "./.venv/bin/python -m pytest -q tests/services/session/test_regenerate.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_22.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_23.py",
+        "./.venv/bin/python -m pytest -q tests/tools/test_rag_tool.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_24.py",
+        "./.venv/bin/python -m pytest -q tests/tools/test_kb_files_tool.py tests/agents/chat/test_kb_manifest_note.py",
+        "cd web && node ./scripts/run-node-tests.mjs",
+        "cd web && ./node_modules/.bin/tsc --noEmit -p .",
+        "./.venv/bin/python -m pytest -q tests/api/test_unified_ws_turn_runtime.py",
+        "./.venv/bin/python -m pytest -q tests/agents/chat/test_message_build.py"
+      ],
+      "risk": "high",
+      "entry_path": "stages/S07.md"
+    },
+    {
+      "id": "S08",
+      "title": "报告输入、目录和执行边界",
+      "status": "accepted",
+      "cards": [
+        "P1-31",
+        "P1-32",
+        "P1-33",
+        "P1-34"
+      ],
+      "depends_on_stages": [
+        "S02",
+        "S03"
+      ],
+      "allowed_files": [
+        "deeptutor/services/pdf/chart_executor.py",
+        "deeptutor/services/pdf/chart_validation.py",
+        "deeptutor/services/pdf/chart_worker.py",
+        "deeptutor/services/pdf/report.py",
+        "deeptutor/services/pdf/report_inputs.py",
+        "deeptutor/services/pdf/report_store.py",
+        "tests/phase1/test_p1_31.py",
+        "tests/phase1/test_p1_32.py",
+        "tests/phase1/test_p1_33.py",
+        "tests/phase1/test_p1_34.py"
+      ],
+      "contracts": [
+        "C01",
+        "C02",
+        "C04",
+        "C11"
+      ],
+      "targeted_commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_31.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_32.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_33.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_34.py"
+      ],
+      "risk": "high",
+      "entry_path": "stages/S08.md"
+    },
+    {
+      "id": "S09",
+      "title": "报告生成、核查及入口一致性",
+      "status": "accepted",
+      "cards": [
+        "P1-35",
+        "P1-36",
+        "P1-37",
+        "P1-38"
+      ],
+      "depends_on_stages": [
+        "S02",
+        "S08"
+      ],
+      "allowed_files": [
+        "deeptutor/agents/chat/agentic_pipeline.py",
+        "deeptutor/api/routers/subjects.py",
+        "deeptutor/services/pdf/report.py",
+        "deeptutor/services/pdf/report_store.py",
+        "deeptutor/tools/report_tool.py",
+        "tests/phase1/test_p1_31.py",
+        "tests/phase1/test_p1_35.py",
+        "tests/phase1/test_p1_36.py",
+        "tests/phase1/test_p1_37.py",
+        "tests/phase1/test_p1_38.py"
+      ],
+      "contracts": [
+        "C02",
+        "C04",
+        "C11",
+        "C13"
+      ],
+      "targeted_commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_35.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_36.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_37.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_38.py"
+      ],
+      "risk": "high",
+      "entry_path": "stages/S09.md",
+      "review_receipt": ".phase1-evidence/stages/S09/review.json"
+    },
+    {
+      "id": "S10",
+      "title": "学情派生、导出与删除一致性",
+      "status": "accepted",
+      "cards": [
+        "P1-39",
+        "P1-40",
+        "P1-41",
+        "P1-54"
+      ],
+      "depends_on_stages": [
+        "S02",
+        "S03",
+        "S05",
+        "S08"
+      ],
+      "allowed_files": [
+        "deeptutor/api/routers/subjects.py",
+        "deeptutor/services/pdf/chart_executor.py",
+        "deeptutor/services/pdf/report.py",
+        "deeptutor/services/pdf/report_store.py",
+        "deeptutor/services/pdf/review_guide.py",
+        "deeptutor/subjects/exam_points.py",
+        "deeptutor/subjects/export_bundle.py",
+        "deeptutor/subjects/knowledge_points.py",
+        "deeptutor/subjects/profile.py",
+        "deeptutor/subjects/store.py",
+        "deeptutor/subjects/subject_operations.py",
+        "deeptutor/subjects/uploads.py",
+        "deeptutor/subjects/wrong_book.py",
+        "tests/phase1/test_p1_33.py",
+        "tests/phase1/test_p1_39.py",
+        "tests/phase1/test_p1_40.py",
+        "tests/phase1/test_p1_41.py",
+        "tests/phase1/test_p1_54.py",
+        "tests/phase1/test_subject_operations.py"
+      ],
+      "contracts": [
+        "C01",
+        "C02",
+        "C03",
+        "C10",
+        "C12",
+        "C13"
+      ],
+      "targeted_commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_39.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_40.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_41.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_54.py"
+      ],
+      "risk": "high",
+      "entry_path": "stages/S10.md",
+      "review_receipt": ".phase1-evidence/stages/S10/review.json"
+    },
+    {
+      "id": "S11",
+      "title": "现有UI与裁剪残留收敛",
+      "status": "accepted",
+      "cards": [
+        "P1-42",
+        "P1-43",
+        "P1-44",
+        "P1-45",
+        "P1-46"
+      ],
+      "depends_on_stages": [
+        "S01",
+        "S04",
+        "S05",
+        "S07",
+        "S10"
+      ],
+      "allowed_files": [
+        "AGENTS.md",
+        "SKILL.md",
+        "deeptutor/agents/chat/agentic_pipeline.py",
+        "deeptutor/knowledge/kb_types.py",
+        "deeptutor/services/rag/factory.py",
+        "deeptutor/services/rag/pipelines/pageindex/pipeline.py",
+        "deeptutor_cli/README.md",
+        "deeptutor_cli/main.py",
+        "packaging/deeptutor-cli/pyproject.toml",
+        "pyproject.toml",
+        "requirements.txt",
+        "requirements/cli.txt",
+        "requirements/matrix-e2e.txt",
+        "requirements/matrix.txt",
+        "requirements/partners.txt",
+        "requirements/server.txt",
+        "tests/cli/test_docs_contract.py",
+        "tests/cli/test_provider_cli.py",
+        "tests/phase1/test_p1_44.py",
+        "tests/phase1/test_p1_45.py",
+        "tests/phase1/test_p1_46.py",
+        "tests/test_matrix_requirements.py",
+        "tests/test_packaging_metadata.py",
+        "web/app/(workspace)/subjects/[id]/page.tsx",
+        "web/app/(workspace)/subjects/page.tsx",
+        "web/components/knowledge/CreateKbModal.tsx",
+        "web/components/knowledge/KnowledgeHome.tsx",
+        "web/components/knowledge/KnowledgePage.tsx",
+        "web/lib/subject-results.ts",
+        "web/tests/phase1-42.test.ts",
+        "web/tests/phase1-43.test.ts"
+      ],
+      "contracts": [
+        "C02",
+        "C07",
+        "C08",
+        "C12",
+        "C13"
+      ],
+      "targeted_commands": [
+        "cd web && node ./scripts/run-node-tests.mjs",
+        "cd web && ./node_modules/.bin/tsc --noEmit -p .",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_44.py",
+        "./.venv/bin/python -m pytest -q tests/test_packaging_metadata.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_45.py",
+        "./.venv/bin/python -m pytest -q tests/cli/test_provider_cli.py",
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_46.py"
+      ],
+      "risk": "normal",
+      "entry_path": "stages/S11.md",
+      "review_receipt": ".phase1-evidence/stages/S11/review.json"
+    },
+    {
+      "id": "S12",
+      "title": "启动、文档和lint收尾",
+      "status": "accepted",
+      "cards": [
+        "P1-47",
+        "P1-48"
+      ],
+      "depends_on_stages": [
+        "S03",
+        "S04",
+        "S06",
+        "S07",
+        "S09",
+        "S10",
+        "S11"
+      ],
+      "allowed_files": [
+        "AGENTS.md",
+        "CONTAINERIZATION.md",
+        "HANDOVER.md",
+        "README.md",
+        "deeptutor/api/routers/chat.py",
+        "deeptutor/api/routers/subjects.py",
+        "deeptutor/services/pdf/review_guide.py",
+        "deeptutor/services/session/summarize.py",
+        "deeptutor/services/session/turn_runtime.py",
+        "deeptutor/services/storage/attachment_store.py",
+        "deeptutor/subjects/*.py",
+        "docker-compose.ghcr.yml",
+        "docker-compose.yml",
+        "plans/phase1/ENVIRONMENT.md",
+        "scripts/start_selflearn.sh",
+        "tests/phase1/test_p1_47.py"
+      ],
+      "contracts": [
+        "C01",
+        "C13",
+        "C14"
+      ],
+      "targeted_commands": [
+        "./.venv/bin/python -m pytest -q tests/phase1/test_p1_47.py",
+        "./.venv/bin/ruff check deeptutor deeptutor_cli",
+        "git diff --check"
+      ],
+      "risk": "normal",
+      "entry_path": "stages/S12.md"
+    },
+    {
+      "id": "S13",
+      "title": "全量回归及真实沙箱验收",
+      "status": "accepted",
+      "cards": [
+        "P1-49",
+        "P1-50"
+      ],
+      "depends_on_stages": [
+        "S00",
+        "S01",
+        "S02",
+        "S03",
+        "S04",
+        "S05",
+        "S06",
+        "S07",
+        "S08",
+        "S09",
+        "S10",
+        "S11",
+        "S12"
+      ],
+      "allowed_files": [
+        "scripts/phase1_sandbox_acceptance.py",
+        "scripts/phase1_verify.py"
+      ],
+      "contracts": [
+        "C11",
+        "C14"
+      ],
+      "targeted_commands": [
+        "./.venv/bin/python scripts/phase1_verify.py",
+        "./.venv/bin/python scripts/phase1_sandbox_acceptance.py",
+        "./.venv/bin/ruff check scripts/phase1_verify.py scripts/phase1_sandbox_acceptance.py",
+        "git diff --check"
+      ],
+      "risk": "high",
+      "entry_path": "stages/S13.md"
+    },
+    {
+      "id": "S14",
+      "title": "HTTP与WebSocket集成验收",
+      "status": "accepted",
+      "cards": [
+        "P1-51",
+        "P1-52"
+      ],
+      "depends_on_stages": [
+        "S07",
+        "S10",
+        "S11",
+        "S13"
+      ],
+      "allowed_files": [
+        "tests/phase1/test_http_acceptance.py",
+        "tests/phase1/test_ws_acceptance.py"
+      ],
+      "contracts": [
+        "C02",
+        "C05",
+        "C06",
+        "C07",
+        "C08",
+        "C09",
+        "C10",
+        "C11",
+        "C12",
+        "C14"
+      ],
+      "targeted_commands": [
+        "./.venv/bin/python scripts/run_tests_isolated.py -q tests/phase1/test_http_acceptance.py",
+        "./.venv/bin/python scripts/run_tests_isolated.py -q tests/phase1/test_ws_acceptance.py"
+      ],
+      "risk": "high",
+      "entry_path": "stages/S14.md",
+      "data_integrity_exception": "plans/phase1/data_baseline_exception.json"
+    },
+    {
+      "id": "S15",
+      "title": "浏览器验收与最终签收准备",
+      "status": "accepted",
+      "cards": [
+        "P1-53"
+      ],
+      "depends_on_stages": [
+        "S07",
+        "S11",
+        "S13",
+        "S14"
+      ],
+      "allowed_files": [
+        "web/e2e/phase1.spec.ts",
+        "web/playwright.phase1.config.ts"
+      ],
+      "contracts": [
+        "C08",
+        "C13",
+        "C14"
+      ],
+      "targeted_commands": [
+        "cd web && ./node_modules/.bin/playwright test -c playwright.phase1.config.ts"
+      ],
+      "risk": "high",
+      "entry_path": "stages/S15.md",
+      "review_receipt": ".phase1-evidence/stages/S15/review.json",
+      "coordinator_fix_files": [
+        "web/playwright.phase1.config.ts",
+        "web/e2e/phase1.spec.ts",
+        "web/lib/subject-results.ts",
+        "web/app/(workspace)/subjects/[id]/page.tsx",
+        "web/components/chat/home/TracePanels.tsx",
+        "web/tests/phase1-download.test.ts",
+        "web/tests/phase1-source-display.test.ts",
+        "web/tests/phase1-42.test.ts",
+        "HANDOVER.md",
+        "README.md",
+        "AGENTS.md",
+        "plans/phase1/README.md",
+        "plans/phase1/stages.json",
+        "plans/phase1/stages/S15.md",
+        "plans/phase1/PHASE1_ACCEPTANCE.md",
+        "plans/phase1/PHASE1_HANDOFF.txt"
+      ],
+      "coordinator_fix_authorization": "User requested direct fixes and final acceptance; original worker allowed_files remains the P1-53 card union."
+    }
+  ],
+  "evidence_rule": "one report.json + one append-only execution.log + one reviewer review.json per stage; no mandatory per-card files",
+  "historical_evidence": "retain .phase1-evidence/P1-00 unchanged; coordinator corrections/receipt are in .phase1-evidence/reviews/P1-00",
+  "phase1_complete": true,
+  "phase2_authorized": false
+}

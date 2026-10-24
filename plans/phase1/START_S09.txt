@@ -1,0 +1,91 @@
+仅执行第一阶段 S09「报告生成、核查及入口一致性」。P1-35 → P1-36 → P1-37 → P1-38 串行完成，阶段末一次交付；单元通过后直接继续，不逐卡请求批准，不进入S10或第二阶段。
+
+工作目录 /home/albert/selflearn/selflearn。先读本指令、S09_EXPLORATION.md（已探索文件清单+关键片段）、C11/C02/C04及四张卡，按符号直接定位，不重新扫描全仓。依赖.venv/Pillow/pypdf/PyMuPDF/python-docx、tools/bin/typst及字体已存在，不安装/升级、不改系统策略、不提交推送、不读真实settings/memory、不访问真实供应商/索引/服务。
+
+一、开工门、范围及当前约束
+
+读取 .phase1-evidence/stages/S08/review.json，必须accepted、goal_met:true、next_stage_authorized:true、next_stage:S09，指向 .phase1-evidence/reviews/S08-final/review.json。核对完整receipt SHA、94条当前合并源码及本包dispatch hashes。旧worker报告的源码摘要和S08初审changes_requested仅为历史。
+
+S08-final已由协调者补修4生产/3测试文件，新增11项永久回归；最终309项定向/独立检查、3655项相关目录/19历史条件skip、十路径Ruff通过。保留路径链接/未知进程出生状态/缺metadata清理、严格协议/采样完整性和产物绑定等门。相同run共享_chart.py，同时执行会返回固定chart_failed；本阶段在一个run内顺序处理图表及ODE，不同run可并发。最终OS验收仍属S15/P50。
+
+唯一源码/测试白名单为9路径：
+deeptutor/services/pdf/report.py
+deeptutor/tools/report_tool.py
+deeptutor/agents/chat/agentic_pipeline.py
+deeptutor/api/routers/subjects.py
+tests/phase1/test_p1_31.py
+tests/phase1/test_p1_35.py
+tests/phase1/test_p1_36.py
+tests/phase1/test_p1_37.py
+tests/phase1/test_p1_38.py
+
+新增的窄授权是test_p1_31.py：现有_Recorder/_run_report及7个generate_report接缝用例依赖旧host helper、未登记sub、假PNG/无PDF，且bad_code_response用例明确期待“图失败仍报告成功”。本阶段改为合法隔离subject、新executor接缝/真实有效产物，并改该假成功断言为chart_failed、无URL。其它输入/AST/JSON/文件名/编码断言保持。不得为兼容该旧错误保留host执行或弱化发布验证。此窄授权已同步P35卡/tasks/stages，不需另问批准。
+
+本阶段9路径与94基准重叠4条；94条里仅这4条可在其卡目标内修改，其余90条只读。capture include为完整94基准+9白名单的并集99条（四个新测试尚不存在也列入；report_tool已存在）。S08的report_inputs/store/executor/worker/validation和P32–34测试、共享fixtures/schema/error/PathService/sandbox/部署配置均只读。确需这些基础接口改变时给最小blocked_scope复现，不自行越界。
+
+新建 .phase1-evidence/stages/S09/ 独立source/data基线。保留dirty、5个tracked deletion和全部旧证据。六真实树只用snapshot v2记录不透明hash/完整files/dirs/modes，supplementary三树也独立比较；保留auth.lock和9个memory文件，不产生真实数据新锁。所有业务测试收集先用临时HOME launcher。
+
+二、连续四单元
+
+P1-35 接通完整报告与安全渲染
+目标：每张声明图确实来自本run且有效，完整正文/图/PDF一次发布；任一失败无正式URL。
+允许：report.py、test_p1_35.py，及上述test_p1_31窄接缝适配；不改S08基础模块。
+固定接缝：
+- create_report_run(subject_id, *, reviewed_from=None)；publish_report_run(run, *, files, verification_status)；resolve_report_for_review(subject_id, *, report_id=None, legacy_path=None)。
+- async execute_chart_code(code, *, run, expected_png, policy)；validate_chart_output(run, expected_png)；async check_ode_numeric(run, ode_rhs, *, policy)。代码/ODE只走同一专用执行器，不借普通runner，不宿主eval/import模型。
+- generate_report两入口共用，server-owned run决定目录。out_dir可退役；如为兼容保留，只能验证服务端规范位置，不能改变目标。API/Tool不再预建公共目录/自己另写Markdown。
+实施：
+1. 输入/ODE纯校验先于provider/文件副作用。沿用_llm的S02完整响应/预算/截断门；空或部分正文不编译。run失败/取消始终收尾，不能覆盖旧completed；不把清理异常改成假成功。
+2. 统一placeholder match支持零/多空格，最多8张；每张chart_N.png最多3尝试，顺序执行。每次使用新的attempt清旧产物；执行结果→实际PNG验证→有ODE则可信数值检查全部通过，才进入后续。第三次仍失败整体chart_failed，不把图失败替换成文字后宣布成功。
+3. 报告Markdown中的所有图片引用仅能指向本run已验证chart_N.png白名单。包括模型自行输出的引用；外部URL/data/绝对路径/穿越/引号/未知图/链接拒绝，不联网取图。只支持能安全解析的本地简单内联形式；未支持的reference/HTML等图像写法明确拒绝，不偷偷送Typst。没有CHART也没有图片的纯正文报告合法。
+4. Typst只用可信模板与安全转义正文；图片语句从服务端验证后的固定basename表生成，不插入模型原路径或未转义内容。私有work里写report.md/report.pdf和验证图，真实PDF编译且可打开、至少一页后再publish；不只看renderer bool/exists。使用已有pypdf或PyMuPDF，无依赖安装。
+5. 旧_run_chart_code/_chart_ode_matches裸host subprocess路径必须退役或变为安全兼容wrapper，不留可执行模型的fallback。旧_render_reviewed不得再原地覆盖。公开发布仅MD/PDF/验证PNG及安全metadata，脚本/日志/cache不发布。
+6. 内部结果可保留title/markdown/pdf_ok/pdf_path等消费者所需字段，公开结果符合ReportResponse：report_id、status=completed、chart_count、markdown_tokens、url、path、verification_status。url从实际正式相对位置生成，path仅本科正式产物的服务器相对路径，界面/Tool正文不暴露宿主绝对路径。passed仅五点数值检查，不夸大数学证明。
+证据：0/1/多图、多种空白占位；任图失败/坏JSON/坏图/ODE失败/编译失败无URL且旧报告不变；空/截断正文零编译；两个并发run互不干扰；不合格sandbox503无fallback；真实Typst中文+图PDF用parser打开并验证页/图片；外部/穿越/引号/未验证图片反例逐一拒绝。
+完成：P31有效门及P35通过，数据/路径保持，再进入P36。
+
+P1-36 受限review与服务端附件来源
+目标：只审查当前科已知报告，新revision不覆盖原件；source_file只能是本turn附件ID。
+允许：report.py、report_tool.py、agentic_pipeline.py、test_p1_36.py。
+实施：
+- Tool action=create/review均验证当前用户/已登记subject。report_id/latest通过ReportStore；旧report_path兼容只允许同科已知旧名.md/.pdf或完成报告文件。统一schema/说明，不再一边声称不允许一边按任意路径读取；不新增通用文件读或review HTTP API。
+- 读原MD/图前检查常规非链接/身份/清单hash；坏metadata或丢原图失败。review新建rid，复制保留图到自己目录、严格Pillow验证与真实字节核对，记录reviewed_from；原正文/PDF/图hash不变。复制图是可信server复制，不伪造“新worker已执行”的attempt记录；可在report.py实现独立的受限复制验证helper，不能弱化P34。
+- model review全文同样过S02门及图片白名单，不引入新图/外部图片；渲染/发布复用P35。对保留图片的原有限数值检查来源如实记录，不把新正文称已验证；无可靠依据不得提升passed。
+- source_file是context.metadata['source_index']的source_id，值为已附全文。chat generate_report分支先剥离模型伪造的内部scope/hint/index/out_dir等，再无条件注入服务端subject、hint和当前source_index（无科/无附件也覆盖为空，不能setdefault）。参考explore_context/source_inventory现有语义，不改它们。
+- Tool只按ID读取所注入文本并实际用于requirements；未知ID/宿主路径明确invalid_input、零文件读。删除“附件ID或本地路径”的误导说明。模型不能借source_index/_source_index/_subject_id等内部kwargs重定向；直调Tool仍须ReportStore当前用户门。
+证据：API创建→Tool latest可发现MD并生成新revision；合法legacy可审查且树不迁移；跨科/../外部绝对/链接/未知MD在读前拒绝；丢图/坏hash/预算或provider/编译错误success=false；未知source_file零文件读；实际chat augmenter覆盖模型恶意参数，包括服务端空scope时。
+完成：P36及原chat回归通过，再进入P37。
+
+P1-37 报告/复习包的API与工具一致失败响应
+目标：真实预算、空/截断、图/编译错误在HTTP和Tool都具名失败，只有真实产物才有下载地址。
+允许：subjects.py的generate_subject_report/generate_review_pack、report_tool.py结果投影、test_p1_37.py。不改其他路由/工具。
+实施：
+- HTTP已是SubjectRoute，可直接传播领域/LLM错误或显式用同一C02 mapper；不再只catch LLMEmptyResponseError/拼raw message。Tool用map_subject_exception+to_tool_result形成ToolResult(success=False,metadata稳定错误)。认证401/403与框架422优先保持，不按字符串猜错误类型。
+- 两报告入口调用同一pipeline与正式结果投影，保留已有有效字段并补ReportResponse。API不再拼旧秒时间URL，Tool不再在pipeline之外写MD/公开宿主路径。
+- 复习包仍用原generate_guide_markdown；无考点/错题提示指南是合法正文。PDF/DOCX先在当前科私有staging渲染并验证，成功后原子发布到同科公开位置，服务端唯一名避免秒碰撞；失败/取消无半文件或URL。保留format/markdown_tokens/url/path，不为ReportFile新增docx角色，不新增任务产品或修改review_guide模块。
+证据：真实ReasoningBudgetExhausted、empty/truncated、provider/图/render错误码在HTTP/Tool一致且无raw噪音；completed URL对应同user/subject真实文件；API创建可Tool latest；无学情PDF真实可开；DOCX通过现有parser/zip结构验证；失败不暴露半产物/链接。
+完成：P37及错误边界回归通过，再进入P38。
+
+P1-38 去除事件循环阻塞、保持线程用户上下文
+目标：同步可信编译/解码/文档生成不阻塞其他HTTP请求；取消时不发布。
+允许：subjects.py、report.py及test_p1_38.py。
+实施：同步Typst/PDF/DOCX和重IO验证用asyncio.to_thread，LLM和sandbox保持await，不盲目把整条async流水线搬到线程。不改共享renderer服务。渲染只写私有路径，await结束后才显式publish；被取消的渲染线程即使稍后结束也不能发布正式产物。保留to_thread的contextvars传播，路径在当前用户下明确构造，不回管理员根。
+证据：用Event锁住compile，第二个独立只读HTTP请求在释放Event前真实完成；thread看到正确非管理员user/path；两个用户输出不串；render异常映射C02；cancel后等待线程结束仍无正式目录/URL，active释放。不要只mock asyncio.to_thread断言被调用。
+完成：四单元全部通过后统一收尾，不进入S10。
+
+三、阶段统一验证与交付
+
+每单元定向一次，有实际失败/变更才追加；阶段末合并一次。所有验证命令串行，共用一个execution.log，业务收集前隔离HOME：
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q -rs tests/phase1/test_p1_31.py tests/phase1/test_p1_35.py tests/phase1/test_p1_36.py tests/phase1/test_p1_37.py tests/phase1/test_p1_38.py
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q -rs tests/phase1 tests/services tests/api tests/tools tests/agents/chat tests/agents/question tests/agents/research tests/utils/test_document_extractor.py
+./.venv/bin/ruff check deeptutor/services/pdf/report.py deeptutor/tools/report_tool.py deeptutor/agents/chat/agentic_pipeline.py deeptutor/api/routers/subjects.py tests/phase1/test_p1_31.py tests/phase1/test_p1_35.py tests/phase1/test_p1_36.py tests/phase1/test_p1_37.py tests/phase1/test_p1_38.py
+
+无前端改动不重复Node/tsc/browser。全部必需新增断言实际执行，无新增skip/xfail；19项既有条件skip如实记录原因。测试provider/backend可fake，至少真实Typst中文+PNG验证可开PDF及实际非管理员线程上下文；不拿fake冒充最终OS/浏览器门。不安装/下载环境，真实Typst若不可执行给最小blocked_environment证据。
+
+至少三类独立坏对照：在新tmp源码副本先跑同一正例并核实deeptutor导入位置，再取消①整体失败不publish门、②review/source_index身份门、③图片路径/可信Typst引用门之一；必须目标断言失败，非环境/导入错误，不改变原树/真实数据。
+
+结束capture include99，scope compare仅允许9路径/授权符号；94前置中的90条只读，另4条按窄范围更改。六真实树完整files/dirs/modes起止相等，保留auth.lock/9个memory/5删除。旧receipt/证据/探针/dispatch不得覆盖。归档至少保留S08-final1882全部成员（含存在时.next-deeptutor），唯一新tmp子目录verify-rebuild逐文件校验，不缩小归档凑通过。
+
+StageReport按四卡列目标/证据测试名/允许范围/完成门/限制，写全部实际argv/cwd/UTC/exit/独占日志行号、失败自修/坏对照、scope/六树/归档/重建。单个report+log+archive，冻结后准确记录closing manifest的prefix字节/行边界，避免自引用和反复重写旧摘要。
+
+一般失败在授权范围内自行修完；确需白名单外/契约变更/真实环境缺口时才给最小blocked_*和复现。完成仅标verified_local，阶段末停止等待协调者独立验收，不自签accepted、不进入S10。

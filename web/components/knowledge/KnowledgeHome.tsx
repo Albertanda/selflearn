@@ -9,7 +9,6 @@ import {
   Cloud,
   Cpu,
   Database,
-  FolderOpen,
   Network,
   Plus,
   Search,
@@ -36,8 +35,6 @@ interface KnowledgeHomeProps {
   onOpenKb: (name: string) => void;
   onOpenEngine: (id: string) => void;
   onCreate: () => void;
-  /** Open the create flow pre-set to link an Obsidian vault. */
-  onConnectObsidian: () => void;
 }
 
 const ENGINE_ICONS: Record<string, LucideIcon> = {
@@ -94,7 +91,6 @@ export default function KnowledgeHome({
   onOpenKb,
   onOpenEngine,
   onCreate,
-  onConnectObsidian,
 }: KnowledgeHomeProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
@@ -102,10 +98,6 @@ export default function KnowledgeHome({
     providers.find((p) => p.id === id)?.name ??
     id.charAt(0).toUpperCase() + id.slice(1);
 
-  const obsidianCount = useMemo(
-    () => kbs.filter((kb) => kb.metadata?.type === "obsidian").length,
-    [kbs],
-  );
   const kbCountByProvider = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const kb of kbs)
@@ -188,45 +180,6 @@ export default function KnowledgeHome({
               );
             })}
 
-            {/* Obsidian — a connected source, not a config-backed engine: a
-                pointer to a live vault the tutor reads & writes in place. Shown
-                here for discoverability; clicking opens the unified create flow
-                pre-set to link a vault. */}
-            <button
-              type="button"
-              onClick={onConnectObsidian}
-              className="group flex flex-col gap-2 rounded-2xl border border-[var(--border)] p-3.5 text-left transition-colors hover:border-[var(--ring)]"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex min-w-0 items-center gap-2">
-                  <FolderOpen
-                    className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]"
-                    strokeWidth={1.7}
-                  />
-                  <span className="truncate text-[13.5px] font-medium text-[var(--foreground)]">
-                    {t("Obsidian")}
-                  </span>
-                </div>
-                {obsidianCount > 0 && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
-                    <Check className="h-3 w-3" />
-                    {t("{{count}} connected", { count: obsidianCount })}
-                  </span>
-                )}
-              </div>
-              <p className="line-clamp-2 text-[11.5px] leading-snug text-[var(--muted-foreground)]">
-                {t(
-                  "Connect your Obsidian vault. The tutor navigates and writes notes in place — no upload, no index. Local / self-hosted only.",
-                )}
-              </p>
-              <div className="mt-auto flex items-center gap-2 pt-1 text-[11px] text-[var(--muted-foreground)]">
-                <span className="inline-flex items-center gap-1">
-                  <FolderOpen className="h-3 w-3" />
-                  {t("Connect vault")}
-                </span>
-                <ChevronRight className="ml-auto h-3.5 w-3.5 opacity-0 transition-opacity group-hover:opacity-60" />
-              </div>
-            </button>
           </div>
         </section>
 

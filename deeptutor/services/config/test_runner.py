@@ -502,7 +502,7 @@ class ConfigTestRunner:
             wav.setsampwidth(2)
             wav.setframerate(16000)
             wav.writeframes(b"\x00\x00" * 16000)
-        run.emit("info", "Uploading a 1s silent probe clip to validate the endpoint.")
+        run.emit("info", "Uploading a 1-second silent connectivity/protocol probe (not a model-quality test).")
         transcript = await transcribe_audio(
             buffer.getvalue(),
             catalog=catalog,
@@ -511,7 +511,7 @@ class ConfigTestRunner:
         )
         run.emit(
             "response",
-            "Transcription endpoint responded successfully.",
+            "STT connectivity/protocol test succeeded (1-second silent probe; no model-quality claim).",
             snippet=(transcript or "(empty — expected for a silent clip)")[:200],
         )
 

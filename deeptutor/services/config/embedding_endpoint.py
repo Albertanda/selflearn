@@ -154,7 +154,10 @@ def is_dashscope_multimodal_embedding_model(model: str | None) -> bool:
     any unrecognised id fall through to the text-embedding surface.
     """
     name = str(model or "").strip().lower()
-    return "multimodal" in name or "vl-embedding" in name or name.endswith("-vl")
+    return (
+        "multimodal" in name or "vl-embedding" in name or name.endswith("-vl")
+        or name.startswith("tongyi-embedding-vision-")
+    )
 
 
 def dashscope_embedding_endpoint(model: str | None) -> str:

@@ -29,10 +29,12 @@ class ProviderCliDocsContractTest(unittest.TestCase):
         self.assertNotIn("GitHub Copilot OAuth authentication succeeded.", PROVIDER_CMD)
 
     def test_readmes_match_the_cli_contract(self) -> None:
-        self.assertIn(
-            "Provider auth (`openai-codex` OAuth login; `github-copilot` validates an existing Copilot auth session; `codebuddy` validates CodeBuddy SDK auth and starts login when needed)",
-            ROOT_README,
-        )
+        # NOTE: upstream also asserted that the *root* README carried the English
+        # sentence describing the provider auth contract. This fork rewrote the
+        # root README as a Chinese, subject-assistant README that no longer
+        # documents the provider CLI at all — the provider contract lives in
+        # ``deeptutor_cli/README.md``, which the assertions below cover, so the
+        # upstream sentence is simply not part of this project's docs.
         self.assertIn(
             "deeptutor provider login github-copilot    # 校验现有 GitHub Copilot 认证是否可用",
             CLI_README,

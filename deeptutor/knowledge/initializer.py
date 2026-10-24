@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import copy
 from datetime import datetime
-import json
 import logging
 from pathlib import Path
 import shutil
@@ -15,10 +15,11 @@ from typing import Optional
 from deeptutor.knowledge.naming import validate_knowledge_base_name
 from deeptutor.knowledge.progress_tracker import ProgressStage, ProgressTracker
 from deeptutor.services.config import resolve_llm_runtime_config
-from deeptutor.services.file_io import atomic_write_json
+from deeptutor.services.file_io import atomic_write_json, atomic_write_text
 from deeptutor.services.rag.factory import normalize_provider_name
 from deeptutor.services.rag.file_routing import FileTypeRouter
 from deeptutor.services.rag.service import RAGService
+from deeptutor.subjects import json_store
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,27 @@ class KnowledgeBaseInitializer:
         self.base_url = base_url
         self.progress_tracker = progress_tracker or ProgressTracker(self.kb_name, self.base_dir)
         self.rag_provider = normalize_provider_name(rag_provider)
+        #: This run's image coverage (P1-27), projected from the pipeline's
+        #: load result into metadata.json, .progress.json and the task events.
+        self.image_coverage: dict | None = None
+        self.image_coverage_warning: str | None = None
+
+    def record_image_coverage(self, coverage: dict | None, warning: str | None = None) -> None:
+        """Store the coverage of *this* indexing run (never a previous one).
+
+        The value is a deep copy: the pipeline may keep mutating its own
+        accumulator after publishing, and a published status must not change
+        under the reader's feet.
+        """
+        self.image_coverage = copy.deepcopy(coverage) if isinstance(coverage, dict) else None
+        self.image_coverage_warning = warning or None
+
+    def _reset_image_coverage(self) -> None:
+        self.image_coverage = None
+        self.image_coverage_warning = None
+        reset = getattr(self.progress_tracker, "reset_image_coverage", None)
+        if callable(reset):
+            reset()
 
     def _register_to_config(self) -> None:
         """Register KB in kb_config.json with initializing state."""
@@ -77,14 +99,16 @@ class KnowledgeBaseInitializer:
             logger.warning(f"Failed to register KB to config: {e}")
 
     def _update_metadata_with_provider(self, provider: str) -> None:
+        """Merge this run's facts into ``metadata.json``, strictly.
+
+        The existing file is read with the S03 strict object reader: a missing
+        file is simply a missing file, while an existing file that is corrupt,
+        not an object, or not readable raises the normal storage error and is
+        left byte-for-byte alone — it is never "treated as empty" and then
+        overwritten by a merged object that silently dropped the user's data.
+        """
         metadata_file = self.kb_dir / "metadata.json"
-        metadata: dict = {}
-        if metadata_file.exists():
-            try:
-                with open(metadata_file, "r", encoding="utf-8") as f:
-                    metadata = json.load(f)
-            except Exception:
-                metadata = {}
+        metadata = json_store.read_object(metadata_file, default={})
 
         metadata["rag_provider"] = provider
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -94,13 +118,32 @@ class KnowledgeBaseInitializer:
             FileTypeRouter.collect_supported_files(self.raw_dir, recursive=True)
         )
         metadata["last_indexed_action"] = "create"
+        # Additive coverage of the run that just finished: the merge above keeps
+        # every pre-existing field. A successful run that measured nothing
+        # *clears* the previous run's numbers instead of inheriting them — the
+        # stable state must say "unverified", never a stale count.
+        if self.image_coverage is not None:
+            metadata["image_coverage"] = copy.deepcopy(self.image_coverage)
+            metadata["image_coverage_warning"] = self.image_coverage_warning
+        else:
+            metadata.pop("image_coverage", None)
+            metadata.pop("image_coverage_warning", None)
 
         atomic_write_json(metadata_file, metadata)
 
         try:
-            from deeptutor.services.config import get_kb_config_service
+            # Scope the config write to *this* initializer's own KB root.
+            # ``get_kb_config_service()`` is hard-wired to the caller's global
+            # KB root, so using it here registered a subject-scoped KB in the
+            # global registry as a phantom entry (no directory behind it) every
+            # time a subject material finished indexing.
+            from deeptutor.services.config.knowledge_base_config import (
+                KnowledgeBaseConfigService,
+            )
 
-            service = get_kb_config_service()
+            service = KnowledgeBaseConfigService.get_instance(
+                self.base_dir / "kb_config.json"
+            )
             service.set_rag_provider(self.kb_name, provider)
             service.set_kb_config(self.kb_name, {"needs_reindex": False})
         except Exception as config_err:
@@ -147,6 +190,13 @@ class KnowledgeBaseInitializer:
         """Process documents with the KB's bound provider."""
         provider = self.rag_provider
 
+        # This run starts here: drop the previous run's image coverage *before*
+        # the first progress event, the file enumeration or anything else that
+        # can fail, so no early event and no stable state can attribute the old
+        # measurement to this run (the tracker's task id may be None on the CLI
+        # path, so an id change is not a reliable boundary).
+        self._reset_image_coverage()
+
         self.progress_tracker.update(
             ProgressStage.PROCESSING_DOCUMENTS,
             f"Starting to process documents with {provider} provider...",
@@ -187,34 +237,78 @@ class KnowledgeBaseInitializer:
                 total=total_batches,
             )
 
+        def _on_image_coverage(coverage, warning=None):
+            self.record_image_coverage(coverage, warning)
+
+        commit_state = {"called": False, "rollback_needed": False, "original": None}
+        metadata_file = self.kb_dir / "metadata.json"
+
+        def _rollback_index_metadata() -> None:
+            if not commit_state["rollback_needed"]:
+                return
+            original = commit_state["original"]
+            if json_store._read_text(metadata_file) != original:
+                if original is None:
+                    metadata_file.unlink(missing_ok=True)
+                else:
+                    atomic_write_text(metadata_file, original)
+            commit_state["rollback_needed"] = False
+
+        def _commit_index_metadata() -> None:
+            """The required metadata merge, inside the pipeline's publish step.
+
+            The LlamaIndex pipeline runs this *before* the new index version
+            becomes readable, so a metadata failure cannot leave a published
+            version that the read path would already select.
+            """
+            commit_state["called"] = True
+            # Preserve the exact bytes (including original whitespace) and the
+            # absent-file case before a commit that may partially succeed.
+            commit_state["original"] = json_store._read_text(metadata_file)
+            commit_state["rollback_needed"] = True
+            self._update_metadata_with_provider(provider)
+
         try:
             success = await rag_service.initialize(
                 kb_name=self.kb_name,
                 file_paths=file_paths,
                 progress_callback=_on_progress,
+                image_coverage_callback=_on_image_coverage,
+                index_commit_callback=_commit_index_metadata,
+                index_rollback_callback=_rollback_index_metadata,
             )
             if not success:
                 self.progress_tracker.update(
                     ProgressStage.ERROR,
                     "Document processing failed",
                     error="RAG pipeline returned failure",
+                    image_coverage=self.image_coverage,
+                    image_coverage_warning=self.image_coverage_warning,
                 )
                 raise RuntimeError("RAG pipeline returned failure")
 
-            self._update_metadata_with_provider(provider)
+            if not commit_state["called"]:
+                # A provider pipeline without the publish-boundary seam still
+                # needs the metadata merge, exactly as before.
+                _commit_index_metadata()
             self.progress_tracker.update(
                 ProgressStage.PROCESSING_DOCUMENTS,
                 "Documents processed successfully",
                 current=len(doc_files),
                 total=len(doc_files),
+                image_coverage=self.image_coverage,
+                image_coverage_warning=self.image_coverage_warning,
             )
         except Exception as e:
+            _rollback_index_metadata()
             error_msg = str(e)
             logger.error(f"Error processing documents: {error_msg}")
             self.progress_tracker.update(
                 ProgressStage.ERROR,
                 "Failed to process documents",
                 error=error_msg,
+                image_coverage=self.image_coverage,
+                image_coverage_warning=self.image_coverage_warning,
             )
             raise
 
@@ -280,6 +374,16 @@ async def initialize_knowledge_base(
                 "indexed_count": len(copied_files),
                 "index_changed": True,
                 "index_action": "create",
+                # This convenience entry point writes its own final progress, so
+                # it has to carry the coverage too instead of dropping it.
+                **(
+                    {
+                        "image_coverage": initializer.image_coverage,
+                        "image_coverage_warning": initializer.image_coverage_warning,
+                    }
+                    if initializer.image_coverage is not None
+                    else {}
+                ),
             },
         )
         return True
@@ -296,6 +400,14 @@ async def initialize_knowledge_base(
                 "file_name": "",
                 "error": str(exc),
                 "timestamp": datetime.now().isoformat(),
+                **(
+                    {
+                        "image_coverage": initializer.image_coverage,
+                        "image_coverage_warning": initializer.image_coverage_warning,
+                    }
+                    if initializer.image_coverage is not None
+                    else {}
+                ),
             },
         )
         raise

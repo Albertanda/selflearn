@@ -1,0 +1,105 @@
+工作目录：/home/albert/selflearn/selflearn
+授权：仅S05合并返修。日期：2026-10-14。不得进入S06。
+
+本轮不重做整个阶段。保留现有整批分类、流式限额、MIME、manifest字段、embedding共享锁及S01–S04成果；按R1→R2→R3→R4→R5→R6→R7串行补齐，阶段末一次汇总。单元之间不请求下一卡批准，不先提交orientation报告。
+
+一、前置、范围与证据约定
+
+先读本文件与 S05_REWORK_EXPLORATION.md，核验 .phase1-evidence/stages/S05/review.json 指向的 changes_requested receipt、指针hash及receipt中48条当前source_artifacts。这48条合并前置与S05当前源码，优先于旧S04 receipt的过时subjects.py hash。探索包hash未变就复用片段，只定向补读实现所需上下文，不能reset/恢复worker旧版本、重读全仓库或57张卡。
+
+只允许更改以下10条源码/测试路径，且限本返修单元符号：
+deeptutor/subjects/uploads.py
+deeptutor/subjects/material_manifest.py
+deeptutor/api/routers/subjects.py
+deeptutor/services/asr/transcribe.py
+deeptutor/services/rag/pipelines/llamaindex/pipeline.py
+tests/phase1/test_p1_16.py
+tests/phase1/test_p1_18.py
+tests/phase1/test_p1_19.py
+tests/phase1/test_p1_29.py
+tests/phase1/test_p1_30.py
+
+其余38条当前产物只读，特别是embedding/client.py的类定义guard修复、test_p1_17.py以及S04 Unicode修复。subjects.py只改上传与KB列表/status相关接线，不改批改/考点/PATCH/query/chat/report/export/delete。共享json_store/errors/store、全局knowledge router/manager/initializer/embedding_adapter、fixture与契约均只读；现有接口足够，不默认扩大范围。
+
+返修证据放 .phase1-evidence/stages/S05/rework01/，一份report.json；继续追加 .phase1-evidence/stages/S05/execution.log，保留原日志前缀、原report、原archive和协调者reviews/probe逐字节不变。独立探针只运行，不修改；将相应行为移植到上述永久测试。不为每个R单元新增长报告或tar。
+不提交/推送、不安装升级、不启动实际服务/索引、不调用真实供应商、不读取真实配置/资料正文。全部故障和软链接目标都在tmp隔离根，不写后还原真实数据。
+
+二、审查结论与必须保留的有效实现
+
+原交付证据真实：12条源码/测试与19条证据hash匹配、25条命令匹配；126项定向和Ruff复跑通过。独立探针23个方法含子场景复现24处失败；相关目录回归为2739 passed、1 failed、18历史skip，失败是P30时序断言，单独重跑能通过，属于不稳定测试。不能把这些实际失败列为“残余限制”而继续下一阶段。
+保留正确的filename原名拒绝、整批分类、局部音频白名单、分块限额、multipart文件流、合法空转写、不同operation响应、task/worker忙信息分离、600秒默认守卫及P30生产锁修复。ZIP/目录上传、真实资料迁移、核心index version/embedding签名和新调度系统仍不新增。
+
+三、返修单元（每个都有目标、范围、完成证据和条件）
+
+R1：存储读取与原子发布的路径边界。
+目标：不能通过内部临时文件名软链接写出资料根；manifest/index_state只有真正缺失才兼容legacy，GET不做迁移/创建。
+范围：uploads._atomic_copy/_write_text_atomic及相关受控路径；material_manifest._read_object/load_*；subjects._kb_projection/_knowledge_view和只读状态辅助接线；test_p1_16/18/19。
+当前证据：音频materials中预置.a.wav.p1part或.a.wav.transcript.txt.p1part软链接，上传会覆盖其外部目标；subject_sources.json/subject_index_state.json软链接被read_text读取，dangling link被当不存在；文件内容null也被当缺失，上传会覆盖坏manifest。GET通过KnowledgeBaseManager构造器触发_load_config，确实改写旧rag_provider配置。
+处理：用受控且独占创建的临时文件/不跟随链接的open，检查所有目标与临时叶，不能仅检查最终文件名；非普通文件也先拒绝，禁止FIFO阻塞。读取复用S03严格JSON、UTF-8、非普通文件/软链接拒绝能力，明确区分missing与已有null/数组/坏JSON，不重新写宽松reader。普通IO→storage_io，已有坏对象→storage_corrupt；缺失可兼容且不写默认文件。subject的GET不能调用有mkdir/自动迁移副作用的manager构造路径，也不能吞下材料路径错误后当作无需比较。可在本阶段模块中建最小只读适配，不改全局manager行为。
+证据：真实HTTP软链接/断链/null负例，外部tmp目标bytes不变且没有读取越界目标，坏原文件保持；合法manifest/state正例；GET前后整个subject树摘要不变，包括旧provider、缺失KB根和坏stored type场景。
+完成：probe中对应软链接/null/GET检查转通过，原音频stream/MIME与S03/S04测试保持。
+
+R2：资料版本与ready判定。
+目标：同名同大小资料也按内容版本区分；权威资料缺失/多余不能报告in_sync或继续索引。
+范围：material_manifest.project_status/compare_materials及subjects上传/状态必要接线、test_p1_18/19。
+当前证据：one.txt从old换成同为3字节的new后，queued=true但status=ready、index_sources=ready；丢掉排队预留后仍ready。整个materials目录被删除也返回materials_in_sync=true/ready。materials多出一份可索引lost.txt，下一次上传会忽略它并继续成功。
+处理：ready必须核对已发布index_state的fingerprint与当前manifest所记指纹，shape只能辅助计数/快速漂移检查，不能代替内容身份。GET可保留不逐字节hash大资料的范围，但已有两份记录的fingerprint必须真实比较；不能把未做的内容检查声称已做。无对应当前成功版本而有任务→rebuilding，无任务→stale；失败状态可见，不被旧ready遮住。若status继续表达索引版本，当前有效旧索引与新失败任务的信息也须分字段明确展示。
+文档索引分支对materials中的可索引普通源与raw做双向集合/size/hash比较；隐藏锁、非索引辅助文件和lecture原录音不因此纳入文档计数。不要把“materials可包含辅助文件”扩大为任意遗漏权威文档；缺失材料目录不能跳过比较。损坏/越界路径按R1失败，不转成正常ready。
+证据：同名同大小不同hash（排队/完成/失败/预留丢失），与同名同字节合法对照；材料目录缺失、可索引材料多余、raw多余、hash差异均不假ready，索引入口409/material_out_of_sync，磁盘与队列不变；documents仍1/替换1/新增2。
+完成：状态反映实际已发布源版本，保持旧响应形状、固定安全progress与MaterialManifest schema不变。
+
+R3：普通发布异常的完整回滚。
+目标：一批任一点在replace后校验失败、或第二份音频发布失败，都保留旧一致状态。
+范围：uploads.publish_pairs/commit_transcripts/commit_documents/Rollback及test_p1_16/18。
+当前证据：publish_pairs在replace及_digest_of成功后才登记undo，校验读失败会遗留new；commit_transcripts把音频publish_pairs放在try之外，第二份音频copy失败后第一份仍是new；既有KB metadata.json被prepare_kb重写，后续record失败时也没恢复。
+处理：在任何可能已修改目标的动作之前建立可用undo，整个音频/文本发布都在同一异常回滚边界内；不要只修一处测试的故障位置。文件是否原先存在、两份副本、manifest、既有metadata/未知字段与本次新增目录均须按普通异常恢复。既有KB重传不应无条件用初始化函数重置其metadata；成功路径也保留原描述/created_at/未知字段。回滚自身失败显式storage_io并禁止索引，不伪装成功；不承诺跨目录崩溃原子。
+证据：第一/第二次replace后digest读取异常、摘要不符、第二份音频copy故障、文本发布故障、既有metadata后续故障。比较两处bytes/manifest/metadata与队列，不能仅检查某helper未调用。高风险回滚用一个有效坏对照证明断言承重。
+完成：所有常规失败无半批正式发布，旧文件/元数据保持且不排队；回滚不会误删预先存在的文件。
+
+R4：共享元数据、排队与任务身份的一致性。
+目标：A库失败不能撤销B库成功；没有排队的上传不能留新资料和永久busy；开始索引与发布ready都验证本任务的源版本和身份。
+范围：uploads.commit_documents/CommitHooks/reservation/finalize_reserved_task/run_reserved_index_task，subjects._upload_document_batch/_prepare_kb/_write_record，test_p1_18/19。
+当前证据：A在record提交前暂停，B的另一个KB上传成功，A失败后整文件恢复旧knowledge.json/kb_config.json会删除B记录；add_task抛错时资料与预留已提交且staging/backup已销毁，响应500却无任务可跑；manifest失败仍留下running TaskID；旧task_id调用finalizer会用新reservation写state；排队后raw发生漂移仍调用索引，finalizer也会把漂移的源报为ready。
+处理：共用knowledge.json/kb_config.json的读改写及普通异常回滚必须协调到同一subject级短事务，重新加载再合并；不能只在每KB锁下备份/恢复共享整文件。允许共享元数据短临界区串行，但不同KB不能被当同一busy任务，网络/索引在锁外，锁顺序一致且不跨await。
+资料发布、record/config、task预留与add_task注册处在一个可回滚的受控提交边界，backup保留到排队注册确定成功；失败撤销本次预留/源更新，保留其他库成功结果。延后task创建或在失败时将本次元数据置error/cancelled，不能残留无工作可执行的running/queued，也不能标completed假成功。失败任务终态历史可保留，不要求篡改全局TaskIDManager或删除所有历史记录。
+finalizer写state前必须确认reservation.task_id就是当前task_id，过时回调无写入；保存state失败不能返回ok=true。后台开始真正run前，以及确认当前版本ready前，完整检查manifest/raw/materials及reservation指纹；不一致不得调用index/不得ready。若HTTP已返回排队成功，后台发现漂移记录安全的失败状态/code而非伪造第二次HTTP409；下一次上传入口仍409拦截。超时后活线程继续阻止同库重试，不能用错误终态主动释放活线程marker。
+证据：用Events控制A失败与B成功的交错；B record/config/files/task都保留，A回滚；注入add_task/record/config/state故障验证源/预留/任务终态；旧finalizer不改新state；排队后同大小raw漂移时run调用次数0，终态非ready；完成前漂移同样失败。保留同KB409、异科同名KB/global隔离和活线程退出后可重试证据。
+完成：完整提交与后台收尾都有明确所有者/源身份，普通异常可恢复，没有丢失别库更新、幽灵running或假ready；不新增持久调度系统/引擎版本协议。
+
+R5：不同worker的进度归属。
+目标：A库的实际embedding进度只能更新A的heartbeat，不能刷新B或让A误报停滞。
+范围：pipeline._run_with_stall_guard及当前callback安装/恢复最小接线、test_p1_29.py；embedding_adapter.py只读。
+当前证据：用真实CustomEmbedding/Settings接线、假provider，A/B线程同时活跃时由A实际执行_get_text_embeddings，收到{'a': [], 'b': [(1,1)]}。当前全局callback栈只解决退出恢复，没有解决工作归属；手工调用active_progress_callback不能证明实际embedding路由正确。
+处理：在本阶段守卫内按实际worker上下文分发进度（现有contextvars.copy_context可复用），保留跨线程/新event loop的归属；不要广播所有heartbeat、用最新栈顶代表全部任务、或通过全局串行化所有KB绕过。callback的安装/退出一致，恢复先前状态，stall/cancel后的晚到进度静默，线程退出才释放同key；默认600/5不变。
+证据：真实CustomEmbedding调用链的单worker合法对照、A/B同时活跃、各自发进度/只有A发进度、一个退出或stall而另一个仍活、不同线程event loop；Events/fake clock驱动，不真实等待600秒。结束释放所有线程与全局状态，无未取回异常。
+完成：probe的真实回调检查转通过，原P29生命周期测试和独立坏对照继续有效。
+
+R6：ASR配置与供应商响应边界。
+目标：配置失败与非法JSON响应是受控失败，不能写成“成功转写”。
+范围：asr.transcribe/extract_transcript_text、subjects._asr_error/ASR分支、test_p1_16.py。
+当前证据：_stt_config仍在try外，普通配置读取故障变500/internal_error；Content-Type为application/json的数组响应被当文本保存，返回200。
+处理：配置读取也纳入受控边界，普通STT不可用映射provider_unavailable/502；已有typed存储/timeout错误保留正确C02分类与服务端cause。JSON响应按响应类型/明确JSON形态识别，必须为带真实string text的对象；数组、null、标量、缺字段、非string、不可UTF-8字符串均invalid_model_output/502，不能str或原JSON兜底。text/plain普通文本、合法空转写与JSON string text继续兼容。ASR本地文件IO失败用storage_io/500，不混为供应商故障；HTTP timeout504。对外固定安全消息，服务端保留诊断。
+证据：假httpx transport覆盖合法JSON对象/纯文本/空文本与单字段变异负例、JSON数组/标量/null、配置异常、本地IO/timeout。实际HTTP检查原音频/转写不发布、旧bytes保持、完整JSON不回显虚构标记；MIME、文件流、300秒默认timeout和provider选择保持。
+完成：所有坏响应非2xx且不发布半批，正常ASR兼容，无真实网络/配置变更。
+
+R7：P30测试的确定性。
+目标：证明delay=0无额外配置delay及真实互斥，不依赖机器调度耗时差。
+范围：仅test_p1_30.py相关测试/测试内假clock与事件；生产embedding/client.py保持当前hash。
+当前证据：目录回归失败于delayed_span > zero_span + 0.3，实测0.452074863 > 0.20116055+0.3不成立，单独重跑通过。当前测试仍有wall-clock上界/差值；worker声称的紧时序修复没有完成。
+处理：真实线程/events/barrier证明post互斥；用可控clock和sleep记录区分争锁poll与配置delay，验证零delay分支不加配置sleep、非零delay确实遵守间隔。检查其他相关严格时间上界，不能只调大0.45、缩小0.3、重跑碰运气、skip或删断言。保留首次同identity、跨loop、异常/取消释放、请求字段和现有runtime测试。
+证据：确定性正/反对照；定向并发测试可重复运行以验证新同步方式，再一次相关目录回归通过。无需反复全仓库pytest。
+完成：无依赖调度运气的硬差值条件，测试仍能拦住“取消锁/额外配置延时”的坏实现。
+
+四、验收命令与提交
+
+返修开始先protect-data/capture，include receipt的48条当前产物；起止scope仅上述10条。三强制树与三supplementary的files/dirs/mode完整比较，历史memory trace保留不解析。只读38条源码和协调者证据/probe保持；原worker report/archive不覆盖。
+
+单元改完运行其受影响test_p1_16/18/19/29/30，普通失败阶段内自修，再继续。P17不改仍合并回归。最终按序执行：
+./.venv/bin/python -m pytest -q tests/phase1/test_p1_16.py tests/phase1/test_p1_17.py tests/phase1/test_p1_18.py tests/phase1/test_p1_29.py tests/phase1/test_p1_19.py tests/phase1/test_p1_30.py tests/services/embedding/test_client_runtime.py
+./.venv/bin/python .phase1-evidence/reviews/S05/probe_s05.py
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q tests/phase1 tests/services tests/api
+./.venv/bin/ruff check deeptutor/api/routers/subjects.py deeptutor/services/asr/transcribe.py deeptutor/services/embedding/client.py deeptutor/services/rag/pipelines/llamaindex/pipeline.py deeptutor/subjects/material_manifest.py deeptutor/subjects/uploads.py tests/phase1/test_p1_16.py tests/phase1/test_p1_17.py tests/phase1/test_p1_18.py tests/phase1/test_p1_19.py tests/phase1/test_p1_29.py tests/phase1/test_p1_30.py
+
+所有命令真实记录argv/cwd/时间/stdout/stderr/exit code与准确区间，按序写共享日志；保留失败，不嵌套同一runlog或多进程交错追加。原探针23方法/24失败先原样跑作返修基线；修好后原探针必须全通过，还需新增永久回归覆盖新增故障点，不能只对探针输入硬编码。
+阶段末source/data比较、唯一返修恢复tar+sidecar、唯一新tmp路径verify-rebuild。归档保留既有批准文件和.next-deeptutor，不能以排除产物凑通过。
+report.json满足StageReport，仍汇总六张原卡，另列R1–R7结果/证据/范围、失败自修与残余限制；只标verified_local，不自签accepted。普通测试失败继续自修；真正必须改契约、额外生产文件或真实环境时才列最小blocked_*。完成本次合并返修后停止，等协调者复核，不进入S06。

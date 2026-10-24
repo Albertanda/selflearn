@@ -1,0 +1,25 @@
+请执行 MD-R2 整个阶段：修复 LLM 供应商目录覆盖，阿里云 LLM 入口和别名，自定义 API 网关通用查询，官方参数默认填入/运行时生效，以及聊天模型自定义名称显示。
+
+工作目录：/home/albert/selflearn/selflearn
+本阶段包：/home/albert/selflearn/selflearn/plans/model-discovery-r2/
+
+先阅读该包 README.md、CONTRACTS.md、TASKS.json、ACCEPTANCE.md 和 EXPLORATION.md；查供应商细节用 PROVIDER_MATRIX.md/JSON、RESEARCH.md。EXPLORATION 已附当前源码 SHA-256 和关键片段：待改文件 hash 一致就直接定位实施，不重复全项目 orientation，不重新审读所有历史阶段。hash 不一致只补读差异和需要的相邻上下文。工作区已有大量历史未提交改动，保留它们，不 reset/clean，不把整个 git diff 归为你的工作。
+
+用户本次明确要求取代 MD-R1“不自动填写官方参数”的旧限制，执行以 MD-R2 契约为准；权限、凭据、数据保护仍沿用。本指令授权你在任务卡允许范围内完成整阶段可审查代码和测试，不停在提纲，不逐卡提问或等待“继续”。内部 12 张卡是低依赖实施单元，按依赖顺序连续完成，R2-10 可独立处理；完成后统一交付。对常规实现选择自行决策并写记录，不为卡之间的衔接反复请求确认。
+
+核心要求：
+1. 当前 registry 共38项，只有7项命中目录路由，普通API缺口28项，3项OAuth/托管保持专用流程。用显式策略表覆盖所有供应商，并用 registry 集合测试防遗漏。compatible 只是目录协议，不能把供应商 identity 全改为 openai/custom。
+2. 阿里已以 dashscope 存在：改清晰 label、补 LLM 别名，不另造第二套，不修改现有 STT/embedding 适配，不创建真实 profile。北京旧目录 404 不能猜 WorkspaceId，可用明确 model_directory_url；跨 origin 使用现有凭据必须重填。
+3. 学校类网关采用用户配置 base/models + Bearer/extra_headers，保留代理前缀/query/version。只在404/405做一次有界同 origin 路径回退；支持完整目录 URL 覆盖，不改推理 base，不把 key 发原厂。缺目录如实提示，未知类别可批量确认用途。
+4. Anthropic、Gemini、Azure 分别实现原生规则，不能只把它们加入通用白名单。Azure 基础模型目录不代表 deployment_name，Gemini inputTokenLimit 不代表总上下文。没有相应账号的供应商使用脱敏官方结构和本地 fixture，不虚称真实验证。
+5. 同次查询解析可用的官方参数；参数缺失时可用精确模型/地域/模式匹配的小型官方文档资料，标出处和原核验时间，其余未知。网关 metadata 不能假称原厂在线返回；不引入第三方全量库、不抓任意网页、不逐模型推理猜维度。
+6. 新导入模型填官方 context、max_tokens、embedding默认维度/choices。既有手工值和用户清空保留，更新旧模型参数必须差异预览和显式操作。最大输出既要有厂商能力上限，也要有实际请求预算接缝，已有较小业务预算保留，参数透传不能丢，不能只做表单。
+7. 聊天列表和当前按钮优先 trim(model_name)||model；model调用ID和内部引用不变。保存后 picker 刷新、隐藏当前项、题目跟进和旧请求竞态一并验证。
+
+先完成 R2-00 opaque 到达基线，所有证据写新的 .phase1-evidence/model-discovery/MD-R2-<unique-run>/。Python 必须经 .venv/bin/python scripts/run_tests_isolated.py；浏览器复用隔离 disposable source、MODEL_SERVER、已有 Chromium 和清理 guard，不指向真实运行目录。不要安装/下载绕过环境限制。
+
+禁止修改真实 data/user/settings、真实学习/知识库/历史/ASR文件、密钥和历史baseline。不要把真实catalog或密钥复制到fixture，不恢复S14以前配置，不自动复制ASR key，不调用学校真实系统或做厂商付费推理，不切默认模型、不触发重建索引。不要停止或重启用户真实服务。新增供应商测试配置只在隔离环境。
+
+范围以 TASKS.json 为准；为完成契约确需同功能的小型相邻接缝，可以先记录原因、准确文件和必要证据再实施，不借此重构无关模块。若发现独立新功能/无法安全确定的厂商私有控制面，记录限制并完成其余工作；不能伪造目录或来源满足覆盖率。
+
+最终在新证据根交付 report.md/report.json、provider_results.json（38项策略+fixture/live区别）、acceptance.json（A01–A18）、metadata_sources.json、测试日志、浏览器证据、真实六树前后比较、最终源码可重建快照。简短回复本阶段完成情况、实际测试数量、剩余限制、文件路径。硬性gate未通过则如实写未验收，不能仅凭HTTP200或测试数宣称完成。

@@ -1,0 +1,34 @@
+已审查你的000.txt回复。项目现状与核心契约理解总体正确，批准开始第一阶段。现在直接开工，不再询问是否开始，也不要另存重复的完整规划报告。
+
+本轮只执行 P1-00：plans/phase1/cards/P1-00.md。
+工作目录固定为 /home/albert/selflearn/selflearn。
+遵循 AGENTS.md、本卡、plans/phase1/EXECUTION_GUIDE.md，以及DATA_CONTRACTS.md的C01/C14；审查纠正见plans/phase1/HARNESS_REVIEW_2026-10-10.md。不需要重新阅读全部57卡或重写整体计划。
+
+纠正以下理解：
+1. 你的B4把P1-19放在其依赖P1-29之前，这是错误调度。后续只认tasks.json的dispatch_order/depends_on，不照B0–B11表执行。
+2. subject REST直接调用store/generation/RAGService，并非都通过ChatOrchestrator；第一阶段也会影响共享模块，不只subjects目录。
+3. 约250行是触发拆卡复核的提醒，不是靠压缩长行/删验证满足的完成标准。预计超出或需要额外文件时提交最小拆卡/范围建议，不自行扩白名单。
+4. P1-00是G0启动卡，无前置依赖，不要求G0预先存在。不要因此等待确认。
+
+本卡只允许更改：
+- .gitignore（只添加证据目录忽略规则）
+- scripts/phase1_snapshot.py
+- tests/phase1/test_p1_00.py
+- .phase1-evidence/P1-00/ 内的快照、manifest、日志和completion
+其他源码、任务包、真实data、配置及部署文件不得更改。不要提前创建P1-01夹具或其他基础模块。
+
+执行要求：
+1. 在首次源码修改前记录原始工作区基线：HEAD、已有dirty/删除、规定白名单内的未跟踪文件及plans/phase1全部文件。保留前人全部修改，不以HEAD恢复。禁止只比较git状态行数。
+2. 创建本卡快照工具和定向测试，完成可重建源码快照、文件hash/类型等manifest、真实数据只读保护以及卡开始/结束增量检查。P1-00完成后的状态可另存，不能覆盖初始baseline。
+3. 源快照排除data/.env/证据目录/venv/node_modules及卡列出的工具二进制和字体；不归档未知未跟踪文件。越界检测必须能发现白名单外的新建、删除、修改，不能因为未归档就忽略。
+4. 对真实六科学习树、产物树和settings只做不透明的二进制流哈希。允许程序计算摘要；禁止cat/文本工具展示配置、解析密钥字段、复制原内容进快照/证据或使用真实供应商。记录新增/删除/目录/符号链接变化；读失败不得被忽略。
+5. 测试使用tmp中的合成Git工作区/文件树和虚构secret，使用标准库，不依赖尚未创建的P1-01夹具。避免导入业务模块触发真实配置读写。
+6. 至少证明：dirty+新增+删除源码可准确重建；虚构secret/.env不进快照；快照写失败原树不变；合法增量通过且白名单外增量被拒绝；真实保护树确实未变。
+7. 运行 ./.venv/bin/python -m pytest -q tests/phase1/test_p1_00.py，并实际运行快照重建/范围/哈希核验。保存真实命令、exit code和结果。本卡不需要重跑全量pytest、前端测试或提前探测后续沙箱/浏览器任务。
+8. 写 .phase1-evidence/P1-00/completion.json，符合C14和schemas.json；scope_check、real_data_unchanged、goal_met必须来自实际验证，不写示例或占位命令。不自行标accepted。
+
+不提交/推送，不使用真实模型密钥，不重启真实服务，不升级/安装依赖，不重建真实索引，不reset --hard或stash，不删除未知文件，不新增skip/xfail，不修改契约或顺手重构。
+
+普通实现选择在本卡内自主完成，不再询问泛泛的确认问题。若确有范围/环境/数据保护阻塞，保留现场，写相应blocked状态，列明缺项和最小建议，不能声称完成。
+
+完成后只报告：目标是否达成、修改文件、各验收场景结果、实际命令与exit code、baseline_id、真实数据保护结果、completion路径及残余限制。然后停止。本轮不执行P1-01或下一张卡，等待主审阅者检查P1-00证据。

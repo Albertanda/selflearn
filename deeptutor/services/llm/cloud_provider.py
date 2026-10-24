@@ -22,6 +22,10 @@ from .capabilities import (
 )
 from .config import get_token_limit_kwargs
 from .exceptions import LLMAPIError, LLMAuthenticationError, LLMConfigError
+from .reasoning_controls import (
+    is_provider_default,
+    openai_compat_reasoning_fields,
+)
 from .reasoning_params import default_reasoning_effort_for
 from .utils import (
     build_auth_headers,
@@ -346,16 +350,22 @@ async def _openai_complete(
     if response_format is not None:
         data["response_format"] = response_format
     reasoning_effort = kwargs.get("reasoning_effort")
-    if isinstance(reasoning_effort, str) and reasoning_effort.strip():
-        effort = reasoning_effort.strip()
-        if not (
-            effort.lower() == "minimal" and binding.lower() in _BINDINGS_WITH_EXTRA_BODY_THINKING
-        ):
-            data["reasoning_effort"] = effort
-    else:
-        implicit_effort = default_reasoning_effort_for(binding, model)
-        if implicit_effort:
-            data["reasoning_effort"] = implicit_effort
+    effective_effort = (
+        reasoning_effort
+        if isinstance(reasoning_effort, str) and reasoning_effort.strip()
+        else default_reasoning_effort_for(binding, model)
+    )
+    if effective_effort and not is_provider_default(effective_effort):
+        for key, value in openai_compat_reasoning_fields(
+            provider=binding,
+            model=model,
+            effort=effective_effort,
+            max_tokens=max_tokens_value,
+        ).items():
+            if key == "extra_body" and isinstance(value, dict):
+                data.update(value)
+            else:
+                data[key] = value
 
     timeout = aiohttp.ClientTimeout(total=120)
     connector = _get_aiohttp_connector()
@@ -519,16 +529,22 @@ async def _openai_stream(
     if response_format is not None:
         data["response_format"] = response_format
     reasoning_effort = kwargs.get("reasoning_effort")
-    if isinstance(reasoning_effort, str) and reasoning_effort.strip():
-        effort = reasoning_effort.strip()
-        if not (
-            effort.lower() == "minimal" and binding.lower() in _BINDINGS_WITH_EXTRA_BODY_THINKING
-        ):
-            data["reasoning_effort"] = effort
-    else:
-        implicit_effort = default_reasoning_effort_for(binding, model)
-        if implicit_effort:
-            data["reasoning_effort"] = implicit_effort
+    effective_effort = (
+        reasoning_effort
+        if isinstance(reasoning_effort, str) and reasoning_effort.strip()
+        else default_reasoning_effort_for(binding, model)
+    )
+    if effective_effort and not is_provider_default(effective_effort):
+        for key, value in openai_compat_reasoning_fields(
+            provider=binding,
+            model=model,
+            effort=effective_effort,
+            max_tokens=max_tokens_value,
+        ).items():
+            if key == "extra_body" and isinstance(value, dict):
+                data.update(value)
+            else:
+                data[key] = value
 
     timeout = aiohttp.ClientTimeout(total=300)
     connector = _get_aiohttp_connector()

@@ -11,7 +11,7 @@ import {
 
 import type { Capability } from "@/lib/capability-routes";
 import { apiFetch, apiUrl } from "@/lib/api";
-import { listLLMOptions } from "@/lib/llm-options";
+import { hasUsableLLMModels, listLLMOptions } from "@/lib/llm-options";
 
 type CapabilityAccessValue = {
   /** True until the first access probe resolves. */
@@ -61,16 +61,16 @@ export function CapabilityAccessProvider({
       // presence is our admin signal — admins are never gated.
       const res = await apiFetch(apiUrl("/api/v1/settings"));
       if (!res.ok) return;
-      const payload = (await res.json()) as { catalog?: unknown };
-      if (payload.catalog) {
+      const settingsPayload = (await res.json()) as { catalog?: unknown };
+      if (settingsPayload.catalog) {
         setIsAdmin(true);
         setHasLlm(true);
         return;
       }
       setIsAdmin(false);
       // Non-admins: their grant-filtered LLM options decide access.
-      const { options } = await listLLMOptions();
-      setHasLlm(options.length > 0);
+      const optionsPayload = await listLLMOptions();
+      setHasLlm(hasUsableLLMModels(optionsPayload));
     } catch {
       // Keep last known state; the backend still enforces access on every call.
     } finally {

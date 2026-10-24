@@ -6,6 +6,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
+from deeptutor.services.model_discovery.types import model_visible
 from deeptutor.services.provider_registry import find_by_name
 
 
@@ -58,6 +59,11 @@ def _llm_service(catalog: dict[str, Any]) -> dict[str, Any]:
 
 def list_llm_options(catalog: dict[str, Any]) -> dict[str, Any]:
     """Return a redacted list of configured chat-selectable LLM models."""
+    from deeptutor.services.config.custom_providers import (
+        resolve_provider_presentation,
+    )
+    from deeptutor.services.llm.reasoning_controls import controls_for
+
     service = _llm_service(catalog)
     active_profile_id = str(service.get("active_profile_id") or "")
     active_model_id = str(service.get("active_model_id") or "")
@@ -74,7 +80,12 @@ def list_llm_options(catalog: dict[str, Any]) -> dict[str, Any]:
         # Human-readable provider name from the registry ("OpenRouter",
         # "VolcEngine Coding Plan", ...) so the UI never shows binding keys.
         provider_spec = find_by_name(provider)
-        provider_label = provider_spec.label if provider_spec else provider
+        presentation = resolve_provider_presentation(
+            catalog,
+            "llm",
+            profile,
+            fallback_label=provider_spec.label if provider_spec else provider,
+        )
 
         for model in profile.get("models", []) or []:
             if not isinstance(model, dict):
@@ -91,16 +102,30 @@ def list_llm_options(catalog: dict[str, Any]) -> dict[str, Any]:
                 "model_name": str(model.get("name") or model_value).strip(),
                 "model": model_value,
                 "provider": provider,
-                "provider_label": provider_label,
+                "provider_label": presentation["provider_label"],
+                "provider_icon": presentation["provider_icon"],
+                "custom_provider_id": presentation["custom_provider_id"],
                 "is_active_default": (
                     profile_id == active_profile_id and model_id == active_model_id
                 ),
+                # Presentation metadata only. Authorisation and runtime
+                # resolution never consult this field.
+                "visible_in_picker": model_visible(model),
             }
             context_window = _coerce_int(model.get("context_window"))
             if context_window is None:
                 context_window = _coerce_int(model.get("context_window_tokens"))
             if context_window is not None:
                 option["context_window"] = context_window
+            controls = controls_for(
+                provider,
+                model_value,
+                metadata=model.get("provider_metadata"),
+                model_record=model,
+                base_url=str(profile.get("base_url") or "") or None,
+            )
+            if controls.supported is not None:
+                option["reasoning_controls"] = controls.to_dict()
             options.append(option)
 
     return {
@@ -108,6 +133,55 @@ def list_llm_options(catalog: dict[str, Any]) -> dict[str, Any]:
         if active_profile_id and active_model_id
         else None,
         "options": options,
+    }
+
+
+def reasoning_controls_by_model(catalog: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Safe per-model capability map for the settings editor.
+
+    Keys are opaque ``profile_id:model_id`` identifiers; no credential, URL or
+    header is included.
+    """
+
+    payload = list_llm_options(catalog)
+    result: dict[str, dict[str, Any]] = {}
+    for option in payload["options"]:
+        controls = option.get("reasoning_controls")
+        if isinstance(controls, dict):
+            result[f"{option['profile_id']}:{option['model_id']}"] = controls
+    return result
+
+
+def split_llm_options(
+    options: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
+    """Split a complete option list into presentation and hidden groups.
+
+    ``has_usable_models`` is computed before filtering.  Hiding a model is a
+    display preference; it must never turn a granted account into one with no
+    usable capability.
+    """
+
+    visible: list[dict[str, Any]] = []
+    hidden: list[dict[str, Any]] = []
+    for option in options:
+        if option.get("visible_in_picker") is False:
+            hidden.append(option)
+        else:
+            visible.append(option)
+    return visible, hidden, bool(options)
+
+
+def present_llm_options(catalog: dict[str, Any]) -> dict[str, Any]:
+    """Return the chat-selector response with hidden models kept separate."""
+
+    payload = list_llm_options(catalog)
+    visible, hidden, has_usable = split_llm_options(payload["options"])
+    return {
+        "active": payload["active"],
+        "options": visible,
+        "hidden_options": hidden,
+        "has_usable_models": has_usable,
     }
 
 
@@ -135,4 +209,11 @@ def apply_llm_selection_to_catalog(
     raise ValueError("Invalid LLM selection: selected profile/model was not found.")
 
 
-__all__ = ["LLMSelection", "apply_llm_selection_to_catalog", "list_llm_options"]
+__all__ = [
+    "LLMSelection",
+    "apply_llm_selection_to_catalog",
+    "list_llm_options",
+    "present_llm_options",
+    "reasoning_controls_by_model",
+    "split_llm_options",
+]

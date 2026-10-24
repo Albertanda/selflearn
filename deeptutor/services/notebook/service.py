@@ -97,7 +97,21 @@ class NotebookManager:
             json.dump(index, f, indent=2, ensure_ascii=False)
 
     def _get_notebook_file(self, notebook_id: str) -> Path:
-        return self.base_dir / f"{notebook_id}.json"
+        """Resolve ``<notebook_id>.json`` inside the notebook base directory.
+
+        A notebook id reaches here straight from the API path
+        (``/notebooks/{notebook_id}``), so it must not be able to name a file
+        outside the base: ``../..`` segments otherwise resolved against any
+        existing JSON on disk and ``_save_notebook`` rewrote it, which is the
+        path-traversal that could overwrite arbitrary JSON files.
+
+        Ported from upstream v1.6.11, which closed exactly this bug.
+        """
+        base = self.base_dir.resolve()
+        target = (base / f"{notebook_id}.json").resolve()
+        if not target.is_relative_to(base):
+            raise ValueError(f"notebook id escapes base directory: {notebook_id!r}")
+        return target
 
     def _load_notebook(self, notebook_id: str) -> dict | None:
         filepath = self._get_notebook_file(notebook_id)

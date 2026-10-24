@@ -20,6 +20,10 @@ from deeptutor.services.llm.provider_core.openai_responses import (
     convert_messages,
     convert_tools,
 )
+from deeptutor.services.llm.reasoning_controls import (
+    is_provider_default,
+    responses_reasoning_fields,
+)
 
 DEFAULT_ORIGINATOR = "DeepTutor"
 
@@ -51,6 +55,8 @@ class OpenAICodexProvider(LLMProvider):
     ) -> LLMResponse:
         model_name = model or self.default_model
         model_slug = _strip_model_prefix(model_name)
+        if is_provider_default(reasoning_effort):
+            reasoning_effort = None
         system_prompt, input_items = convert_messages(messages)
 
         body: dict[str, Any] = {
@@ -65,8 +71,14 @@ class OpenAICodexProvider(LLMProvider):
             "tool_choice": tool_choice or "auto",
             "parallel_tool_calls": True,
         }
-        if reasoning_effort:
-            body["reasoning"] = {"effort": reasoning_effort}
+        reasoning_fields = responses_reasoning_fields(
+            provider="openai_codex",
+            model=model_slug,
+            effort=reasoning_effort,
+            protocol=getattr(getattr(self, "generation", None), "reasoning_protocol", None),
+        )
+        if reasoning_fields:
+            body.update(reasoning_fields)
         if tools:
             body["tools"] = convert_tools(tools)
 

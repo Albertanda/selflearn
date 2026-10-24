@@ -21,6 +21,7 @@ import {
   Search,
   SlidersHorizontal,
   Sparkles,
+  Star,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
@@ -79,12 +80,24 @@ export interface SettingsCategory {
 
 const MODEL_CHILDREN: SettingsLeaf[] = [
   {
+    key: "default-models",
+    href: "/settings/default-models",
+    label: { zh: "默认模型", en: "Default models" },
+    blurb: {
+      zh: "各服务在未指定模型时使用的已保存默认项。",
+      en: "The saved reference each service uses when no model is named.",
+    },
+    icon: Star,
+    tile: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+    adminOnly: true,
+  },
+  {
     key: "llm",
     href: "/settings/llm",
-    label: { zh: "LLM", en: "LLM" },
+    label: { zh: "大语言模型（LLM）", en: "Large language model (LLM)" },
     blurb: {
-      zh: "语言模型供应商与当前档位。",
-      en: "Language model providers and active profile.",
+      zh: "大语言模型供应商与连接配置。浏览或编辑不会改变默认项。",
+      en: "Language model providers and connections. Browsing or editing does not change the default.",
     },
     icon: Brain,
     tile: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
@@ -299,6 +312,9 @@ const HUB_LABEL: Lang = { zh: "设置", en: "Settings" };
 const NAV_ONLY_ROUTES = new Set<string>([
   SETTINGS_HUB_HREF,
   ...SETTINGS_CATEGORIES.filter((c) => c.children).map((c) => c.href),
+  // The default-models leaf owns its own explicit "Save default settings"
+  // action; the draft Save/Apply toolbar must not submit other pages' work.
+  "/settings/default-models",
 ]);
 
 export function isNavOnlyRoute(pathname: string): boolean {
@@ -311,6 +327,7 @@ export function isNavOnlyRoute(pathname: string): boolean {
 const STORAGE_PATHS: Record<string, string> = {
   "/settings/appearance": "data/user/settings/interface.json",
   "/settings/network": "data/user/settings/system.json",
+  "/settings/default-models": "data/user/settings/model_catalog.json",
   "/settings/llm": "data/user/settings/model_catalog.json",
   "/settings/embedding": "data/user/settings/model_catalog.json",
   "/settings/search": "data/user/settings/model_catalog.json",

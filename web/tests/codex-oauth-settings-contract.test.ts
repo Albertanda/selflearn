@@ -68,7 +68,8 @@ test("managed Codex profiles expose only provider-supported reasoning effort", (
   assert.match(source, /isManagedCodexProfile\(/);
   assert.match(source, /disabled=\{isManagedCodex\}/);
   assert.match(source, /!isCodexOAuth/);
-  assert.match(source, /activeModel\.codex_supported_reasoning_levels/);
+  assert.match(source, /reasoningControls\[/);
+  assert.match(source, /reasoningControlsKey\(activeProfile\.id, activeModel\.id\)/);
   assert.match(source, /!isCodexOAuth \|\| isBoundManagedCodex/);
 });
 

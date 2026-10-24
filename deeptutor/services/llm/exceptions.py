@@ -41,6 +41,24 @@ class LLMProviderError(LLMError):
     pass
 
 
+class LLMReasoningBudgetExhausted(LLMProviderError):
+    """The model exhausted its output budget while producing only reasoning.
+
+    A reasoning model bills its chain-of-thought against the same ``max_tokens``
+    budget as the answer, so a generation can finish with
+    ``finish_reason="length"`` and no user-visible text. Ported from upstream
+    v1.6.10: raising a named, retryable error is what turns that into a
+    diagnosable failure instead of an empty result or a parse error.
+    """
+
+    error_code = "reasoning_budget_exhausted"
+    retryable = True
+
+    def __init__(self, message: str, *, diagnostics: dict[str, object] | None = None):
+        super().__init__(message)
+        self.diagnostics = diagnostics or {}
+
+
 class LLMProviderTransportError(LLMProviderError):
     """A retryable provider connection or response-stream failure."""
 
@@ -146,6 +164,26 @@ class LLMParseError(LLMError):
         super().__init__(message, details=details, provider=provider)
 
 
+class LLMEmptyResponseError(LLMError):
+    """Raised when a completion carries no user-visible text.
+
+    The commonest cause is a *reasoning* model: the chain-of-thought tokens are
+    billed against the same ``max_tokens`` budget as the answer, so a
+    generation that needs more reasoning than the budget allows finishes with
+    ``finish_reason="length"`` and an **empty** ``content``. Callers that turn
+    the text into an artifact (PDF, DOCX, chart) must raise instead of
+    rendering an empty document that looks like a success.
+    """
+
+    def __init__(
+        self,
+        message: str = "LLM returned an empty response",
+        provider: str | None = None,
+        details: dict[str, object] | None = None,
+    ):
+        super().__init__(message, details=details, provider=provider)
+
+
 # Multi-provider specific aliases for mapping rules
 class ProviderQuotaExceededError(LLMRateLimitError):
     pass
@@ -159,6 +197,7 @@ __all__ = [
     "LLMError",
     "LLMConfigError",
     "LLMProviderError",
+    "LLMReasoningBudgetExhausted",
     "LLMProviderTransportError",
     "LLMCircuitBreakerError",
     "LLMAPIError",
@@ -167,6 +206,7 @@ __all__ = [
     "LLMAuthenticationError",
     "LLMModelNotFoundError",
     "LLMParseError",
+    "LLMEmptyResponseError",
     "ProviderQuotaExceededError",
     "ProviderContextWindowError",
 ]

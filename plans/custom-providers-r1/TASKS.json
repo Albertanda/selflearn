@@ -1,0 +1,227 @@
+{
+  "stage": "CP-R1",
+  "schema_version": 1,
+  "working_directory": "/home/albert/selflearn/selflearn",
+  "mode": "one stage; dependency-ordered units; no per-card confirmation",
+  "contracts": "CONTRACTS.md",
+  "acceptance": "ACCEPTANCE.md",
+  "exploration": "EXPLORATION.md",
+  "dispatch_order": [
+    "CP-00",
+    "CP-01",
+    "CP-02",
+    "CP-03",
+    "CP-04",
+    "CP-05",
+    "CP-06",
+    "CP-07"
+  ],
+  "tasks": [
+    {
+      "id": "CP-00",
+      "title": "到场核对与两段数据保护入口",
+      "depends_on": [],
+      "goal": "复用 MM-R3 协调者最终补修和预探索接缝，记录当前真实配置事实并为隔离验收/授权迁移分别建基线。",
+      "allowed_changes": [
+        ".phase1-evidence/custom-providers/CP-R1-<new-run>/**",
+        "plans/custom-providers-r1/EXECUTION.md"
+      ],
+      "evidence": [
+        "SOURCE_INDEX.json hash 校验，差异只定向补读；到场源码与 T0 六树 opaque 清单。",
+        "只记录当前 Agnes profile/model ID、技术 binding、无敏感信息的 endpoint/名字和凭据是否存在；禁止复制真实 catalog。"
+      ],
+      "done_when": [
+        "新证据目录建立，历史未改，已明确默认模型不变和 C6 精确迁移白名单。"
+      ]
+    },
+    {
+      "id": "CP-01",
+      "title": "供应商定义、协议矩阵和展示纯函数",
+      "depends_on": [
+        "CP-00"
+      ],
+      "goal": "实现 C1/C2/C4 数据契约、校验、现有 catalog 锁内保存及唯一展示摘要；协议白名单由后端暴露给设置 UI。",
+      "allowed_changes": [
+        "deeptutor/services/config/custom_providers.py（新增）",
+        "deeptutor/services/config/model_catalog.py（新字段兼容/验证接缝，不扩大全局迁移）",
+        "deeptutor/api/routers/settings.py（设置协议能力、PUT/Apply 验证、默认候选摘要）",
+        "web/components/settings/SettingsContext.tsx（类型与设置 payload）",
+        "web/lib/custom-providers.ts（新增类型/纯函数）",
+        "tests/services/config/test_custom_providers.py（新增）",
+        "tests/api/test_custom_providers.py（新增）",
+        "web/tests/custom-providers.test.ts（新增）"
+      ],
+      "evidence": [
+        "旧 catalog round-trip；七服务 binding 白名单；重复/非法/不匹配/额外字段反例。",
+        "名字/图标与协议/凭据分离，presenter 不返回秘密；未引用/被引用删除约束、默认/Save 并发 409。"
+      ],
+      "done_when": [
+        "缺新字段的旧配置兼容，读取不强行落空定义；新关联保存通过统一校验，不放松 masked credential 或权限保护。"
+      ]
+    },
+    {
+      "id": "CP-02",
+      "title": "末尾创建入口、重命名和可编辑图标",
+      "depends_on": [
+        "CP-01"
+      ],
+      "goal": "让非编程用户能从下拉末尾创建、重新选择、编辑自定义供应商，明确各服务接口格式，取消无副作用。",
+      "allowed_changes": [
+        "web/components/settings/ServiceConfigEditor.tsx",
+        "web/components/settings/SettingsContext.tsx（草稿更新函数）",
+        "web/components/settings/CustomProviderDialog.tsx（新增）",
+        "web/components/common/ProviderIcon.tsx",
+        "web/lib/custom-providers.ts",
+        "web/locales/en/app.json",
+        "web/locales/zh/app.json",
+        "web/tests/custom-providers.test.ts"
+      ],
+      "evidence": [
+        "七个服务入口均始终末尾，内置/托管预设不丢；原匿名 Custom 用中文且能加载。",
+        "创建/取消/保存/重开/改名/内置图标/emoji/fallback/非法图标行为；哨兵绝不持久化。",
+        "修改保持 dirty 草稿和默认引用，不触发目录、推理或索引请求。"
+      ],
+      "done_when": [
+        "定义和当前 profile 关联作为同一草稿变更，正常 Save/Apply 才持久化；已有自定义项的编辑入口可用。"
+      ]
+    },
+    {
+      "id": "CP-03",
+      "title": "名称和图标贯通授权摘要与选择器",
+      "depends_on": [
+        "CP-01"
+      ],
+      "goal": "技术 binding 保持原值，让所有用户可见位置显示定义的名称和图标；保持 profile_id 连接分组。",
+      "allowed_changes": [
+        "deeptutor/services/model_selection/llm.py",
+        "deeptutor/multi_user/model_access.py",
+        "deeptutor/multi_user/personal_models.py（仅归并引用摘要的必要兼容，不改 OAuth）",
+        "deeptutor/api/routers/settings.py（默认候选/LLM options）",
+        "web/lib/llm-options.ts",
+        "web/lib/model-picker-groups.ts",
+        "web/lib/default-models.ts",
+        "web/components/chat/home/ModelSelector.tsx",
+        "web/components/settings/DefaultModelsEditor.tsx",
+        "web/components/settings/ServiceConfigEditor.tsx（标签和图标）",
+        "web/components/common/ProviderIcon.tsx",
+        "tests/services/model_selection/test_llm_selection.py",
+        "tests/api/test_model_visibility.py",
+        "tests/api/test_custom_providers.py",
+        "web/tests/model-picker-groups.test.ts",
+        "web/tests/custom-providers.test.ts"
+      ],
+      "evidence": [
+        "管理员/普通用户/hidden 都有授权摘要，未授权名称、目录和连接凭据不泄漏。",
+        "同名模型、同定义两把 key 保持独立连接；主聊天/题目跟进/默认选择均显示改名及新图标。",
+        "展示元数据不进入厂商请求；改名不改变 ID、默认、授权或推理强度。"
+      ],
+      "done_when": [
+        "所有关键 UI 位置贯通，复用后端 presenter 而非多处硬编码名字；MM-R3 隐藏与会话恢复回归通过。"
+      ]
+    },
+    {
+      "id": "CP-04",
+      "title": "通用网关目录与实际协议回归",
+      "depends_on": [
+        "CP-01",
+        "CP-02"
+      ],
+      "goal": "证明命名自定义供应商仍走已有兼容目录和调用协议，错误后手填可用；不删除 binding 必填约束。",
+      "allowed_changes": [
+        "tests/services/model_discovery/test_custom_provider_discovery.py（新增）",
+        "tests/services/llm/test_custom_provider_runtime.py（新增）",
+        "tests/services/config/test_custom_providers.py",
+        "web/tests/custom-providers.test.ts",
+        "deeptutor/services/model_discovery/{service.py,provider_policy.py,types.py,adapters.py}（仅出现可复现的必要兼容缺陷时）",
+        "deeptutor/services/config/provider_runtime.py（仅已有 custom 协议解析兼容）",
+        "web/components/settings/useModelDiscovery.ts",
+        "web/lib/model-discovery.ts"
+      ],
+      "evidence": [
+        "本地 OpenAI 与 Anthropic 目录和推理请求，精确路由、授权存在性、model ID；目录 404 后手填仍能发送。",
+        "首次/缓存/刷新、401/429/超时保留原模型；改名/图标不重查；已声明服务协议各自复用现有 adapter。",
+        "未知学校网关没有虚构官方上下文、维数或 reasoning，custom 名叫 DeepSeek 也不套原厂规则。"
+      ],
+      "done_when": [
+        "无需新增任意 binding 或默认大厂回退；需要的生产修复有先复现后通过的回归证据。"
+      ]
+    },
+    {
+      "id": "CP-05",
+      "title": "精确、幂等的 Agnes 迁移工具",
+      "depends_on": [
+        "CP-01"
+      ],
+      "goal": "实现默认 dry-run 的精确迁移变换和经标准本地管理 API 的 --apply 路径，本卡只在 fixture 测试。；同时准备有界 Agnes live smoke 工具和未来测试政策，全部源码在 CP-06 前完成。",
+      "allowed_changes": [
+        "scripts/migrate_agnes_custom_provider.py（新增）",
+        "tests/scripts/test_migrate_agnes_custom_provider.py（新增）",
+        "tests/api/test_custom_providers.py",
+        "plans/custom-providers-r1/EXECUTION.md",
+        "scripts/agnes_llm_smoke.py（新增）",
+        "tests/scripts/test_agnes_llm_smoke.py（新增，仅 fixture）",
+        "AGENTS.md（仅追加 C7 测试偏好）"
+      ],
+      "evidence": [
+        "模拟 catalog 的 dry-run/apply 差异一致；保留现有 profile/model ID、真实 URL/key/headers/参数/默认的等值断言。",
+        "重复 no-op、已有定义复用、有真实 vllm 不碰、需要时新增空 vllm 槽；模糊目标拒绝。",
+        "Mock/本地 API 的 revision 409、认证失败、并发变化和 masked identity 保护，日志没有凭据。",
+        "smoke fixture 验证显式 profile/model、请求/token/超时上限及禁止默认供应商回退，不访问真实模型。"
+      ],
+      "done_when": [
+        "没有 direct file save 冒充跨进程原子更新，没有 API key 参数或原始 catalog 输出；此时尚未修改真实 catalog。"
+      ]
+    },
+    {
+      "id": "CP-06",
+      "title": "阶段隔离验收与源码封存前检查",
+      "depends_on": [
+        "CP-02",
+        "CP-03",
+        "CP-04",
+        "CP-05"
+      ],
+      "goal": "按 A01–A10/A13 一次完成完整行为验收，确认可以进入已授权配置迁移。",
+      "allowed_changes": [
+        "web/playwright.custom-providers.config.ts（新增）",
+        "web/e2e/custom-providers.spec.ts（新增）",
+        "web/playwright.phase1.config.ts（仅增加本地 fixture，不破坏既有门）",
+        "tests/services/config/test_custom_providers.py",
+        "tests/api/test_custom_providers.py",
+        "web/tests/custom-providers.test.ts",
+        ".phase1-evidence/custom-providers/CP-R1-<new-run>/**"
+      ],
+      "evidence": [
+        "实际 Chromium 创建/取消/查询导入/手填/改名图标/主聊天与跟进发送/默认及409/七服务入口。",
+        "通过 scripts/run_tests_isolated.py 完整 Python、Node 实际用例数、tsc、Ruff、ESLint、i18n 和 diff；MM-R3、MD-R2 浏览器回归。",
+        "T1 对 T0 六树完全不变、无真实 vendor 调用、临时服务 cleanup；生产代码发现 bug 先补修再运行对应门。"
+      ],
+      "done_when": [
+        "全部本地硬门通过，有源码范围清单；不能拿 worker 自签 accepted=true 代替协调者验收。"
+      ]
+    },
+    {
+      "id": "CP-07",
+      "title": "授权配置迁移、Agnes smoke 与统一交付",
+      "depends_on": [
+        "CP-06"
+      ],
+      "goal": "实际完成 Agnes 命名自定义供应商与 vLLM 清理，记录未来测试偏好，最后交付可复验结果。",
+      "allowed_changes": [
+        "data/user/settings/model_catalog.json（只允许 C6 经管理 API 的精确迁移）",
+        "plans/custom-providers-r1/EXECUTION.md",
+        ".phase1-evidence/custom-providers/CP-R1-<new-run>/**"
+      ],
+      "evidence": [
+        "实际迁移的去密钥语义 diff、原有 key/header 在内存等值验证、默认和其它模型不变；再次 dry-run no-op。",
+        "T2 仅 catalog 授权语义变化，六树其它文件不变；T0/T1/T2 收据彼此不覆盖，不修改 S14 历史例外。",
+        "显式 Agnes 模型 synthetic smoke：≤3 次推理、每次≤64 输出 tokens，记录 success/failed/blocked；不回退其它付费厂商。",
+        "最终源码可逐文件重建，最终报告逐门对证；未重启的旧真实服务状态如实注明，不杀用户服务。"
+      ],
+      "done_when": [
+        "Agnes 已在 catalog 自定义定义/关联中且 vllm 不再占用 Agnes endpoint，干净本地槽存在或原本就有；若真实外部或认证阻塞须单独说明，不能假报通过。",
+        "report.md/report.json/acceptance.json/live_smoke.json、源码归档及配置迁移证据齐全，accepted=false 等协调者验收；不进入学科功能。"
+      ]
+    }
+  ]
+}

@@ -6,6 +6,10 @@ from pathlib import Path
 import re
 import shlex
 
+from typer.main import get_command
+
+from deeptutor_cli.main import app
+
 ROOT = Path(__file__).resolve().parents[2]
 DOCS_ROOT = ROOT / "site" / "src" / "content" / "docs"
 PUBLIC_DOCS = (
@@ -73,34 +77,23 @@ def test_internal_docs_links_point_to_existing_pages() -> None:
 
 
 def test_documented_deeptutor_subcommands_exist() -> None:
-    top_level = {
-        "book",
-        "chat",
-        "config",
-        "init",
-        "kb",
-        "memory",
-        "notebook",
-        "partner",
-        "plugin",
-        "provider",
-        "run",
-        "serve",
-        "session",
-        "skill",
-        "start",
-    }
-    provider_subcommands = {"login"}
+    # Follow actual registration, including aliases and implicitly named Typer
+    # commands. A historical hand-maintained allowlist accepted retired commands.
+    cli = get_command(app)
+    top_level = cli.commands
+    provider_subcommands = cli.commands["provider"].commands
 
     for command in _deeptutor_commands():
         first_segment = command.split("|", 1)[0].split("#", 1)[0].strip()
-        if "<" in first_segment or "[" in first_segment:
-            continue
         tokens = shlex.split(first_segment)
         if len(tokens) < 2:
             continue
         assert tokens[1] in top_level, command
-        if tokens[1] == "provider" and len(tokens) >= 3:
+        if (
+            tokens[1] == "provider"
+            and len(tokens) >= 3
+            and not tokens[2].startswith(("<", "[", "-"))
+        ):
             assert tokens[2] in provider_subcommands, command
 
 

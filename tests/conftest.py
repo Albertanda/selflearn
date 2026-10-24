@@ -4,10 +4,39 @@ Root conftest — shared fixtures for the entire test suite.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+
+
+def _require_isolated_test_environment() -> None:
+    """Refuse collection before application imports can touch owner settings."""
+    repo = Path(__file__).resolve().parents[1]
+    raw_root = os.environ.get("SELFLEARN_TEST_ROOT", "")
+    valid = os.environ.get("SELFLEARN_ISOLATED_TEST_RUN") == "1" and bool(raw_root)
+    if valid:
+        root = Path(raw_root).resolve()
+        valid = root.is_dir() and not root.is_relative_to(repo) and not repo.is_relative_to(root)
+        for key in (
+            "HOME",
+            "XDG_CONFIG_HOME",
+            "XDG_DATA_HOME",
+            "XDG_CACHE_HOME",
+            "TMPDIR",
+            "DEEPTUTOR_HOME",
+        ):
+            value = os.environ.get(key)
+            valid = valid and bool(value) and Path(value).resolve().is_relative_to(root)
+    if not valid:
+        raise pytest.UsageError(
+            "Unisolated pytest collection refused before application imports. "
+            "Use: .venv/bin/python scripts/run_tests_isolated.py [pytest arguments]"
+        )
+
+
+_require_isolated_test_environment()
 
 from deeptutor.core.capability_protocol import BaseCapability, CapabilityManifest
 from deeptutor.core.context import Attachment, UnifiedContext

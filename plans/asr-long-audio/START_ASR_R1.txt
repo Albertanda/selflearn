@@ -1,0 +1,66 @@
+ASR-R1：课堂长录音专项修复执行指令（2026-10-22）
+工作目录：/home/albert/selflearn/selflearn
+
+【授权与交付方式】
+用户现已要求下发具体修复：本指令授权执行TASKS.json六个内部单元，按一个合并阶段一次交付。不要逐卡停下来，不开展其他第二阶段功能，不另造S16。旧S00–S15保持历史accepted；旧“只读交接/未授权新编码”不限制本次明确授权，历史receipt和派发文件不能改。只读调查本身没有修复产品。
+本轮先修当前SiliconFlow长录音，不新增阿里供应商、不读取Qwen key.txt，不做云存储/阿里Filetrans接入，不改现有用户模型配置。允许离线及有界真实SF验收，具体安全边界见后文。
+
+【一次读完这些输入】
+1. plans/asr-long-audio/README.md（入口、事实、证据位置）。
+2. 本文件、CONTRACTS.md（实施合同）、TASKS.json（六单元的目标/允许路径/证据/完成条件）。
+3. EXPLORATION.md（协调者已探索文件+SHA256+行号+关键原文）。先比对hash，匹配直接复用，只对实现接缝定向补读；不重新通读全仓、57张旧卡或全部历史报告。
+4. 根AGENTS.md的测试隔离与数据边界。
+DIAGNOSIS.md是历史调查事实，不是让你重新重复研究和调用供应商。若与本执行合同冲突，以本执行合同为准。
+
+【已确定的原因，不再猜测】
+45分钟录音50,786,002字节、2715.755秒；直接SF成功HTTP200，63.551秒，14039字符。Next默认代理真实复现30.069秒500，直接同fixture33.014秒200，现有UI转换成相同错误。原始录音转写已在真实偏微分方程目录保存，不能覆盖它做测试。
+所以不能把故障写成“SF因50MB拒绝”，也不能只将httpx 300秒调大/把Next代理改大/把16片仍放原同步请求串行等待。必须交付异步job闭环。
+
+【固定技术决策】
+- 新ASR job接口与旧knowledge/upload并存；两个现有科目页面的录音入口都改走新job接口。文档上传、聊天麦克风和旧同步API的200契约保留。
+- 开始上传前生成UUID4 request_id；job_id=UUID(request_id).hex。重载可找回，同request_id不同内容拒绝。同job重复cancel/retry不产生双worker。
+- 上传流式保存后202，不等待ffprobe、分片或ASR。后台持久化manifest+checkpoint；不能仅把协程塞进BackgroundTasks就声称可恢复。
+- 默认180秒，16kHz单声道PCM16 WAV，按采样数连续覆盖；优先在上限前10秒内择静音点，无静音硬切。首版不重叠、不用LLM重排或去重正文。
+- provider调用默认串行。所有正式转写仍按原文件名写入materials/lecture/<name>.transcript.txt，不自动索引、不在同一textarea重复追加同job结果。
+- 保留现有共享subject活动租约并贯穿worker生命周期；新增一个跨进程ASR写入门闩，旧同步音频与新job都参与，防同名录音竞争。不要把所有科目活动全改成独占或持有JSON写锁等网络。
+- 增加ASR shutdown收尾；不自动遍历/恢复所有用户的任务。死亡worker的持久任务投影为interrupted；用户显式retry恢复，GET不能改文件。
+- 不引入Redis/Celery/数据库/新Python npm依赖，不重构整套voice框架。复用现有JSON原子写、活动租约、错误边界与流式proxy。
+
+【实施次序】
+A1 契约/配置与provider错误 → A2 媒体和切片 → A3 持久任务/租约/恢复 → A4 API与Next流式转发 → A5 两页UI/轮询 → A6 回归与交付。
+A2只依赖A1媒体类型；A4依赖A3公开接口；A5依赖A1/A4；A6统一收尾。小单元完成后自动继续，阶段末一次报告。TASKS.json中已有明确范围和证据；不允许借同文件白名单扩大功能。
+
+【媒体工具与当前环境】
+当前Ubuntu PATH未发现原生ffmpeg/ffprobe，已有Windows二进制实测可用：
+/mnt/c/Users/17261/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-9.0.1-full_build/bin/ffmpeg.exe
+/mnt/c/Users/17261/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-9.0.1-full_build/bin/ffprobe.exe
+media.py支持SELFLEARN_FFMPEG_BIN/SELFLEARN_FFPROBE_BIN显式路径，原生工具其次由PATH解析。WSL显式.exe路径需要用wslpath -w转换自己控制的输入/输出文件路径，不能把该用户路径硬编码为产品默认值；固定参数列表、shell=False，不经shell。保留二进制路径含空格/中文文件名能力。不得下载安装或修改系统PATH。
+隔离验收用上述显式env配置；最终报告给出用户可直接用的带两项env的启动命令。缺工具有命名错误与测试；不能以当前无原生命令为由跳过所有真实媒体/浏览器验收。
+
+【范围与原件保护】
+实施白名单精确见TASKS.json implementation_allowed_files，共同限制为本ASR工作流；新增父目录允许。docs只允许更新本包README实现状态，START/CONTRACTS/TASKS/EXPLORATION/DIAGNOSIS保持不可改。
+HEAD维持9723f953cb6ca56f13603f76c5d07e1e2f1f4473，保留继承dirty与8项tracked deletion。不commit/push，不安装升级，不重启当前真实服务，不调用旧S13固定基线门来“恢复”已授权修改。
+第一阶段S15 receipt c0a4fc9382391ad7ddbf9caf98a21192f904941e5672b444f4c5415083e27195为历史来源；本轮允许部分旧source发生白名单内变化，但旧receipt/证据/归档不重签、不覆写。
+用户已实际使用并重新配置STT，真实数据已经正常变化。ASR-R1保护以worker到达时新六树不透明快照为准，不拿旧S14批准catalog摘要覆盖今天配置。新到达快照与dispatch变化另列；不得恢复/规范化真实settings。
+
+【证据与命令】
+新证据只放 .phase1-evidence/repairs/ASR-R1/；初始抓取之后只追加执行日志。开始先核对dispatch packet_index.json及source/data基线，再留自己的arrival source/data快照。若开始前已有外部变化，保留差异，不回滚用户数据。阶段内自身越界变化一律失败；运行中的用户实例若产生数据变化需如实区分并交协调者审查，不能写unchanged=true。
+所有需要计入验收的命令串行记录原始stdout/stderr、cwd、argv、UTC、退出码和日志行范围，不交错共享日志，不省略失败尝试。阶段仅一份report.json，不必每卡再建长报告。
+先定向pytest/tests/asr及受影响旧测试；最后共享检查一次。新改动/失败才追加复跑。Python始终经隔离runner：
+.venv/bin/python scripts/run_tests_isolated.py -q tests/asr tests/phase1/test_p1_16.py tests/phase1/test_subject_operations.py tests/phase1/test_p1_40.py tests/phase1/test_p1_41.py tests/phase1/test_http_acceptance.py
+.venv/bin/python scripts/run_tests_isolated.py -q -rs -o addopts=--tb=short -W error::RuntimeWarning -W error::pytest.PytestUnraisableExceptionWarning
+.venv/bin/ruff check deeptutor deeptutor_cli tests/asr scripts/asr_acceptance.py
+在web目录分别运行：node scripts/run-node-tests.mjs；./node_modules/.bin/tsc --noEmit -p .；改动TS/TSX限定ESLint。
+git diff --check
+新浏览器config可复用S15 runner（需确保元数据控制测试模式、全新S15_EVIDENCE_DIR和owned cleanup）；支持FFmpeg显式env向测试子进程传递，不泄漏真实env/key。ASR测试用fake provider延迟至少65秒，真实Next/FastAPI/浏览器；保留原S15 B1–B5回归，B3音频断言跟随新job入口，不删除原成功/失败/busy/落盘/不索引断言。两套浏览器串行，使用不同全新证据目录。
+
+【长录音实际验收边界】
+真实Windows录音仅从 C:/Users/17261/Desktop/review class/ 只读复制到自有临时目录，不对真实科目提交HTTP写请求。至少四个文件全部进行真实媒体探测与规划；45分钟文件通过临时科目/新job/API/发布流程跑完整离线fake-provider用例，不能只测截出来的小样本。
+允许最终一次45分钟完整SF新job smoke：从真实catalog仅只读提取当前SF STT选择/凭据到内存，依赖注入临时home里的测试job/服务，唯一外部模型目标为https://api.siliconflow.cn/v1/audio/transcriptions；不得调用真实LLM/embedding/ASR其他供应商。钥匙不进入argv、日志、临时settings、报告、源码或快照归档。smoke与全隔离默认测试分开，不能全局关闭网络守卫；处理真实key的进程仅显式白名单SF，不访问真实学习目录。
+不把整节课真实调用放进默认pytest，不因小代码改动重复转写。若当前STT已换供应商或出现401/429/服务故障，记录live_smoke_blocked及准确原因，完成所有不依赖它的工作并交协调者，不能自行换用户配置，也不能伪造真实通过。
+
+【验收红线】
+65秒成功场景不出现30秒500；202不是成功toast；刷新/切科/组件卸载不串状态；至少两段同文字重复内容不被删除；第7段失败后成功片不重调；乱序完成仍顺序合并；取消后进程/lease收尾；worker重启从checkpoint恢复；发布中断不假completed、不覆盖第三者后来修改；新ASR临时树不进ZIP；跨用户同subject_id及跨科job_id不能互读；有效旧功能断言不删、不skip凑绿。
+
+【交付后停止】
+报告状态verified_local（真实smoke受阻则verified_local_with_live_smoke_blocked），不得自写accepted或review.json。报告含六单元完成情况、真实命令/行范围、限制/失败历史、source/data/scope/恢复归档核验、临时实例清理和用户重启命令。只要仍有明确实施缺陷就继续本范围补修；不把“后续可做”冒充本轮完成。阶段末交协调者一次独立验收。

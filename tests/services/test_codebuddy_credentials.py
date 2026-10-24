@@ -21,6 +21,14 @@ from deeptutor.services.codebuddy_credentials import (
     refresh_credentials,
     resolve_api_base,
 )
+from tests.phase1 import helpers
+
+#: The auth fixture below carries a fixed ``expiresAt``. Wall-clock assertions on a
+#: fixed timestamp rot: 1791055241000 is 2026-10-04, so ``is_expired()`` became True
+#: and the original ``is False`` assertion started failing. Every test that reasons
+#: about expiry freezes the production module's clock to this instant, which sits
+#: well before ``expiresAt - _EXPIRY_SKEW_SECONDS`` (1791054941.0).
+FIXTURE_NOW = 1791000000.0
 
 
 def _write_auth_file(tmp_path: Path, monkeypatch, **auth_overrides) -> Path:
@@ -45,16 +53,19 @@ def _write_auth_file(tmp_path: Path, monkeypatch, **auth_overrides) -> Path:
 def test_load_credentials_parses_session(tmp_path, monkeypatch) -> None:
     _write_auth_file(tmp_path, monkeypatch)
 
-    credentials = load_credentials()
+    with helpers.frozen_time("deeptutor.services.codebuddy_credentials", FIXTURE_NOW):
+        credentials = load_credentials()
 
-    assert credentials is not None
-    assert credentials.access_token == "access-token"
-    assert credentials.refresh_token == "refresh-token"
-    assert credentials.user_id == "uid-1"
-    assert credentials.user_label == "tester"
-    # Epoch milliseconds in the file, seconds in the dataclass.
-    assert credentials.expires_at == pytest.approx(1791055241.0)
-    assert credentials.is_expired() is False
+        assert credentials is not None
+        assert credentials.access_token == "access-token"
+        assert credentials.refresh_token == "refresh-token"
+        assert credentials.user_id == "uid-1"
+        assert credentials.user_label == "tester"
+        # Epoch milliseconds in the file, seconds in the dataclass.
+        assert credentials.expires_at == pytest.approx(1791055241.0)
+        assert credentials.refresh_expires_at == pytest.approx(1793647241.0)
+        assert credentials.is_expired() is False
+        assert credentials.can_refresh() is True
 
 
 def test_load_credentials_returns_none_when_signed_out() -> None:

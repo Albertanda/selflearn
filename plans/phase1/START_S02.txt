@@ -1,0 +1,67 @@
+现在执行 S02：错误、原子写与模型输出基础（一次阶段会话）。
+工作目录：/home/albert/selflearn/selflearn
+
+S01 rework01 已由协调者继续补修并验收；当前有效签收为 .phase1-evidence/stages/S01/review.json，其指向 .phase1-evidence/reviews/S01-final/review.json。旧 reviews/S01/review.json 的 changes_requested 是历史记录，不是当前依赖状态。先核对最新 receipt 的源码 hash，不恢复旧版 helpers，也不重做 S00/S01。
+
+本次按 P1-03 → P1-09 → P1-55 → P1-04 连续完成，逐单元定向验证，阶段末只交接一次。不要逐卡询问，不进入 S03，不增加第二阶段功能。
+只读 STAGE_WORKFLOW.md、stages/S02.md、这四张小卡和 C01/C02/C04；无需再遍历全部仓库或全部任务卡。历史要求每卡 completion 的文字以阶段流程为准，本轮一份 report.json 即可。
+
+一、授权文件与边界
+
+仅允许修改：
+- deeptutor/subjects/errors.py
+- deeptutor/services/file_io.py
+- deeptutor/subjects/model_output.py
+- deeptutor/subjects/generation.py
+- tests/phase1/test_p1_03.py
+- tests/phase1/test_p1_09.py
+- tests/phase1/test_p1_55.py
+- tests/phase1/test_p1_04.py
+- tests/services/test_file_io.py
+另允许写 .phase1-evidence/stages/S02/ 的共享执行证据。
+
+上述并集仍受每卡符号范围约束。不改路由/LLM factory/subjects store、批改或考点业务、已验收的 tests/phase1/helpers.py/conftest.py，不改任务包/Schema，不动实际 data/settings。现有 dirty 修复保留，不 reset、不 checkout 旧文件、不提交/推送。
+P1-03 仅定义业务异常和投影；全部 subject HTTP 路由包装属于后续 P1-56，本阶段不得注册全局 handler 或提前改 routers。锁/读写落库属于 S03；批改/考点接入严格解析器属于 S04；本阶段只交付可测试的基础模块。
+
+二、四个单元的目标、证据和完成条件
+
+P1-03：业务错误与安全投影
+目标：按 C02 提供确定 code、HTTP 状态、retryable、固定安全消息；HTTP 保留 detail:string 并增加 error，WS/tool 共享 error 数据而不改变其事件协议。
+范围：errors.py、test_p1_03.py。
+证据：实际 LLMReasoningBudgetExhausted（它不是 LLMEmptyResponseError 子类）映射 502/reasoning_budget_exhausted；已知 timeout 映射 504；各表项及未知错误的安全兜底可验证。
+把唯一虚构 key/Authorization/正文/宿主路径标记放进 32KiB cause，检查完整 HTTP/WS/tool 投影均不含标记，message/detail 符合现有 Schema 长度限制；不能仅截断 cause 原文。基准输入先合法，再只改变待测字段。不得在异常 repr、HTTP response 或测试失败输出中打印真实秘密。
+完成：detail 类型与 error 字段齐全；未知异常按 C02 安全兜底，不伪造成功。后续路由保留原生 422/auth 状态及 headers 的约束在此保留，不在本阶段越界实现路由包装。
+
+P1-09：原子 JSON 写数组并拒绝非标准数字
+目标：atomic_write_json 明确支持既有对象和数组，中文写入兼容；失败不破坏旧文件。
+范围：file_io.py 中 JSON 写入类型/必要 flush、fsync、cleanup；两份指定测试。保持已有对象格式及其他文件工具行为，不重构全服务存储。
+证据：对象和数组中文成功；无法序列化值、NaN/Infinity、fsync/replace 故障点在作用前注入时，目标旧字节不变、无临时垃圾；现有 file_io 用例继续通过。
+完成：使用同目录临时文件、flush/fsync、atomic replace；不能吞写入失败声称持久化成功。故障注入明确发生于 replace 之前还是之后，不把“替换已成功后再抛错”误写为文件仍应是旧字节。
+
+P1-55：严格的单对象模型 JSON 解析
+目标：提供纯 parser，只接受一个完整 JSON object；允许完整外围代码围栏和已闭合 think 标签。不做批改/考点字段语义校验。
+范围：model_output.py、test_p1_55.py。
+证据：纯对象/完整 JSON fence/已闭合 think 后正文成功；两个连续对象、多个候选对象、截断 JSON、未闭合 fence/think、array/null/scalar 均失败；think 文本中的对象不能被当作正文。字符串内部花括号等合法对象内容不能被贪婪 regex 错截。
+完成：失败给具名 invalid_model_output；不吞异常返回 {}、[] 或猜错题结果；没有“先 regex 抠一段后默认成功”的兜底。按 C04 验证解析，与后续领域 schema 校验保持接口清晰。
+
+P1-04：空正文和截断正文不能成功
+目标：增加 pure validate_subject_response(response)->str，complete_subject_text 委托检查并保持公共调用签名及参数语义。
+范围：generation.py 内部检查、test_p1_04.py；不改公共 factory.complete/complete_response。
+证据：length/max_tokens/max_output_tokens 三种 reason 各测空与非空；空截断保留 reasoning_budget_exhausted，非空截断为 output_truncated；非截断空白为 empty_model_output；stop+中文和 legacy None+正文正常 trim 返回。检查实际 factory 调用参数，不自动增加预算或重试。
+完成：先检查 finish_reason 再成功返回。兼容原空截断 LLMReasoningBudgetExhausted 语义及 S01 真实消费者回归；不为适配新实现修改已验收 S01 断言。若不可兼容，明确列最小契约冲突，不能悄悄更改旧错误含义。
+
+三、测试、数据与证据
+
+1. 开始时记录 S02 source/data 基线。capture --include 同时纳入已验收的 S01 7 个批准文件（receipt 中列出）和本阶段 9 个文件，未来尚不存在的新增模块也列 include；原始基线/归档只读。
+2. 所有配置读取和业务数据测试在 p1_runtime/isolated_runtime 内。普通 HTTP 测试只能在隔离作用域内使用 route_client；完整 lifespan 用现有独立子进程 probe。供应商用 install_provider_stubs/p1_providers，不调用真实供应商；localhost stub 仅显式声明具体端口。
+3. 每卡完成立即运行卡内定向命令。测试文件新增后，在阶段末合并运行：
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q tests/phase1 tests/services/test_file_io.py tests/services/test_codebuddy_credentials.py tests/services/rag/test_llamaindex_document_loader.py
+该启动器已经审查，会在 pytest 收集前准备 tmp home 和可信默认配置；只读使用，不修改它，不复制真实 settings。此合并回归包含 S00/S01 回归及四卡新测试。
+4. 对本阶段实际新增/修改的 9 个允许路径做一次 Ruff 检查；新文件还不存在前不运行检查。原子工具是共享服务，若有新的调用兼容风险再补其直接使用方回归，不盲目提前跑全仓库基线或前端。
+5. source compare 的 --allow 显式逐个列出本阶段 9 个路径，不写占位符；保护三棵真实树，并额外比较已有 supplementary 清单的 global KB/memory/system，本阶段必须均无新变化。历史 memory trace 文件保留，不删除、不解析、不改旧基线。
+6. 所有实际命令、cwd、原输出、时间、exit code 实时追加 execution.log；失败也保留，返修追加复测。若做 mutation，标明预期 exit=1；不能拿 mutation 的失败冒充最终回归失败或反过来。
+7. 阶段末一个 source 恢复归档和 sidecar，verify-rebuild 在新的 tmp 目录核验。report.json 使用现有 StageReport，四个 card_results 引用共同命令/日志，写测试输入、预期、实际、源码 hash、scope/data 检查和限制。不生成四份单卡长报告。
+
+阶段完成条件：四个基础单元的行为与兼容证据成立，相关测试/lint 通过，范围及真实数据检查通过，归档匹配；只报告 verified_local，由协调者独立签收。
+普通失败在本阶段内自修复测，无需逐卡转发；真实数据安全失败立即停，确需越白名单或改契约时列最小 blocked_scope。不要安装/升级依赖、启动真实服务/重建真实索引。
+完成 S02 后停止，等待阶段复核；不得自动开始 S03。

@@ -50,6 +50,29 @@ def default_context_window_for_model(
     return max(DEFAULT_CONTEXT_WINDOW_FALLBACK, output_limit * 4)
 
 
+def resolve_input_budget(
+    *,
+    context_window: Any = None,
+    output_budget: Any = None,
+    model: str = "",
+    safety_ratio: float = 0.9,
+) -> int:
+    """Input budget that leaves room for the actual output and a safety margin.
+
+    The provider's total context is authoritative; a large default output
+    budget must reduce the input allowance rather than produce an
+    input+output request above the window.
+    """
+
+    window = resolve_effective_context_window(
+        context_window=context_window, model=model, max_tokens=output_budget
+    )
+    output = coerce_positive_int(output_budget) or 4096
+    ratio = min(max(float(safety_ratio), 0.1), 1.0)
+    margin = max(1024, int(window * (1.0 - ratio)))
+    return max(0, min(int(window * ratio), window - output - margin))
+
+
 def resolve_effective_context_window(
     *,
     context_window: Any = None,
@@ -75,4 +98,5 @@ __all__ = [
     "default_context_window_for_model",
     "looks_like_large_context_model",
     "resolve_effective_context_window",
+    "resolve_input_budget",
 ]

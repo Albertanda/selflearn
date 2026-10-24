@@ -20,6 +20,33 @@ from .base import (
 logger = logging.getLogger(__name__)
 
 
+def rejects_absent_encoding_format(status_code: int, body: str) -> bool:
+    """Whether *body* is a gateway refusing the request for lacking the param.
+
+    Two gateways impose opposite requirements and neither can be satisfied by
+    picking a default: SiliconFlow rejects ``encoding_format`` when it is
+    *present* (which is why it is omitted), and ModelScope rejects it when
+    absent — it reads the missing field as ``''`` and answers
+    ``encoding_format must be 'float' or 'base64', got ''``. Both constraints
+    belong to the gateway, not to the model, so a model-family rule would key
+    off the wrong thing: the same Qwen3-Embedding weights are served by
+    gateways on both sides of the disagreement.
+
+    Recover from what the provider actually said instead. The body must name the
+    parameter *and* name the value we are about to send, so a gateway
+    complaining that ``encoding_format`` is unsupported does not trigger a retry
+    that would fail the same way.
+
+    Ported from upstream v1.5.16. This project embeds through SiliconFlow, which
+    sits on the "omit it" side, so the omit-by-default path stays exactly as it
+    was and only the explicit complaint earns the retry.
+    """
+    if status_code != 400:
+        return False
+    lowered = body.lower()
+    return "encoding_format" in lowered and "float" in lowered
+
+
 class OpenAICompatibleEmbeddingAdapter(BaseEmbeddingAdapter):
     NO_KEY_SENTINEL = "sk-no-key-required"
 
@@ -220,6 +247,20 @@ class OpenAICompatibleEmbeddingAdapter(BaseEmbeddingAdapter):
 
                     if response.status_code >= 400:
                         body_text = response.text
+                        # A gateway that refuses the request *because*
+                        # `encoding_format` is missing gets exactly one retry
+                        # with it set. The happy path is byte-identical: the
+                        # field is still omitted unless the provider complains.
+                        if "encoding_format" not in payload and rejects_absent_encoding_format(
+                            response.status_code, body_text
+                        ):
+                            payload["encoding_format"] = "float"
+                            logger.info(
+                                "Gateway requires an explicit `encoding_format`; "
+                                "retrying once with 'float' (%s)",
+                                url,
+                            )
+                            continue
                         logger.error(f"HTTP {response.status_code} from {url}: {body_text[:2000]}")
                         raise EmbeddingProviderError(
                             f"Embedding provider returned HTTP {response.status_code}",

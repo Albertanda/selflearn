@@ -66,6 +66,7 @@ class GenerationSettings:
     temperature: float = 0.7
     max_tokens: int = 4096
     reasoning_effort: str | None = None
+    reasoning_protocol: str | None = None
 
 
 class LLMProvider(ABC):

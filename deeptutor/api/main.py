@@ -153,6 +153,16 @@ async def lifespan(app: FastAPI):
     # Execute on shutdown
     logger.info("Application shutdown")
 
+    # Stop ASR workers owned by this process before providers/clients close.
+    # Persisted jobs stay recoverable; no other user/process is enumerated.
+    try:
+        from deeptutor.services.asr.jobs import shutdown_asr
+
+        stopped = await shutdown_asr()
+        logger.info("ASR workers stopped: %s", stopped)
+    except Exception as e:
+        logger.warning(f"Failed to stop ASR workers: {e}")
+
     # Stop cron scheduler
     try:
         from deeptutor.services.cron import get_cron_service
@@ -269,6 +279,9 @@ except Exception:
 # Import routers only after runtime settings are initialized.
 # Some router modules load YAML settings at import time.
 from deeptutor.api.routers import (
+    asr as asr_router,
+)
+from deeptutor.api.routers import (
     attachments,
     auth,
     capabilities_settings,
@@ -381,6 +394,12 @@ app.include_router(
 app.include_router(skills.router, prefix="/api/v1/skills", tags=["skills"], dependencies=_auth)
 app.include_router(
     subjects.router, prefix="/api/v1/subjects", tags=["subjects"], dependencies=_auth
+)
+app.include_router(
+    asr_router.router,
+    prefix="/api/v1/subjects",
+    tags=["subjects"],
+    dependencies=_auth,
 )
 app.include_router(
     personas.router, prefix="/api/v1/personas", tags=["personas"], dependencies=_auth

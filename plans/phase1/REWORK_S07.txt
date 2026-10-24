@@ -1,0 +1,142 @@
+仅执行 S07 合并返修，按 R1 → R2 → R3 → R4 → R5 → R6 → R7 → R8 串行完成，阶段末一次交付。不要逐卡停下询问，不进入 S08 或第二阶段。当前 S07 未通过验收，旧 verified_local/goal_met:true 不能作为进入下一阶段的许可。
+
+工作目录 /home/albert/selflearn/selflearn。优先读本文件、S07_REWORK_EXPLORATION.md（已探索的文件清单+关键片段）及 .phase1-evidence/stages/S07/review.json 所指 receipt。无需重做全仓 orientation；实际修改只读相邻上下文。C01/C02/C08/C13 不变，本指令细化并取代首次 START_S07 的范围与收尾门。
+
+开工先核验：阶段指针必须 changes_requested、goal_met:false、next_stage_authorized:false，核对 receipt SHA256；核对最新82条 source_artifacts、本返修包/探索包及独立探针哈希。它是当前源码基线，不是业务签收；旧 S06-final59条只读产物及26条审查证据继续保持。未修改的源码也必须核验，不用旧 S07 packet 里的实施前hash替代当前基线。
+
+当前已独立确认：原127项定向/2项原有环境skip、420项Node、Ruff、tsc通过；相关回归3264 passed/21 skipped/2 failed。补充实际行为探针为后端26场景（25失败/1正例）、前端7场景（5失败/2正例），共30处目标断言失败。前端探针首版的VM变量重声明错误已修正，旧失败尝试保留；本指令依据修正后的5处断言。具体结果见receipt和审查日志，不把测试全绿当作未测边界正确。
+
+本轮不安装升级、不提交推送、不重启实际服务、不读取真实配置内容/历史memory、不调真实供应商、不重建真实索引。保留工作树现有dirty、5个tracked deletion及所有前人修复，不reset/stash/checkout。所有业务测试在临时HOME下收集；六树只通过快照工具不透明哈希。继承的auth.lock保留，真实数据树不产生新锁。
+
+一、唯一允许更改范围（23路径，按符号收窄）
+
+原S07的18路径继续适用：
+deeptutor/subjects/kb_scope.py
+deeptutor/services/session/turn_runtime.py
+deeptutor/runtime/request_contracts.py
+deeptutor/api/routers/unified_ws.py
+deeptutor/tools/rag_tool.py
+deeptutor/agents/chat/agentic_pipeline.py
+deeptutor/tools/builtin/__init__.py
+tests/phase1/test_p1_20.py
+tests/phase1/test_p1_21.py
+tests/phase1/test_p1_22.py
+tests/phase1/test_p1_23.py
+tests/phase1/test_p1_24.py
+tests/api/test_unified_ws_turn_runtime.py
+web/app/(workspace)/home/[[...sessionId]]/page.tsx
+web/components/chat/home/SubjectSelector.tsx
+web/context/UnifiedChatContext.tsx
+web/lib/subject-scope.ts
+web/tests/phase1-25.test.ts
+
+追加5路径只修已经存在的消费者/确定性测试接缝：
+deeptutor/agents/question/pipeline.py（仅 _augment_tool_kwargs 的RAG作用域，必要的当前KB枚举一致性）
+deeptutor/agents/research/pipeline.py（同上；保留既有裁剪修复）
+deeptutor/services/rag/pipelines/pageindex/pipeline.py（仅既有outline结果的retrieval_kind标记及失实search说明；不加新检索）
+tests/agents/chat/test_message_build.py（仅两项既有消息构造测试的显式临时模型配置/替身）
+tests/tools/test_rag_tool.py（仅两项当前因未配置embedding而skip的factory/别名用例，提供确定性临时配置，使必需场景真正执行）
+
+其它文件，包括store、uploads、material_manifest、multi_user、provider_binding、core调度、共享fixtures、DB、计划与旧证据只读。允许测试文件不是允许删有效断言、修改公共契约或新增skip/xfail。新需求才blocked_scope；本轮已明确授权的接缝无需再次请示。证据仅新建 .phase1-evidence/stages/S07/rework01/，旧report/日志前缀/归档/审查receipt与探针不可覆盖。
+
+二、返修单元：目标、证据、完成条件
+
+R1 资源身份/存在/就绪与只读provider边界
+目标：挂载检查按真实资源身份；解析不返回不存在/未ready的KB，不通过metadata链接选外部provider。
+证据：probe_s07.py 中 explicit_global_identity 两方向、bare_global_name、registered_but_absent 两模式、empty_mount、not_ready_global、strict_provider 两模式共9处失败。
+允许符号：kb_scope 的 mounted identity/match、resolve_global/subject、provider解析；chat pipeline 的scope注入；test_p1_20/23。
+处理：
+- admin:kb:x 与 user:kb:x 对普通用户是两个可访问但不同的资源，不能仅因名字同/类型global同就通过本轮挂载；裸名同时匹配二者必须invalid_input。必要时先授权规范化到真实resource.id再比较，保留当前管理员真正指向同一资源的合法别名；禁止用固定去前缀字符串当身份。
+- 模型调用永远携带实际 mounted_refs，空列表也必须是[]，不能用 mounted or None 恢复旧全局任意查询。可信Python direct API的None兼容不变；它与模型调用有明确边界。
+- 已登记但目录缺失，无论 require_ready True/False都kb_not_found404，且不建目录。现有config-only测试把不存在目录当legacy ready是错误正例：先真实建目录保留合法兼容正例，再补“仅配置无目录”反例；不修改S05投影以迁就错误正例。
+- require_ready=True 对显式挂载全局库也有效，error/stale等不可查询；不能仅给subject执行ready检查。保留已有global授权/只读授予语义，不能新增默认库、跨科回落或解析写入。
+- subject provider fallback不能调用会静默忽略坏JSON/跟随metadata叶链接的旧读取器后直接信任结果。可在新kb_scope里组合现有strict reader/confined与normalize规则，不修改只读provider_binding。坏metadata/storage IO明确报C02，不能选择外部JSON的provider或默认假成功。
+完成：9个探针归零；正例仍通过；永久测试覆盖真正普通用户自己的同名库+已授予admin库，不仅在local-admin身份上跑同名场景；解析前后临时完整树零写入。
+
+R2 三态冲突、原始挂载重放与拒绝无损
+目标：两个显式位置严格按原输入比较；regenerate恢复原始scope与显式挂载，完整校验发生在破坏性操作前。
+证据：two_explicit_subject_carriers三个反例（null/""、""/null、""/空白）；原global挂载被当前偏好换掉；当前偏好含另一科ref时先删旧assistant再拒绝，共5处。
+允许符号：turn_runtime 的requested subject/snapshot/regenerate/start边界；test_p1_21/22；必要的unified_ws拒绝投影不扩协议。
+处理：
+- _requested_subject先检查两个存在值的类型与原始相等性，再归一化各自单独输入；不能先把null/空字符串/空白都变None以掩盖冲突。
+- 重放subject和用户显式knowledgeBases都来自原snapshot，含明确空列表；不从后来保存的session preference借另一科/另一global库。mounted集合仍按原scope与当前真实ready重新安全解析，不把旧ready快照当当前授权。旧历史没有scope的规则保持无科目。
+- 校验原scope、原挂载及本次覆盖参数的合法性之后，才删assistant/更新偏好/建turn。任何校验失败消息与偏好保持原样。不要通过捕获失败后继续无科目或换库来消除异常。
+完成：5处探针通过；被删subject、被删/撤权/未ready原KB、当前偏好A→B、快照null/[]均有真实store前后断言；拒绝后WS仍可继续，不删除原assistant。
+
+R3 前端真实快照与加载生命周期
+目标：浏览器重放使用原科目；异步旧加载不得把用户带回旧会话；最后一个科目被删后仍能显式清空。
+证据：probe_frontend.cjs 修正版5个失败：hydration丢top-level scope、客户端snapshot仅config scope被忽略、NEW_SESSION后旧响应重选A、相同session两次加载旧响应覆盖新值、空subjects时selector返回null。
+允许符号：subject-scope helpers、UnifiedChatContext hydration/send/replay/load/newSession、SubjectSelector、页面现有调用与test P25。
+处理：
+- 后端snapshot有subject_id，但hydrateRequestSnapshot不复制；本地乐观snapshot仅有config.subject_id，但readSnapshotScope只读顶层。统一新增、刷新恢复、retry/edit/replay的规范形状并兼容现有真实形状，保留属性存在与显式null；不能只测试手工构造的理想顶层对象。
+- load请求用可区分请求代次的标记，不只比sessionId字符串；newSession/离开当前加载时使旧请求失效。同ID重复加载的逆序结果也不能覆盖新scope。保留旧会话缓存可填充但不得重新选中、后台刷新不覆盖用户刚选科目的保证。加载失败须可重试/恢复，不制造永久关发送门。
+- 当前值指向已删科目且subjects=[]时仍给可达清空入口；不静默自动选另一科/发送旧问题。正常无科目与普通新session行为保留。
+完成：5处真实函数/组件断言通过，新增永久测试必须通过实际hydrator/reducer/callback/selector接线，不只纯helper+源码正则。Node+tsc通过，不宣称真实浏览器总验收。
+
+R4 降级警告真正到达模型及用户
+目标：未ready库既不挂载，也不让模型/用户误以为当前科全部可检索。
+证据：真实runtime已生成subject_kb_warnings，但真实chat _build_loop_messages中没有警告固定文案；前端也不消费DONE内该字段。原测试只断言metadata数组，证明范围不足。
+允许符号：turn_runtime 的subject上下文/既有事件投影、chat现有prompt seed；UnifiedChatContext现有事件/replay状态、home page内有界提示；test_p1_22和P25。
+处理：有界固定警告进入真正模型上下文；客户端对同一事件/持久化重放有明确可见提示（可用现有页面内提示，不加新组件/协议架构），包含合法kb_ref/status，不回显原异常。阶段结束后不会把旧会话的warning显示到另一会话；新轮次更新/清空warning。仅logger或未被消费的DONE metadata不算完成。
+完成：原探针通过；真实运行消息列表含警告；实际前端状态消费/展示函数有行为证据（含重放、切会话），不是只搜字段字符串；正常ready场景无误报。
+
+R5 公开RAG结果与错误投影
+目标：内部目录、凭据、伪造作用域不会出现在公开工具结果/事件；检索失败有固定结构化错误且不换库重试。
+证据：Windows绝对路径source/file/filename三个反例、nested diagnostics含api_key/base_dir原样外泄、engine异常原文含标记与路径外泄，共5处探针。
+允许符号：builtin RAG结果/来源包装、rag_tool 边界；相应test_p1_23/24。
+处理：
+- 在Linux运行也识别Windows盘符/UNC等绝对来源路径，输出相对文件名/合法来源，保留页码/真实chunk等。URL与合法相对来源仍可用。
+- 仅顶层deny-list不足；为公开metadata使用明确安全字段/类型投影，未知嵌套诊断不整体透传，受控来源字段也不能装任意嵌套dict。伪造kb_ref/subject_id/name不被服务端外层遗漏。正常文档正文不作任意敏感词删除。
+- provider/service异常及引擎显式失败结果在RAG wrapper转C01/C02固定错误，cause仅在日志。不要把Engine error字符串写进公开metadata/error/content。不必改所有core工具调度。
+- 现有test_p1_23要求“engine exploded”出现在公开结果，这是错误断言，应替换为固定code/message/retryable及无原文；保留失败可见、服务实例数/目录及不fallback等有效断言。
+完成：5探针通过；真实 pipeline→builtin→rag_search 链中公开序列化结果无测试标记/内部路径；正文来源/page保持；新负例先有合法正例，不拿导入错误凑通过。
+
+R6 PageIndex的实际结果边界
+目标：既有REST outline可达，调用方能从实际结果辨认只得到概览。
+证据：实际PageIndexPipeline.search返回已有outline但无retrieval_kind；当前测试只检查prompt和enum，没有调用search。
+允许符号：pageindex pipeline.search的返回标记/失实docstring，builtin安全投影、test_p1_24。
+处理：为既有outline结果及必要失败分支明确retrieval_kind=outline，贯通真实RAG工具/metadata；保持既有文档树/引用，无新增MCP或深度检索。修正search说明中的现存MCP深检索承诺，不扩为S14全仓宣传清理。
+完成：原真实search探针通过，再加fake PageIndex client→真实search→实际RAGTool结果的断言，不能以stub整个search返回自己写的标记替代。
+
+R7 已有Question/Research调用端作用域
+目标：现有deep_question/deep_research使用当前科库能成功，模型不能借它们伪造目录。
+证据：两个实际_augment_tool_kwargs→真实RAGTool链共4失败：合法ref因未注入expected subject被403；模型显式kb_base_dir被原样送service。旧报告称“由同一执行端解析”不代表已传入可信作用域。
+允许符号：question/research pipeline两个_augment_tool_kwargs的rag分支与必要schema一致性，kb_scope可提取共享注入helper，test_p1_23/24。
+处理：对这些现有消费者也无条件剥离所有模型scope载体，再由真实context.metadata.subject_id、context.knowledge_bases注入；[]保持[]。模型kb_name只能选实际绑定资源；不要扩大成全新多KB研究模式，不改生成/研究算法/模板/prompt架构。普通global/CLI可信路径保留。不新增另一套解析器。
+完成：4探针通过；两个消费者各有合法正例、伪造base/provider/跨科反例和空挂载场景；跑现有question/research相关回归，保留已有research裁剪代码。
+
+R8 确定性验收门及证据完整性
+目标：消除必需测试的环境阻塞，交付准确反映真实命令与验证范围。
+证据：两项message-build失败已由协调者从S06-final归档独立重建并复现，确属既有缺少LLM配置，不是S07引入；2项factory用例因无embedding配置被误当optional dependency缺失而skip；另1项DNS skip是新增目录中的原有声明。原报告42条命令后日志还有build-report-3/schema-check-3两条未列，schema最终成功在日志中存在。
+允许符号：两个窄授权旧测试文件的临时配置/替身；新rework证据生成器，不改原报告。
+处理：
+- message-build两项只验证消息组织，为其提供显式fake模型配置（示例见test_p1_23._pipeline中的配置替身）；保留全部原断言，不在生产构造器加假模型，不读真实model catalog。
+- factory两个必需场景在临时设置下实际执行，保留factory/alias行为断言，不装依赖/开真实embedding。区分“新增skip声明”与“本次选择目录中新观察到的已有skip”，不把21写成18。
+- 所有非0尝试保留；命令argv/cwd/时间/日志范围准确，shell字符串保存结构化argv。报告覆盖业务检查，最终build/schema等收尾命令若在冻结点之后，单独用closing manifest记录真实argv/exit/行号及report/final-log hash，明确截止行，不自引用或反复覆写冻结产物。
+完成：两项历史失败变为实际通过，两个factory场景实际执行；无新增skip/xfail；所有本轮必需检查exit0；新报告与日志/关闭清单可逐条核对，产物hash全部一致。
+
+三、统一验证与收尾
+
+先新建rework01唯一baseline，capture include为最新82条receipt源码（59只读+23允许路径），protect-data前后对三强制树+三supplementary完整files/dirs/modes比对。未创建文件也应列入（本轮23条均已存在）。保留旧日志前缀，最好新共享execution.log完全在rework01，串行写。
+
+先原样运行封存后端探针，保存25失败/1正例基线：
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q --tb=short .phase1-evidence/reviews/S07/probe_s07.py
+node --test .phase1-evidence/reviews/S07/probe_frontend.cjs
+
+后端原探针只读，收尾应全部通过。前端原探针也只读；若实现新增闭包依赖使旧VM装载器不再适配，可在新rework证据里仅补依赖绑定，保留实际源码执行与全部目标断言，同时转为仓库永久行为测试；不能删失败场景/改预期或只用源码正则宣布通过。
+
+每单元定向测试，有变动/失败才复跑。阶段末合并：
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q -rs tests/phase1/test_p1_20.py tests/phase1/test_p1_21.py tests/phase1/test_p1_22.py tests/phase1/test_p1_23.py tests/phase1/test_p1_24.py tests/services/session/test_regenerate.py tests/api/test_unified_ws_turn_runtime.py tests/tools/test_rag_tool.py tests/tools/test_kb_files_tool.py tests/agents/chat/test_kb_manifest_note.py tests/agents/chat/test_message_build.py
+./.venv/bin/python .phase1-evidence/stages/S01/rework01/run_regression_tmp_home.py -q -rs tests/phase1 tests/services tests/api tests/tools tests/agents/chat tests/agents/question tests/agents/research tests/utils/test_document_extractor.py
+./.venv/bin/ruff check deeptutor/subjects/kb_scope.py deeptutor/services/session/turn_runtime.py deeptutor/runtime/request_contracts.py deeptutor/api/routers/unified_ws.py deeptutor/tools/rag_tool.py deeptutor/agents/chat/agentic_pipeline.py deeptutor/tools/builtin/__init__.py deeptutor/agents/question/pipeline.py deeptutor/agents/research/pipeline.py deeptutor/services/rag/pipelines/pageindex/pipeline.py tests/phase1/test_p1_20.py tests/phase1/test_p1_21.py tests/phase1/test_p1_22.py tests/phase1/test_p1_23.py tests/phase1/test_p1_24.py tests/api/test_unified_ws_turn_runtime.py tests/tools/test_rag_tool.py tests/agents/chat/test_message_build.py
+cd web && node ./scripts/run-node-tests.mjs
+cd web && ./node_modules/.bin/tsc --noEmit -p .
+(cd web每条独立cwd。Node+tsc不是浏览器验收，S15门保留；不安装环境替代实际结果。)
+
+独立坏对照只在新tmp副本：至少恢复一个admin/user按名混淆、一个replay丢scope、一个nonchat保留模型base_dir；各组先同副本合法正例通过，再证明目标断言失败，确认导入来自副本，失败不是路径/配置错误。旧坏对照无需重复刷次数。
+
+收尾 scope compare仅23路径，59条只读前置源码、旧S07原报告/归档/探针/receipt及审查证据hash不变；真实六树无新变化，无新锁。最终82路径capture、唯一新archive/sidecar，在唯一新tmp子目录verify-rebuild，须保留当前审查归档1867成员及继承删除/.next-deeptutor状态，不缩归档凑通过。
+
+report.json满足StageReport，六卡+R1–R8分别列目标/证据/允许范围/完成门、真实命令/日志、范围/数据、归档重建、坏对照、失败自修、准确限制；不要沿用旧goal_met:true。所有产物停止变化后冻结hash，report不进入自身artifacts，closing manifest避免循环引用。
+
+一般代码/测试失败在范围内修完；确需额外文件/契约/缺环境时给最小blocked_*及复现，不偷偷跳过。全部门通过只标verified_local，停止等待独立审查；不得自签accepted或进入S08。

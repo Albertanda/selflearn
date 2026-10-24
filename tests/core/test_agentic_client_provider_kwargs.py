@@ -17,20 +17,20 @@ from deeptutor.core.agentic.client import (
 from deeptutor.services.llm.provider_core.base import LLMResponse, ToolCallRequest
 
 
-def test_agentic_kwargs_disable_deepseek_flash_thinking_by_default() -> None:
+def test_agentic_kwargs_leave_deepseek_flash_default_to_the_provider() -> None:
     kwargs = build_completion_kwargs(
         temperature=0.7,
-        model="deepseek-v4-flash",
+        model="deepseek-flash",
         max_tokens=1024,
         binding="deepseek",
     )
 
     assert kwargs["max_tokens"] == 1024
     assert "reasoning_effort" not in kwargs
-    assert kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
+    assert "extra_body" not in kwargs
 
 
-def test_agentic_kwargs_enable_deepseek_pro_thinking_by_default() -> None:
+def test_agentic_kwargs_leave_deepseek_pro_default_to_the_provider() -> None:
     kwargs = build_completion_kwargs(
         temperature=0.7,
         model="deepseek-v4-pro",
@@ -38,11 +38,11 @@ def test_agentic_kwargs_enable_deepseek_pro_thinking_by_default() -> None:
         binding="deepseek",
     )
 
-    assert kwargs["reasoning_effort"] == "high"
-    assert kwargs["extra_body"] == {"thinking": {"type": "enabled"}}
+    assert "reasoning_effort" not in kwargs
+    assert "extra_body" not in kwargs
 
 
-def test_agentic_kwargs_use_provider_minimal_thinking_without_top_level_effort() -> None:
+def test_agentic_kwargs_map_minimal_to_low_and_enable_thinking() -> None:
     kwargs = build_completion_kwargs(
         temperature=0.7,
         model="deepseek-v4-pro",
@@ -51,11 +51,11 @@ def test_agentic_kwargs_use_provider_minimal_thinking_without_top_level_effort()
         reasoning_effort="minimal",
     )
 
-    assert "reasoning_effort" not in kwargs
-    assert kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
+    assert kwargs["reasoning_effort"] == "low"
+    assert kwargs["extra_body"] == {"thinking": {"type": "enabled"}}
 
 
-def test_agentic_kwargs_enable_qwen_thinking_for_custom_binding() -> None:
+def test_agentic_kwargs_do_not_infer_qwen_thinking_for_custom_binding() -> None:
     kwargs = build_completion_kwargs(
         temperature=0.7,
         model="qwen3.6-plus",
@@ -65,10 +65,10 @@ def test_agentic_kwargs_enable_qwen_thinking_for_custom_binding() -> None:
 
     assert kwargs["max_tokens"] == 1024
     assert "reasoning_effort" not in kwargs
-    assert kwargs["extra_body"] == {"enable_thinking": True}
+    assert "extra_body" not in kwargs
 
 
-def test_agentic_kwargs_disable_qwen_thinking_for_custom_minimal_reasoning() -> None:
+def test_agentic_kwargs_do_not_infer_custom_qwen_minimal_as_off() -> None:
     kwargs = build_completion_kwargs(
         temperature=0.7,
         model="Qwen/Qwen3-235B-A22B-Instruct",
@@ -78,7 +78,7 @@ def test_agentic_kwargs_disable_qwen_thinking_for_custom_minimal_reasoning() -> 
     )
 
     assert "reasoning_effort" not in kwargs
-    assert kwargs["extra_body"] == {"enable_thinking": False}
+    assert "extra_body" not in kwargs
 
 
 def test_agentic_kwargs_preserve_legacy_shape_without_binding() -> None:
@@ -486,3 +486,32 @@ async def test_agentic_client_pool_reuses_and_bounds_clients(monkeypatch) -> Non
     )
     assert built[0].closed == 1
     await agentic_client.close_agentic_client_pool()
+
+
+def test_agentic_qwen_budget_uses_the_actual_output_limit() -> None:
+    kwargs = build_completion_kwargs(
+        temperature=0.7,
+        model="qwen3.5-plus",
+        max_tokens=4096,
+        binding="dashscope",
+        reasoning_effort="high",
+    )
+    assert kwargs["extra_body"]["enable_thinking"] is True
+    assert 0 < kwargs["extra_body"]["thinking_budget"] < 4096
+
+
+def test_agentic_provider_default_sentinel_sends_no_reasoning_fields() -> None:
+    from deeptutor.services.llm.reasoning_controls import (
+        PROVIDER_DEFAULT_EFFORT,
+    )
+
+    kwargs = build_completion_kwargs(
+        temperature=0.7,
+        model="deepseek-flash",
+        max_tokens=1024,
+        binding="deepseek",
+        reasoning_effort=PROVIDER_DEFAULT_EFFORT,
+        reasoning_protocol="deepseek",
+    )
+    assert "reasoning_effort" not in kwargs
+    assert "extra_body" not in kwargs

@@ -140,14 +140,11 @@ async def test_turn_runtime_replays_events_and_materializes_messages(
         "deeptutor.services.session.context_builder.ContextBuilder", FakeContextBuilder
     )
     monkeypatch.setattr("deeptutor.runtime.orchestrator.ChatOrchestrator", FakeOrchestrator)
-    monkeypatch.setattr(
-        "deeptutor.book.context.build_book_context",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            text="## Page: Signal Basics\nA selected page.",
-            references=[{"book_id": "book-1", "page_ids": ["page-1"]}],
-            warnings=[],
-        ),
-    )
+    # NOTE: this used to patch ``deeptutor.book.context.build_book_context`` so a
+    # ``book_references`` payload could be exercised. The book feature (and with
+    # it that module) was removed by the M0 fork trim, and the turn runtime only
+    # records ``book_references`` in the request snapshot — it never resolves
+    # them — so the patch had nothing left to stand in for.
     monkeypatch.setattr(
         "deeptutor.services.memory.get_memory_store",
         lambda: SimpleNamespace(
@@ -209,6 +206,10 @@ async def test_turn_runtime_replays_events_and_materializes_messages(
     assert detail["messages"][0]["metadata"]["request_snapshot"]["persona"] == "socratic"
     assert detail["messages"][0]["metadata"]["request_snapshot"]["memoryReferences"] == ["summary"]
     assert detail["messages"][0]["metadata"]["request_snapshot"]["masteryPathId"] == "path-1"
+    # The resolved subject rides in the snapshot, and a turn without one records
+    # an explicit ``None`` (P1-21): "no subject" stays distinguishable from
+    # "this turn's scope was never recorded".
+    assert detail["messages"][0]["metadata"]["request_snapshot"]["subject_id"] is None
     # M0 trim: the Book engine was removed, so no book source manifest is
     # produced. The raw user message stays raw.
     assert str(captured["user_message"]) == "hello, i'm frank"
@@ -221,6 +222,10 @@ async def test_turn_runtime_replays_events_and_materializes_messages(
         "tools": [],
         "knowledge_bases": [],
         "language": "en",
+        # The resolved subject scope is persisted with every turn, including the
+        # explicit "no subject" of this payload (P1-21/C08). An omitted subject on
+        # a later turn reuses this value instead of guessing one.
+        "subject_id": None,
         # Explicit persona in the payload is persisted as a session-level
         # preference (survives reloads; later turns fall back to it).
         "persona": "socratic",
@@ -279,7 +284,7 @@ async def test_turn_runtime_persists_llm_selection_in_turn_snapshot(
             )
             yield StreamEvent(type=StreamEventType.DONE, source="chat")
 
-    def fake_activate(selection):
+    def fake_activate(selection, **_kwargs):
         captured["activated_selection"] = selection
         return SimpleNamespace(
             model="anthropic/claude-sonnet-4", provider_name="openrouter"
@@ -492,7 +497,7 @@ async def test_turn_runtime_allows_model_switching_within_same_session(
             )
             yield StreamEvent(type=StreamEventType.DONE, source="chat")
 
-    def fake_activate(selection):
+    def fake_activate(selection, **_kwargs):
         activated.append(dict(selection or {}))
         is_alt = (selection or {}).get("profile_id") == "p-alt"
         return (
@@ -603,6 +608,7 @@ async def test_regenerate_reuses_snapshot_or_override_llm_selection(tmp_path) ->
             "request_snapshot": {
                 "content": "again",
                 "llmSelection": {"profile_id": "p-alt", "model_id": "m-alt"},
+                "reasoningOverride": {"mode": "effort", "effort": "max"},
             }
         },
     )
@@ -612,14 +618,27 @@ async def test_regenerate_reuses_snapshot_or_override_llm_selection(tmp_path) ->
         "profile_id": "p-alt",
         "model_id": "m-alt",
     }
+    assert captured_payloads[-1]["reasoning_override"] == {
+        "mode": "effort",
+        "effort": "max",
+    }
 
     await runtime.regenerate_last_turn(
         session["id"],
-        overrides={"llm_selection": {"profile_id": "p-default", "model_id": "m-default"}},
+        overrides={
+            "llm_selection": {
+                "profile_id": "p-default",
+                "model_id": "m-default",
+            },
+            "reasoning_override": {"mode": "provider_default"},
+        },
     )
     assert captured_payloads[-1]["llm_selection"] == {
         "profile_id": "p-default",
         "model_id": "m-default",
+    }
+    assert captured_payloads[-1]["reasoning_override"] == {
+        "mode": "provider_default"
     }
 
 
@@ -756,11 +775,42 @@ async def test_turn_runtime_rejects_deep_research_without_explicit_config(
         )
 
 
+def _register_global_kb(kb_name: str) -> None:
+    """在真实（隔离）全局库根登记一个库，供显式全局 ref 挂载（P1-22）。
+
+    显式引用现在会经服务端解析器校验：不存在的名字会被拒绝而不是被静默透传，
+    所以这个用例必须提供真实存在的库。
+    """
+    from pathlib import Path as _Path
+
+    from deeptutor.multi_user.knowledge_access import admin_kb_base_dir
+
+    base = _Path(admin_kb_base_dir())
+    raw = base / kb_name / "raw"
+    raw.mkdir(parents=True, exist_ok=True)
+    (raw / "notes.txt").write_text("notes\n", encoding="utf-8")
+    config = base / "kb_config.json"
+    payload: dict = {"knowledge_bases": {}}
+    if config.is_file():
+        loaded = json.loads(config.read_text(encoding="utf-8"))
+        if isinstance(loaded, dict) and isinstance(loaded.get("knowledge_bases"), dict):
+            payload = loaded
+    payload["knowledge_bases"][kb_name] = {
+        "path": kb_name,
+        "status": "ready",
+        "rag_provider": "llamaindex",
+    }
+    config.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+
 @pytest.mark.asyncio
 async def test_turn_runtime_persists_deep_research_session_preference(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
+    _register_global_kb("research-kb")
     store = SQLiteSessionStore(tmp_path / "chat_history.db")
     runtime = TurnRuntimeManager(store)
 
@@ -917,3 +967,140 @@ async def test_turn_runtime_injects_memory_and_refreshes_after_completion(
     assert captured["memory_context"] == "## Memory\n## Preferences\n- Prefer concise answers."
     assert captured["conversation_history"] == []
     assert captured["conversation_context_text"] == "Recent chat summary"
+
+
+# ---------------------------------------------------------------------------
+# P1-21: the real unified WebSocket projects refused subject scopes safely
+# ---------------------------------------------------------------------------
+import asyncio  # noqa: E402
+import json  # noqa: E402
+
+from tests.phase1 import helpers  # noqa: E402
+
+
+def _unified_ws_app():
+    """只挂真实 unified WS 路由的轻量 app（不经完整 lifespan）。"""
+    from fastapi import FastAPI
+
+    from deeptutor.api.routers import unified_ws
+
+    app = FastAPI()
+    app.include_router(unified_ws.router, prefix="/api/v1")
+    return app
+
+
+def _receive_until(websocket, wanted: str) -> dict:
+    for _ in range(20):
+        payload = websocket.receive_json()
+        if payload.get("type") == wanted:
+            return payload
+    raise AssertionError(f"no {wanted!r} event on the socket")
+
+
+@pytest.fixture
+def ws_home(tmp_path):
+    """真实路由 WS 需要隔离的 DEEPTUTOR_HOME（会话库/科目注册表都在其中）。"""
+    with helpers.isolated_runtime(tmp_path) as admin_root:
+        yield admin_root
+
+
+def test_unified_ws_projects_subject_errors_and_keeps_the_socket_usable(ws_home) -> None:
+    from fastapi.testclient import TestClient
+
+    with TestClient(_unified_ws_app()) as client:
+        with client.websocket_connect("/api/v1/ws") as websocket:
+            websocket.send_json(
+                {
+                    "type": "start_turn",
+                    "content": "hi",
+                    "session_id": None,
+                    "capability": "chat",
+                    "subject_id": "subject-not-in-registry",
+                    "config": {},
+                }
+            )
+            event = _receive_until(websocket, "error")
+            assert event["metadata"]["turn_terminal"] is True
+            assert event["metadata"]["status"] == "rejected"
+            assert event["metadata"]["error"]["code"] == "subject_not_found"
+            assert event["metadata"]["error"]["retryable"] is False
+            assert event["turn_id"] == "" and event["seq"] == 0
+            # 固定安全消息：不回显恶意/未知输入，也不泄漏宿主路径。
+            blob = json.dumps(event, ensure_ascii=False)
+            assert "subject-not-in-registry" not in blob
+            assert str(ws_home) not in blob
+            assert event["content"] == event["metadata"]["error"]["message"]
+
+            # 连接没有被终止：一次协议往返仍然成功。
+            websocket.send_json({"type": "ping"})
+            assert _receive_until(websocket, "pong")["type"] == "pong"
+
+            # 第二种拒绝（两处 scope 冲突 → invalid_input）也能在同一连接上被投影。
+            websocket.send_json(
+                {
+                    "type": "start_turn",
+                    "content": "hi",
+                    "session_id": None,
+                    "capability": "chat",
+                    "subject_id": "科目a",
+                    "config": {"subject_id": "科目b"},
+                }
+            )
+            second = _receive_until(websocket, "error")
+            assert second["metadata"]["error"]["code"] == "invalid_input"
+            assert "科目b" not in json.dumps(second, ensure_ascii=False)
+
+            websocket.send_json({"type": "ping"})
+            assert _receive_until(websocket, "pong")["type"] == "pong"
+
+
+def test_unified_ws_regenerate_refusal_keeps_the_old_assistant_message(ws_home) -> None:
+    from fastapi.testclient import TestClient
+
+    from deeptutor.services.session import get_turn_runtime_manager
+    from deeptutor.subjects import store as subject_store
+
+    subject = helpers.make_subject(ws_home, "科目A")
+    runtime = get_turn_runtime_manager()
+    store = runtime.store
+
+    session = asyncio.run(store.create_session())
+    session_id = session["id"]
+    asyncio.run(
+        store.add_message(
+            session_id,
+            role="user",
+            content="q1",
+            capability="chat",
+            metadata={
+                "request_snapshot": {
+                    "content": "q1",
+                    "capability": "chat",
+                    "subject_id": subject.subject_id,
+                }
+            },
+        )
+    )
+    assistant_id = asyncio.run(store.add_message(session_id, role="assistant", content="a1"))
+    assert subject_store.delete_subject(subject.subject_id) is True
+
+    with TestClient(_unified_ws_app()) as client:
+        with client.websocket_connect("/api/v1/ws") as websocket:
+            websocket.send_json({"type": "regenerate", "session_id": session_id})
+            event = _receive_until(websocket, "error")
+            assert event["metadata"]["error"]["code"] == "subject_not_found"
+            assert event["metadata"]["status"] == "rejected"
+            assert event["metadata"]["reason"] == event["metadata"]["error"]["message"]
+            assert event["session_id"] == session_id
+            assert str(ws_home) not in json.dumps(event, ensure_ascii=False)
+
+            websocket.send_json({"type": "ping"})
+            assert _receive_until(websocket, "pong")["type"] == "pong"
+
+    messages = asyncio.run(store.get_messages(session_id))
+    # 拒绝发生在删除旧 assistant 之前：历史逐字节保留，也没有新增轮次。
+    assert [message["role"] for message in messages] == ["user", "assistant"]
+    assert messages[1]["id"] == assistant_id
+    assert [message["id"] for message in asyncio.run(store.get_messages(session_id))] == [
+        message["id"] for message in messages
+    ]

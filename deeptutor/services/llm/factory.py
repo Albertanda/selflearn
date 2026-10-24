@@ -18,9 +18,10 @@ from deeptutor.services.provider_registry import (
 )
 
 from .capabilities import supports_response_format, supports_vision
-from .config import LLMConfig, get_llm_config
+from .config import LLMConfig, get_llm_config, resolve_output_token_budget
 from .error_mapping import map_error
 from .multimodal import prepare_multimodal_messages
+from .provider_core.base import LLMResponse
 from .provider_factory import get_runtime_provider
 from .utils import is_local_llm_server
 
@@ -202,6 +203,11 @@ def _resolve_call_config(
             api_version=api_version,
             extra_headers=merged_headers,
             reasoning_effort=resolved_reasoning_effort,
+            reasoning_protocol=current.reasoning_protocol if current is not None else None,
+            max_tokens=current.max_tokens if current is not None else 4096,
+            max_output_tokens=(
+                current.max_output_tokens if current is not None else None
+            ),
         )
         return config, provider_spec
 
@@ -227,6 +233,7 @@ def _resolve_call_config(
     provider_mode = provider_spec.mode if provider_spec is not None else current.provider_mode
     resolved_binding = provider_name or binding_hint or current.binding or "openai"
 
+    model_changed = resolved_model != current.model
     config = current.model_copy(
         update={
             "model": resolved_model,
@@ -240,6 +247,11 @@ def _resolve_call_config(
             "extra_headers": merged_headers,
             "reasoning_effort": (
                 reasoning_effort if reasoning_effort is not None else current.reasoning_effort
+            ),
+            **(
+                {"max_tokens": 4096, "max_output_tokens": None}
+                if model_changed
+                else {}
             ),
         }
     )
@@ -334,7 +346,20 @@ def _sanitize_call_kwargs(
     return extra_kwargs
 
 
-async def complete(
+def _request_output_budget(config: LLMConfig, kwargs: dict[str, Any]) -> int:
+    explicit = kwargs.pop("max_completion_tokens", None)
+    if explicit is None:
+        explicit = kwargs.pop("max_tokens", None)
+    else:
+        kwargs.pop("max_tokens", None)
+    return resolve_output_token_budget(
+        explicit=explicit if isinstance(explicit, int) and not isinstance(explicit, bool) else None,
+        configured=getattr(config, "max_tokens", None),
+        provider_max=getattr(config, "max_output_tokens", None),
+    )
+
+
+async def complete_response(
     prompt: str,
     system_prompt: str = "You are a helpful assistant.",
     model: str | None = None,
@@ -346,8 +371,23 @@ async def complete(
     max_retries: int = DEFAULT_MAX_RETRIES,
     retry_delay: float = DEFAULT_RETRY_DELAY,
     exponential_backoff: bool = DEFAULT_EXPONENTIAL_BACKOFF,
+    strict_image_attempt: bool = False,
     **kwargs: Any,
-) -> str:
+) -> "LLMResponse":
+    """Like :func:`complete`, but returns the full provider response.
+
+    :func:`complete` collapses the response to its text, which loses
+    ``finish_reason``. Callers that need to tell a finished answer from one the
+    provider cut off at an output cap (see
+    :func:`deeptutor.services.llm.types.finish_was_truncated`) use this instead.
+
+    ``strict_image_attempt`` makes **one call mean one wire attempt**: no
+    transient retry schedule and no "the model may not take images, so strip
+    them and ask again" degradation. An image-description caller that needs the
+    image to have really been sent (and the answer to belong to *that* request)
+    opts in per call; every other caller keeps the default retry/degradation
+    behaviour unchanged.
+    """
     caller_extra_headers = kwargs.pop("extra_headers", None)
     reasoning_effort = kwargs.pop("reasoning_effort", None)
     image_data = kwargs.pop("image_data", None)
@@ -374,7 +414,12 @@ async def complete(
         image_mime_type=str(image_mime_type or "image/png"),
         image_filename=str(image_filename or "image.png"),
     )
-    retry_delays = _build_retry_delays(max_retries, retry_delay, exponential_backoff)
+    retry_delays = (
+        ()
+        if strict_image_attempt
+        else _build_retry_delays(max_retries, retry_delay, exponential_backoff)
+    )
+    request_max_tokens = _request_output_budget(config, kwargs)
     extra_kwargs = _sanitize_call_kwargs(
         binding=capability_binding, model=config.model, kwargs=kwargs
     )
@@ -383,9 +428,14 @@ async def complete(
         response = await provider.chat_with_retry(
             messages=request_messages,
             model=config.model,
+            max_tokens=request_max_tokens,
             reasoning_effort=config.reasoning_effort,
             retry_delays=retry_delays,
-            allow_image_fallback=not supports_vision(capability_binding, config.model),
+            allow_image_fallback=(
+                False
+                if strict_image_attempt
+                else not supports_vision(capability_binding, config.model)
+            ),
             **extra_kwargs,
         )
     except Exception as exc:
@@ -395,6 +445,42 @@ async def complete(
         raise map_error(
             RuntimeError(response.content or "LLM request failed"), provider=config.provider_name
         )
+    return response
+
+
+async def complete(
+    prompt: str,
+    system_prompt: str = "You are a helpful assistant.",
+    model: str | None = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    api_version: str | None = None,
+    binding: str | None = None,
+    messages: list[dict[str, Any]] | None = None,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+    retry_delay: float = DEFAULT_RETRY_DELAY,
+    exponential_backoff: bool = DEFAULT_EXPONENTIAL_BACKOFF,
+    **kwargs: Any,
+) -> str:
+    """One completion, returned as text.
+
+    Thin wrapper over :func:`complete_response`; preserves the long-standing
+    contract that the caller sees only the text.
+    """
+    response = await complete_response(
+        prompt=prompt,
+        system_prompt=system_prompt,
+        model=model,
+        api_key=api_key,
+        base_url=base_url,
+        api_version=api_version,
+        binding=binding,
+        messages=messages,
+        max_retries=max_retries,
+        retry_delay=retry_delay,
+        exponential_backoff=exponential_backoff,
+        **kwargs,
+    )
     return response.content or ""
 
 
@@ -445,6 +531,7 @@ async def stream(
         image_filename=str(image_filename or "image.png"),
     )
     retry_delays = _build_retry_delays(max_retries, retry_delay, exponential_backoff)
+    request_max_tokens = _request_output_budget(config, kwargs)
     extra_kwargs = _sanitize_call_kwargs(
         binding=capability_binding, model=config.model, kwargs=kwargs
     )
@@ -481,6 +568,7 @@ async def stream(
             response = await provider.chat_stream_with_retry(
                 messages=request_messages,
                 model=config.model,
+                max_tokens=request_max_tokens,
                 reasoning_effort=config.reasoning_effort,
                 on_content_delta=_on_content_delta,
                 on_reasoning_delta=_on_reasoning_delta,

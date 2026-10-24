@@ -99,6 +99,13 @@ class LabeledStepResult:
     label: str  # one of allowed_labels, or LABEL_UNKNOWN on protocol failure
     text: str  # post-label content with provider <think> tags cleaned
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    #: The provider's terminal reason, when it sent one. Carried out of the
+    #: stream so a caller can tell a finished step from one the provider cut
+    #: off at an output cap (see
+    #: :func:`deeptutor.services.llm.types.finish_was_truncated`). Upstream
+    #: v1.6.10 added the same plumbing for its agent loop; here it feeds the
+    #: truncation warning in ``loop.py``.
+    finish_reason: str | None = None
 
 
 async def run_labeled_step(
@@ -563,4 +570,9 @@ async def run_labeled_step(
         text = clean_thinking_tags(text, binding, model)
     ordered_tool_calls = [tc_acc[k] for k in sorted(tc_acc.keys())]
     ordered_tool_calls = [tc for tc in ordered_tool_calls if tc.get("name")]
-    return LabeledStepResult(label=label, text=text, tool_calls=ordered_tool_calls)
+    return LabeledStepResult(
+        label=label,
+        text=text,
+        tool_calls=ordered_tool_calls,
+        finish_reason=finish_reason_seen,
+    )

@@ -1,0 +1,374 @@
+{
+  "stage": "CP-R1",
+  "checked_date": "2026-10-24",
+  "files": [
+    {
+      "path": "AGENTS.md",
+      "sha256": "4f77603b2273a28aba49b43b8b2935d711f7cb76ae994c5b7f3063ba8dd8c067",
+      "purpose": "项目测试/数据约束",
+      "snippets": [
+        {
+          "anchor": "## Isolated Python tests",
+          "start_line": 170,
+          "end_line": 177
+        }
+      ]
+    },
+    {
+      "path": "deeptutor/services/provider_registry.py",
+      "sha256": "403d54a602c4cbff47e5caec34e0e7d2b216183a1517ba178eb8590d84964d7a",
+      "purpose": "custom/custom_anthropic 与本地 vllm 早已存在；无需新增 Agnes 静态 provider",
+      "snippets": [
+        {
+          "anchor": "name=\"custom\"",
+          "start_line": 128,
+          "end_line": 141
+        },
+        {
+          "anchor": "name=\"vllm\"",
+          "start_line": 421,
+          "end_line": 428
+        }
+      ]
+    },
+    {
+      "path": "deeptutor/services/config/provider_runtime.py",
+      "sha256": "2be78f791e09d32eb2f2f30686fb9116cd887a6f20fbb668735d8e3a63279c00",
+      "purpose": "各服务已有 custom 协议与真实运行时解析",
+      "snippets": [
+        {
+          "anchor": "\"custom\": EmbeddingProviderSpec(",
+          "start_line": 242,
+          "end_line": 250
+        },
+        {
+          "anchor": "\"custom_chat\": GenerationProviderSpec(",
+          "start_line": 474,
+          "end_line": 481
+        },
+        {
+          "anchor": "VIDEOGEN_PROVIDERS:",
+          "start_line": 484,
+          "end_line": 501
+        }
+      ]
+    },
+    {
+      "path": "deeptutor/api/routers/settings.py",
+      "sha256": "aed29a234cf0887542c0d117112b9cac88252b8d9f99e32afb6de11e8849c6df",
+      "purpose": "设置供应商列表、默认候选、revision 和遮罩保护",
+      "snippets": [
+        {
+          "anchor": "def _provider_choices()",
+          "start_line": 647,
+          "end_line": 679
+        },
+        {
+          "anchor": "def _safe_default_options(",
+          "start_line": 470,
+          "end_line": 489
+        },
+        {
+          "anchor": "def _reject_masked_identity_change(",
+          "start_line": 1587,
+          "end_line": 1607
+        },
+        {
+          "anchor": "@router.put(\"/catalog\")",
+          "start_line": 1682,
+          "end_line": 1702
+        }
+      ]
+    },
+    {
+      "path": "deeptutor/services/config/model_catalog.py",
+      "sha256": "1367b1c5614de94af525680ac45b7217d74f4532f47713e2182592123cc926db",
+      "purpose": "现有保存事务/未知字段兼容；独立进程线程锁不等于服务器锁",
+      "snippets": [
+        {
+          "anchor": "def update_checked(",
+          "start_line": 239,
+          "end_line": 267
+        }
+      ]
+    },
+    {
+      "path": "deeptutor/services/model_discovery/provider_policy.py",
+      "sha256": "2e8c7bb52bfa0eca8b9b9577d68bb4b321b0c05b1b37cb7a059fac28ca50a567",
+      "purpose": "已有 custom 的目录协议路由",
+      "snippets": [
+        {
+          "anchor": "PROVIDER_POLICIES:",
+          "start_line": 49,
+          "end_line": 56
+        }
+      ]
+    },
+    {
+      "path": "deeptutor/services/model_discovery/service.py",
+      "sha256": "5cf5ebca20d2454a3b268284504df52b02394fa1bc5d695fb806e115e53d7baf",
+      "purpose": "binding 验证及凭据校验不能删",
+      "snippets": [
+        {
+          "anchor": "if not resolved.binding:",
+          "start_line": 325,
+          "end_line": 332
+        }
+      ]
+    },
+    {
+      "path": "deeptutor/services/model_discovery/types.py",
+      "sha256": "115849e24bf3049fa846b411eeff367dce5abcf77c25e7e1fc29550fba7a45f2",
+      "purpose": "连接 identity/fingerprint 的技术字段，名字和图标不应混入",
+      "snippets": []
+    },
+    {
+      "path": "deeptutor/services/model_discovery/cache.py",
+      "sha256": "e9103974a78ae602b59271ed3d1ece9609f853fde7c74567bda41a7efbc082ff",
+      "purpose": "持久目录缓存与去密钥边界",
+      "snippets": []
+    },
+    {
+      "path": "deeptutor/services/model_discovery/adapters.py",
+      "sha256": "d5da7a314d1a919fe70eb620689c46f9d6ee1f06aac96f2a1721aa28887b16f4",
+      "purpose": "已有 OpenAI/Anthropic 目录、禁止带密钥跨源重定向",
+      "snippets": []
+    },
+    {
+      "path": "deeptutor/services/model_selection/llm.py",
+      "sha256": "4e6e5e54d4d2506419d45e39f5d76f2bd3cbdc5e0b021c28958ab9ba655c55c1",
+      "purpose": "管理员模型摘要目前 label 来自静态 binding",
+      "snippets": [
+        {
+          "anchor": "provider_spec = find_by_name(provider)",
+          "start_line": 78,
+          "end_line": 97
+        }
+      ]
+    },
+    {
+      "path": "deeptutor/multi_user/model_access.py",
+      "sha256": "06617e476f5614b6001138501ab54eae6e088ffaa4dc1442bcf68342b32ec3ea",
+      "purpose": "普通用户已授权模型摘要也要接 presenter，不能只改管理员",
+      "snippets": [
+        {
+          "anchor": "provider_label = spec.label if spec is not None else provider",
+          "start_line": 160,
+          "end_line": 177
+        }
+      ]
+    },
+    {
+      "path": "deeptutor/multi_user/personal_models.py",
+      "sha256": "1d9362d820a5142a4ea68ff7da7874a0f5eb570c1199e30a2aa8e6fa1cec2835",
+      "purpose": "个人托管 profile 合并边界，避免新增定义污染 OAuth",
+      "snippets": []
+    },
+    {
+      "path": "deeptutor/services/llm/reasoning_controls.py",
+      "sha256": "88060325f49cc6d23e31ad78ea55eeda71326a601859cbad36ece8d84a7b7abb",
+      "purpose": "MM-R3 核心能力策略，不用自定义名字猜原厂档位",
+      "snippets": []
+    },
+    {
+      "path": "web/components/settings/SettingsContext.tsx",
+      "sha256": "bc3d9b21ead925c4f3f236985aef816d122238340a0d27677ec311e00c4ff21e",
+      "purpose": "Catalog 类型/草稿/编辑选择/保存版本号接缝",
+      "snippets": [
+        {
+          "anchor": "export type CatalogProfile =",
+          "start_line": 101,
+          "end_line": 119
+        },
+        {
+          "anchor": "export type Catalog =",
+          "start_line": 140,
+          "end_line": 155
+        },
+        {
+          "anchor": "const applySavedDefaultReferences =",
+          "start_line": 1423,
+          "end_line": 1448
+        }
+      ]
+    },
+    {
+      "path": "web/components/settings/ServiceConfigEditor.tsx",
+      "sha256": "cc88bdbfeab04916ad021a33375ce07b035e84718756496d591478e3c54151f9",
+      "purpose": "当前供选择的 label 原样显示；新入口与 UI action 接这里",
+      "snippets": [
+        {
+          "anchor": "const providerValue =",
+          "start_line": 1633,
+          "end_line": 1641
+        },
+        {
+          "anchor": "{(providers[service] || [])",
+          "start_line": 1720,
+          "end_line": 1737
+        }
+      ]
+    },
+    {
+      "path": "web/components/settings/useModelDiscovery.ts",
+      "sha256": "ed4b9ac9fdf797df3149b89798f9b66745732ce38435ef0462a41d8d3d477e80",
+      "purpose": "向目录发的是技术连接白名单，不要转发名称图标",
+      "snippets": [
+        {
+          "anchor": "function connectionBody(",
+          "start_line": 57,
+          "end_line": 69
+        }
+      ]
+    },
+    {
+      "path": "web/components/common/ProviderIcon.tsx",
+      "sha256": "4219609dea487db1fa31b4354d3cc64bc9250d3750856bd6feee96e47324fcc6",
+      "purpose": "现有静态 binding 到 SVG，未知为 Bot；新增可选 display icon",
+      "snippets": [
+        {
+          "anchor": "export default function ProviderIcon(",
+          "start_line": 63,
+          "end_line": 86
+        }
+      ]
+    },
+    {
+      "path": "web/lib/model-picker-groups.ts",
+      "sha256": "403b821b90c45d73cfce3b4d1f6afd4bfba1169cff0113c4abb70b148e2ec4a8",
+      "purpose": "两层按 profile_id，不是大厂强制绑定",
+      "snippets": [
+        {
+          "anchor": "export function modelOptionSource(",
+          "start_line": 27,
+          "end_line": 44
+        }
+      ]
+    },
+    {
+      "path": "web/components/chat/home/ModelSelector.tsx",
+      "sha256": "f910d858c99827eebf9476576b02029c7daa00e3d20b9cafc4aa3415f291f79c",
+      "purpose": "四处 ProviderIcon 与选中隐藏项过滤均要保持",
+      "snippets": [
+        {
+          "anchor": "const selectedProfileId =",
+          "start_line": 164,
+          "end_line": 176
+        }
+      ]
+    },
+    {
+      "path": "web/lib/llm-options.ts",
+      "sha256": "40a3aa57a187b649db6d0d71346d43038ccbfe4296f8a4f49828a3e0030a6e4d",
+      "purpose": "模型摘要新增 optional icon，自定义名不改 selection key",
+      "snippets": [
+        {
+          "anchor": "export interface LLMOption",
+          "start_line": 9,
+          "end_line": 28
+        }
+      ]
+    },
+    {
+      "path": "web/lib/default-models.ts",
+      "sha256": "21ea562736feb9cc573d98932bf9ae05b4b50b11728fa68d8f8d492fdaace7ed",
+      "purpose": "默认候选 optional icon/type；保留 revisionAfterDefaultPatch",
+      "snippets": [
+        {
+          "anchor": "export interface DefaultProfileOption",
+          "start_line": 26,
+          "end_line": 35
+        },
+        {
+          "anchor": "export function revisionAfterDefaultPatch(",
+          "start_line": 134,
+          "end_line": 141
+        }
+      ]
+    },
+    {
+      "path": "web/components/settings/DefaultModelsEditor.tsx",
+      "sha256": "462b8c9499002c7f43b0395ed9f0fd6be1a46669e3f1a7854bc06fac13f7ee93",
+      "purpose": "默认候选 label 与选择后的图标展示；不改默认写入语义",
+      "snippets": [
+        {
+          "anchor": "function profileLabel(",
+          "start_line": 40,
+          "end_line": 46
+        }
+      ]
+    },
+    {
+      "path": "web/components/quiz/FollowupChatComposer.tsx",
+      "sha256": "e4bae7b078b69c900662d57c396fdb9b93a9b2949195ea0d65d0bf0e55186f71",
+      "purpose": "已补修的线程选择与强度恢复；共享 ChatComposer",
+      "snippets": []
+    },
+    {
+      "path": "web/components/quiz/QuizFollowupTabBody.tsx",
+      "sha256": "f603c56779203957ef3b07cfb864135542ced69108d895e8e487cf5cc8a5c9c7",
+      "purpose": "历史恢复失败可重试，不能回归",
+      "snippets": []
+    },
+    {
+      "path": "web/context/QuizFollowupContext.tsx",
+      "sha256": "2c625aab0d5879548efd102fbb093438ca623881ca30f8cf6eceb1dc6c8e6e67",
+      "purpose": "线程级模型和 per-model reasoning prefs，刷新可恢复",
+      "snippets": []
+    },
+    {
+      "path": "web/playwright.phase1.config.ts",
+      "sha256": "e72a2265d9321f847a6baa21ac75f6701baa95c6d2381adab512d25d6f1854fb",
+      "purpose": "复用 disposable source/model fixture/网络白名单/cleanup",
+      "snippets": []
+    },
+    {
+      "path": "web/playwright.model-management-r3.config.ts",
+      "sha256": "6ebd18a016e8ca270d0860586f45ed7f9d16207aeb6026bb9bb70f29c9fe9213",
+      "purpose": "新增 wrapper 可参照此文件，不另搭工具链",
+      "snippets": []
+    },
+    {
+      "path": "web/e2e/model-management-r3.spec.ts",
+      "sha256": "aa287fce2c2076201d0fcab04305f4603db9f939d2b1e7e9a074a0ab01d71d07",
+      "purpose": "现有默认/权限/跟进刷新/隐藏搜索/409 浏览器回归",
+      "snippets": []
+    },
+    {
+      "path": "web/e2e/model-discovery-r2.spec.ts",
+      "sha256": "bdaf20fa63984e1784854dd6e3ae6066f43629f801d573a692b76c88f889172f",
+      "purpose": "现有供应商目录和参数行为回归",
+      "snippets": []
+    },
+    {
+      "path": "tests/services/model_discovery/test_provider_policy.py",
+      "sha256": "2c6d9f5f23e22407f64b3ec2860eb1afd20e77d5eb8b479c58aa9abb7e93fecd",
+      "purpose": "现有 custom 两协议等策略行为测试",
+      "snippets": [
+        {
+          "anchor": "EXPECTED_ADAPTERS",
+          "start_line": 22,
+          "end_line": 29
+        }
+      ]
+    },
+    {
+      "path": "tests/services/model_selection/test_llm_selection.py",
+      "sha256": "b73417948643b4ebb0134bb812693a1c6da6026317b4b130f1c62bdb48264602",
+      "purpose": "现有 custom binding 支持用例",
+      "snippets": []
+    },
+    {
+      "path": "scripts/start_selflearn.sh",
+      "sha256": "220715e2efd7b5c40d55a7e1473278557ee941262a3550d177b1a8d9e3442743",
+      "purpose": "固定 home 启动器，不用停止真实服务做自动化",
+      "snippets": []
+    },
+    {
+      "path": "deeptutor/runtime/launcher.py",
+      "sha256": "96a0994d06a955d48cadb942b7bcf019aa397079a657befcf7ef7940694d9c4d",
+      "purpose": "生产前端按源指纹重建，交付用户重启后生效",
+      "snippets": []
+    }
+  ]
+}

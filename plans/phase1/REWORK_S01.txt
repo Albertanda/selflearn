@@ -1,0 +1,125 @@
+S01 验收结论与返修执行指令（2026-10-11）
+
+工作目录：/home/albert/selflearn/selflearn
+本次只执行 S01 的一次合并返修批次，包含下述 R1–R7；内部逐项验证，最终只交接一次。
+S01 当前为 changes_requested；S00 的 accepted 仍有效。不进入 S02，不实施第二阶段功能。
+先读取本文件、.phase1-evidence/reviews/S01/review.json、STAGE_WORKFLOW.md、stages/S01.md 和 P1-01/P1-02。不要重新遍历全部仓库和全部任务卡。
+用户转发的既往 agent 回复是待审材料；本文件中的协调者返修范围与验收条件优先于旧 START_S01.txt 和已被否定的“已全隔离”结论。
+
+一、已经确认的事实
+
+1. 原定向验收：tests/phase1 + test_codebuddy_credentials 共 69 passed；6 个源码哈希及 10 个证据哈希均吻合，StageReport 符合 Schema。
+2. 协调者重新比较，原提交只改了原 S01 的 6 个白名单文件；恢复归档 1806/1806 条目吻合。真实 learning_tree/public_outputs/settings 与 S01 开始基线一致。
+3. 这证明提交和证据对应，但尚不能证明夹具隔离完整。独立检查 probe_s01.py 复现 9 个断言失败、4 个异步接口错误；该脚本的进程在任何应用导入前就使用临时 DEEPTUTOR_HOME，socket 传输已 mock，不发送外部包。
+4. 原始毫秒解析、expiry/skew 冻结修复方向正确；仍有一条测试依赖今天晚于 2026-10-04，须返修。
+5. 在空白临时 home 中，跨目录回归先因缺 main.yaml 收集失败（协调者启动器未预置默认 YAML）；补齐可信默认配置后为 1716 passed、1 failed、18 skipped。后一次失败是既有图片测试缺少 LLM stub，不是生产图片逻辑需要改动。
+6. 原执行者没有自签 accepted，也没有观察到受保护真实数据变化；保留这些合格成果及原始证据，不重做 P1-00。
+7. 但 supplementary memory 从初次提交的 data_before 到 data_after 由 8 增至 9 文件，新增 trace/kb/2026-10-11.jsonl；协调者本轮测试前后 memory 清单未进一步变化。该差异已在既有清单中可证明，不能再写“所有真实 data 均未改”。仅凭清单无法排除同期其他进程写入，因此本轮保留该真实文件，不自动删除/回滚，不解析其正文或改变旧基线；报告记录路径和不透明 hash 差异。R1/R3/R7 必须消除后续测试继续写真实 memory 的可能。
+
+二、允许更改范围
+
+允许源码/测试文件只有以下 7 个：
+- tests/phase1/__init__.py
+- tests/phase1/conftest.py
+- tests/phase1/helpers.py
+- tests/phase1/test_p1_01.py
+- tests/phase1/test_p1_02.py
+- tests/services/test_codebuddy_credentials.py
+- tests/services/rag/test_llamaindex_document_loader.py
+
+第 7 个文件是本次独立验收发现环境依赖后，协调者追加到 P1-01/S01 的最小授权。只允许在 test_loader_skips_images_when_embedding_provider_is_text_only 中添加本地 fake LLM/配置及必要断言，保留原 documents == [] 的语义；不改变其他图片测试的业务期望。
+前 6 个文件只做测试支撑及本次验收修复。不得改生产代码、根 tests/conftest.py、P1-00 实现/测试、任务包、Schema、真实数据和实际 settings。不得新建测试支撑架构或另外拆出新源文件。
+执行证据允许写 .phase1-evidence/stages/S01/rework01/，并向 .phase1-evidence/stages/S01/execution.log 追加原始输出。
+原 S01 的 report.json、source/data 基线、归档和已有日志行，以及 .phase1-evidence/reviews/** 全部保持只读。本轮的唯一新汇总是 rework01/report.json。
+协调者的 probe_s01.py 是缺陷复现材料，不是禁止改变 helper API 的永久规范；若新 HTTP/网络接口改变，在允许的测试文件中移植相同有效行为断言，不能修改该审查脚本使它“通过”。
+
+三、返修单元与完成条件
+
+R1：首次导入、初始化失败和退出都能恢复
+目标：隔离建立之前不解析真实模型配置；初始化失败也能把已修改状态回滚。测试启动/收集使用 tmp 配置，真实 settings 只能按 P1-00 工具做不透明字节 hash。
+已复现：redirect_runtime 先 warm_imports 再 snapshot_runtime；api.main 的导入会 ensure_runtime_settings_files/export_runtime_settings_to_env。首次使用后有 23 个环境项残留。又因 isolated_runtime 的 finally 在 redirect_runtime 成功返回后才生效，中途导入异常会留下 tmp roots。
+范围：helpers.py、conftest.py、test_p1_01.py。
+处理：在任何有配置 I/O 的导入前建立临时 bootstrap home 和虚构配置/环境；不要把“先在真实 home 导入 app”当作修复 import 常量固化的办法。记录/恢复须覆盖首次导入副作用及重定向的每一步；重定向自身失败时也执行回滚。检查 config 包重导出的 PROJECT_ROOT、model catalog 的默认路径等实际使用的别名，不能只 patch loader 的一份常量。
+证据：独立子进程首次使用（相关模块尚未导入）、连续 A/B 根、嵌套隔离、yield 内抛错、初始化中途注入异常；每种结束后环境和被修改的 roots/状态一致。只输出路径、键名、对象身份或 opaque 摘要，禁止输出任何设置值/凭证。
+完成：真实 settings 的语义读取 spy 从未被触发；正向正常初始化可用；中途故障可被有效负例检测且回滚后相等。临时配置由可信默认值/虚构 profile 构建，禁止复制真实 model_catalog/settings 内容到 tmp。
+
+R2：补齐 manager/model 缓存隔离，断言覆盖内容和身份
+目标：测试不能取得隔离外的实例；隔离结束不能留下 tmp manager/model；隔离外原对象保持原身份和状态。
+已复现：_manager_for 的 lru_cache、ModelCatalogService._instances 和 llm.client._client 未隔离。原指纹主要比较缓存键和“是否存在”，检测不到同键对象替换/旧实例复用，也不实际覆盖完整 os.environ。
+范围：helpers.py、test_p1_01.py。
+处理：至少覆盖 multi_user.knowledge_access._manager_for、ModelCatalogService/KnowledgeBaseConfigService 实例缓存、LLM/embedding client 单例，以及当前测试路径会使用的 provider/agentic client pools；同时保留已有 PathService/settings/worker 隔离。按实际调用链确认范围，避免无关模块的全仓库缓存扫描。
+对于无法枚举保存的 functools.lru_cache，可在测试期换成本地缓存 wrapper，结束恢复原函数对象；不要只 cache_clear 原函数并宣称原缓存已经恢复。持有服务/客户端的缓存不做 deepcopy；不关闭/重置隔离外的客户端。只关闭本次测试创建的资源。
+证据：隔离外预置 fake 实例和同键哨兵，隔离中看不到它们；隔离中创建 A/B manager、catalog、LLM、embedding；结束逐项 assert 身份/键/状态恢复，且原环境 dict 在内存中完整相等。必须有一个同键不同对象的负例，证明新断言能识别旧指纹漏掉的问题。
+完成：正常/异常/嵌套退出均无 tmp 实例残留，隔离外对象未被克隆、关闭或修改。不把仅“布尔是否设置相同”写成完整缓存恢复证据。
+
+R3：HTTP 测试资源的生命周期在隔离范围内
+目标：真实路由可测试，客户端、后台任务及其数据根不跨隔离作用域存活；本地测试不启动真实 cron、读取真实模型凭证或迁移真实 memory。
+已复现：test_http_client... 先 shared_http_client 再进入隔离。lifespan 在外部根启动 LLM、EventBus、cron、memory migration；之后 GET 能切换科目，不代表启动期 cron.store_path 等也跟随切换。独立检查确认 cron 仍持有启动根。
+范围：helpers.py、conftest.py、test_p1_01.py。
+处理建议：普通路由用真实 router 和轻量测试 app，明确禁用/替换不相关后台 lifespan；需要验真实完整 lifespan 时放入独立子进程，先设 tmp home/假配置/网络拦截，再 import/start，最后 shutdown，再撤隔离。也可选等价的可证明方案，但不能靠 atexit + 永久共享 TestClient 解决跨事件循环状态。
+“每进程只能启动一次 lifespan”是现有全局 Queue 复用带来的测试限制，不是本项目应固定的数据契约。不得在 S01 修改生产 EventBus/cron；用测试局部替身或进程隔离处理。若保留缓存客户端，其所有权必须绑定具体隔离作用域并在退出时关闭，不能穿越 A/B 根。
+证据：真实 subjects 路由 A/B 各只返回自己的 marker；至少一次通过真实路由写入临时科目并断言写入路径；启动和退出均只访问 tmp；退出后客户端关闭/测试后台任务结束，外部单例仍为原值；另以受控子进程验证完整 lifespan 的 tmp 启停或明确普通 helper 不承担完整生命周期验收。
+完成：不会读真实配置/凭证，不会启动或保留外部根的后台服务；第二次独立测试上下文可用，且互相不泄漏 cookies、override、队列或实例。
+
+R4：供应商替身必须符合项目真实接口并接入调用点
+目标：后续生产调用点能直接 await fake，不修改生产调用方式来适应 fake。
+已复现：FakeLLMClient.complete/complete_response、FakeEmbeddingClient.embed、FakeSTT.transcribe 都是同步函数，在实际 await 下分别报 str/SimpleNamespace/list/dict 不可 await。complete_response 还返回 .text，真实 factory 返回 TutorResponse.content。
+范围：helpers.py、conftest.py、test_p1_01.py。
+接口依据：services/llm/client.py 的 async complete；services/llm/factory.py 的 async complete_response 和 services/llm/types.py 的 TutorResponse；services/embedding/client.py 的 async embed；services/asr/transcribe.py 的 async transcribe。
+处理：使用 async 方法和正确返回结构。complete_response 用真实 TutorResponse(content=..., finish_reason=..., usage=...)；STT 的成功/失败字典保留 text/model/base_url/error 语义。配置只用虚构值。fixture 要能用 monkeypatch 安装到实际被调用模块的属性；如果 fixture 只返回可安装的 stub，清楚注明调用者必须显式安装，不宣称已经拦住生产 provider。
+证据：以真实调用形式 await 四个入口；至少用一个真实生产消费者验证 complete_response.content/finish_reason，验证一条实际 ASR 或 embedding 调用 seam。断言返回值和调用记录；未安装替身时禁止真实供应商调用。允许字符串完整/截断 finish_reason 等后续可用的明确虚构响应，不引入真实模型请求。
+完成：返回类型、协程形态、字段与消费者相符；取消当前仅调用 fake 自己并断言 .text 的自证测试，替换为有效消费者断言。
+
+R5：网络拦截默认生效，localhost 必须具体声明
+目标：使用 p1_runtime/HTTP/模型隔离 fixture 时，未 stub 的连接默认失败；可单独授权一个测试 localhost stub。
+已复现：网络 fixture 是另行可选，p1_runtime 不启用；guard 漏掉 UDP sendto，默认允许全部回环端口/0.0.0.0/空 host，实际测试没有声明端口。
+范围：helpers.py、conftest.py、test_p1_01.py。
+处理：将网络 guard 组合进隔离入口，避免测试忘记显式申请；保留不改变 P1-00 行为的显式 fixture 设计。至少覆盖 TCP connect/connect_ex/create_connection、UDP sendto，以及外部 hostname 在 DNS 解析前的阻断。测试只需保证项目使用的 Python 网络入口，不宣称具备 OS 级任意子进程禁网。
+localhost stub 用具体 (host, port) 白名单，测试临时 bind 后声明对应端口；其他端口仍拒绝。不要默认放行任意 AF_UNIX 服务路径；如果 AnyIO/测试 IPC 需要本地 socket，保留明确的内部 socketpair 或特定临时 IPC 路径。
+证据：IPv4/IPv6/外部 hostname/TCP/UDP 负例在 transport spy 处计数为 0；DNS spy 未收到被拒绝外部域名；一个显式临时 localhost 端口能连通，另一个未声明端口不能。上下文退出/嵌套后原 socket 函数身份恢复。负例均使用 mocked transport 或文档测试地址且在系统调用前拒绝，不真正发外部包。
+完成：p1_runtime 下不另行申请 guard 也会阻断未 stub provider；合法本地 stub 可用；异常不会静默降级到真实供应商。
+
+R6：所有凭证测试与真实日期无关
+目标：保留毫秒转换和过期语义，任何真实当前年份都得出相同测试结果。
+已复现：test_without_freezing_the_fixture_is_already_expired 在模拟 1980 的真实时钟下失败。把这个失败称为“控制项限制”不满足 P1-02 的确定性要求。
+范围：test_p1_02.py；必要时仅整理 helpers 的时钟接口及 test_codebuddy_credentials.py。
+处理：把该控制项改成受控的未冻结模块时间（例如 monkeypatch 标准库 time.time 到 expires_at+1），用同一夹具在受控有效/过期时刻展示相反结论；冻结模块时间后不受 1980/2100 的外部时钟影响。禁止直接读取今天并据此断言。
+证据：before/exact/after expires_at-skew、skew 差异、refresh 边界都保留；在两种受控外部日期下，整个本阶段凭证测试均通过；移除冻结作用会让承重断言失败。
+完成：无真实日期门槛、无 skip/xfail、未改生产 credentials、未把 expiry 推远来逃避验证。
+
+R7：消除回归环境依赖并补齐诚实证据
+目标：相关回归在临时 home、虚构模型/无真实 key 下可重复；报告能定位实际运行结果。
+已复现：tests/services/rag/test_llamaindex_document_loader.py::test_loader_skips_images_when_embedding_provider_is_text_only 只 mock embedding，仍调用真实 get_llm_client，空 catalog 时 LLMConfigError。另有 3 个新增测试文件 Ruff I001，以及 test_p1_01.py 的“assert ... or True”恒真断言。
+范围：第 7 个文件严格限定上述函数；其余前 6 个文件和本轮证据目录。
+处理：给该图片测试补本地 fake LLM（config.binding/model、supports_multimodal_images），其 complete 若意外被调用应显式失败；保留 text-only embedding 导致 documents == [] 的原语义。不改生产 loader，不提前做 S06 图片描述功能。移除恒真断言，替换为可观测的 tmp 写入/删除与真实数据不变检查。
+tree_digest 的目录遍历错误必须 fail closed（os.walk onerror）；不声称它替代了 P1-00 的模式/目录/完整保护清单。原服务字节保护以官方 snapshot 工具为准。
+仅对授权文件整理 Ruff import，不运行全仓库 --fix。先前开发失败日志未保留的事实继续注明为历史缺失，禁止补造原始输出。今后的失败、修复和复测实时追加原命令输出；scope 命令不得写“<S01 白名单并集>”占位符。
+证据：该图片测试在空临时 catalog 下独立通过，且不调用真实 get_llm_client/不触网；定向凭证/P1-00/phase1 测试、相关跨目录回归及授权文件 Ruff 均通过；报告命令字面可执行、退出码与日志相符。
+完成：不靠真实配置让回归变绿；保留 18 个既有 skip 的原理由，不新增 skip。负向 mutation 标明预期 exit=1 和实际结果，与最终成功回归分开记录。
+
+四、报告中“未解决事项”的处理决定
+
+- 全仓库 pytest/前端验收仍属于 S13 及对应 UI 阶段。本批只跑相关回归，不因为 S01 返修启动全量基线/真实服务。
+- web/.next-deeptutor 是受监控的实际生产构建，不是漏排除的普通测试缓存。禁止修改 snapshot 脚本来排除/放行它；未来构建使用临时副本或隔离 dist 路径。撤回“UI 阶段补编译缓存允许项”的建议。
+- 官方 data 比较当前保证三棵指定树，不等于所有 data 子目录都已不可变。global KB/memory/system 是 supplementary；本次用已有不透明清单做附加比较并报告变化，不改变 P1-00 工具/保护契约。历史 memory 新增文件须如实记录并保留，本轮运行产生的数据必须始终 tmp。
+- 非 autouse fixture 可以保留；使用时必须组合必要的网络/模型/HTTP隔离，不能把遗漏 guard 留给测试作者自行记住。
+- helpers 1357 总行数本身不是验收失败原因，不机械压缩或拆文件；删除错误共享客户端方案和无效断言，保持够用即可。
+- Starlette/AnyIO deprecation 是第三方告警，记录即可，不升级依赖或屏蔽整个告警类别。
+- FrozenClock 仅支持当前调用的 time() 可以保留；不要扩建通用时钟框架。凭证测试依赖 phase1 helper 暂可接受，不因未来可能删除夹具而迁移架构。
+- Queue 跨事件循环问题记为生产生命周期风险线索，S01 只解决测试隔离。完整生产修复若确有需要，另列最小范围供协调者分配，不在本轮越界。
+
+五、执行与验收命令
+
+1. 保留当前 dirty 状态，记录本轮新的 source/data 起点到 rework01，不覆盖已有基线；capture --include 显式列出 7 个授权文件（见上文）。数据保护仅不透明 hash。
+2. 按 R1–R7 在一次会话中修复，每个相关行为有正例与有效反例。可以先修低依赖的 async stub/时钟/已有图片测试，再完成 roots/cache/HTTP 集成；不要逐项请求用户批准。
+3. 定向回归：
+./.venv/bin/python -m pytest -q tests/phase1/test_p1_01.py tests/phase1/test_p1_02.py tests/services/test_codebuddy_credentials.py tests/services/rag/test_llamaindex_document_loader.py
+./.venv/bin/python -m pytest -q tests/phase1/test_p1_00.py
+./.venv/bin/ruff check tests/phase1 tests/services/test_codebuddy_credentials.py tests/services/rag/test_llamaindex_document_loader.py
+4. 在临时 bootstrap home（应用导入/pytest 收集前设定）运行 tests/phase1 tests/services tests/api；从可信默认值预置 main.yaml/agents.yaml 等，不复制真实配置。还需一个 API 先于 phase1 的混跑检查，如 tests/api tests/phase1 tests/services/test_codebuddy_credentials.py。不要在 pytest plugin 中全局 monkeypatch 业务函数把失败遮掉。
+5. 为首次导入、异常/嵌套回滚和完整凭证日期独立性保留子进程/受控时钟证据。子进程的配置全部 tmp/虚构；不要写 HOME/CODEX_HOME，避免触及实际账户配置。每个命令记录实际 cwd、完整参数、原始输出和 exit code。
+6. 阶段末 capture/protect-data，compare 的 --allow 逐个写 7 个路径；与本轮起点相比仅允许这些测试文件变化。与原 S01 data_before 再比，真实三树不变；supplementary 三根与本轮起点必须无新变化，历史 memory 差异单独注明。官方 compare-data 不自动比较 supplementary，须对已生成清单附加比较，不能仅根据 ok=true 推断它们没变化。
+7. 新建一个本轮完成恢复归档和 sidecar（不覆盖旧归档），verify-rebuild 在新的 tmp 目录核验。只归档一次，不为每单元建 tar。
+8. 本轮 rework01/report.json 使用现有 StageReport，两个 card_results 均只能 verified_local/blocked；commands 引用共享追加日志，列 R1–R7 的测试名与输入/预期/实际、精确源码 hash、范围和数据检查。已有历史报告保持只读，报告注明本轮入口及它替代的初次提交 hash。
+
+本批最终完成条件：R1–R7 行为成立，授权文件 lint 与相关回归通过；无新增 skip/无删减有效业务断言；真实数据未变；恢复归档匹配；所有问题/历史证据缺口如实记录。然后只提交一次简洁汇总并停止，等待协调者复核；不得自签 accepted 或进入 S02。

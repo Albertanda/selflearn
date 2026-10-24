@@ -36,6 +36,8 @@ from llama_index.core import StorageContext, load_index_from_storage
 from llama_index.core.vector_stores.simple import DEFAULT_VECTOR_STORE, NAMESPACE_SEP
 import numpy as np
 
+from .config import HNSW_VECTOR_INDEX, VectorIndexConfig
+
 logger = logging.getLogger(__name__)
 
 BACKEND_FAISS = "faiss"
@@ -182,7 +184,28 @@ def _uniform_dimension(embeddings: Iterable[Any]) -> Optional[int]:
     return dimension if dimension and dimension > 0 else None
 
 
-def new_faiss_storage_context(dimension: int) -> Optional[StorageContext]:
+def _new_faiss_index(faiss: Any, dimension: int, config: "VectorIndexConfig") -> Any:
+    """Construct a cosine-compatible FAISS index for ``config``.
+
+    ``flat`` (the default) is the exact ``IndexFlatIP`` this module has always
+    built. ``hnsw`` is an opt-in approximate index for large corpora, ported
+    from upstream v1.6.3.
+    """
+    if config.type == HNSW_VECTOR_INDEX:
+        index = faiss.IndexHNSWFlat(
+            dimension,
+            max(1, int(config.hnsw_m)),
+            faiss.METRIC_INNER_PRODUCT,
+        )
+        index.hnsw.efConstruction = max(1, int(config.hnsw_ef_construction))
+        index.hnsw.efSearch = max(1, int(config.hnsw_ef_search))
+        return index
+    return faiss.IndexFlatIP(dimension)
+
+
+def new_faiss_storage_context(
+    dimension: int, index_config: Optional["VectorIndexConfig"] = None
+) -> Optional[StorageContext]:
     """Return a StorageContext whose default store is a fresh cosine FAISS index.
 
     Returns None when FAISS is unavailable or the dimension is invalid, so
@@ -192,11 +215,15 @@ def new_faiss_storage_context(dimension: int) -> Optional[StorageContext]:
     cosine_cls = _cosine_faiss_cls()
     if faiss is None or cosine_cls is None or dimension <= 0:
         return None
-    store = cosine_cls(faiss_index=faiss.IndexFlatIP(dimension))
+    store = cosine_cls(
+        faiss_index=_new_faiss_index(faiss, dimension, index_config or VectorIndexConfig())
+    )
     return StorageContext.from_defaults(vector_store=store)
 
 
-def storage_context_for_nodes(nodes: list[Any]) -> Optional[StorageContext]:
+def storage_context_for_nodes(
+    nodes: list[Any], index_config: Optional["VectorIndexConfig"] = None
+) -> Optional[StorageContext]:
     """Choose the write-time StorageContext for a set of embedded nodes.
 
     Returns a FAISS-backed context when every node shares one embedding
@@ -209,7 +236,7 @@ def storage_context_for_nodes(nodes: list[Any]) -> Optional[StorageContext]:
     dimension = _uniform_dimension(getattr(node, "embedding", None) for node in nodes)
     if dimension is None:
         return None
-    return new_faiss_storage_context(dimension)
+    return new_faiss_storage_context(dimension, index_config)
 
 
 def detect_backend(storage_dir: Path) -> str:

@@ -20,6 +20,7 @@ from deeptutor.services.voice import (
     synthesize_speech,
     transcribe_audio,
 )
+from deeptutor.services.voice.adapters.qwen_asr import QwenAudioLimitError
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +125,10 @@ async def speech_to_text(
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except QwenAudioLimitError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=str(exc)
+        ) from exc
     except VoiceProviderError as exc:
         logger.warning("STT provider error: %s", exc)
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc

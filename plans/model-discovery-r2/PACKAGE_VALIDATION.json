@@ -1,0 +1,27 @@
+{
+  "task_count": 12,
+  "unique_task_ids": true,
+  "dependency_order_valid": true,
+  "matrix_counts_valid": true,
+  "source_excerpts_count": 38,
+  "source_hashes_current": true,
+  "local_links_valid": true,
+  "production_code_changed_by_planning": false,
+  "real_config_read_or_written_by_planning": false,
+  "scope": "Planning package only; source/registry audit and official documentation research. No application tests claimed.",
+  "files": {
+    "ACCEPTANCE.md": "403648407f98ddce6a1fbcbaa4d8e6709cfb62b17795b01358234e7e8772a87a",
+    "CONTRACTS.md": "d79058dbc5731d066dc201d7baf30e09322cf9565f4f147afb187b7b3fe629f2",
+    "EXPLORATION.md": "1f578dfb90140caffd1f2f7cd0fd88291f931c84a2b7d10958bb1bb4950d91ea",
+    "PROVIDER_MATRIX.json": "a35e4b5309d3e16caf22cad75426235c0d728fbcaeb65277e9586e0c08e90f7d",
+    "PROVIDER_MATRIX.md": "37ec8cb6339328b7cd21fb4518e19a06161f97e478e31030e6c0514419c442fa",
+    "README.md": "5142190e7f6cca825ec32cf68b2bcf638222794f7e0647f0269b13da67fef35c",
+    "RESEARCH.md": "48a8a9f6e8ee2e61f15493a4e548ad054394d7951c740ec1b5e3a462de682f88",
+    "SOURCE_INDEX.json": "17deafb9074865cdc60ee5a62b7f8f38688348f15bf43c78df994144aa4c459d",
+    "START_MD_R2.txt": "4faf2d86bd50ca00a45968e592177bc81e6b111611c843072d583eceff8ec04f",
+    "TASKS.json": "81e9d56823ea553b8c94497d4583754f8988ea70789e07f38f36d96678bc1598"
+  },
+  "errors": [],
+  "stale_sources": [],
+  "ok": true
+}

@@ -11,6 +11,7 @@
  */
 
 import { wsUrl } from "./api";
+import type { ReasoningOverride } from "./reasoning-controls";
 
 // ---- StreamEvent types (mirror Python StreamEventType) ----
 
@@ -79,6 +80,8 @@ export interface StartTurnMessage {
   mastery_path_id?: string;
   persona?: string;
   llm_selection?: LLMSelection | null;
+  /** Formal per-turn reasoning selection; omitted means inherit. */
+  reasoning_override?: ReasoningOverride;
   /** Edit-branching: when present (even as ``null``) the new user message
    *  attaches at this exact parent — creating a sibling rather than
    *  appending to the session tail. */

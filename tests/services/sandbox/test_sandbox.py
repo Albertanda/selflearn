@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 
 import pytest
 
@@ -249,9 +250,15 @@ def test_runner_server_validates_request_shape() -> None:
 def test_runner_server_executes_and_truncates_output() -> None:
     from deeptutor.services.sandbox.runner import server
 
+    # Use the running interpreter rather than a bare ``python``: the name is not
+    # guaranteed to be on PATH (Debian/Ubuntu ship only ``python3``, and a venv
+    # does not add a ``python`` shim unless it was created with one), which made
+    # this test fail with exit 127 on a perfectly healthy install. The sandbox
+    # runs the command through a shell, so an absolute interpreter path is the
+    # hermetic choice.
     result = server.execute(
         {
-            "command": "python -c \"print('x' * 200)\"",
+            "command": f'{sys.executable} -c "print(\'x\' * 200)"',
             "limits": {"timeout_s": 5, "max_output_chars": 40},
         }
     )

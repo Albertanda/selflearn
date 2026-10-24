@@ -1,0 +1,28 @@
+执行第一阶段最后一个执行阶段 S15：浏览器验收与最终签收准备（P1-53），一次阶段交付。不要实施第二阶段新功能。
+
+一、开工门与已探索输入
+项目 /home/albert/selflearn/selflearn。先核验 .phase1-evidence/stages/S14/review.json 指向协调者 reviews/S14-final/review.json：receipt SHA匹配，status=accepted、goal_met=true、next_stage_authorized=true、next_stage=S15。核对receipt的全部当前source_artifacts、dispatch_document_hashes、data_integrity_exception与新数据基线SHA；HEAD仍9723f953cb6ca56f13603f76c5d07e1e2f1f4473，8项tracked deletion保留。原S14 worker报告blocked_scope属历史提交，不能改写；以协调者最新receipt为准。
+读本指令、S15_EXPLORATION.md、stages/S15.md与P1-53。探索包有已探索文件清单、SHA、行号与原文关键片段；哈希一致时直接复用，只定向补读实际依赖，不全仓orientation。启动前确认两个允许新文件仍不存在，任何偏差先列出。
+S14协调者补修线程日志回调、取消持久化/清理、测试隔离；独立HTTP/WS及完整Python回归数以receipt为准。S14期间worker误用真实配置，catalog原字节未恢复；用户明确批准唯一例外并建立新基线，详见 plans/phase1/data_baseline_exception.json。real_data_unchanged=false是相对事故前旧基线的事实，不能改成true；本阶段必须对获准新基线和自己的到达快照均零增量，其他五树从未获准放宽。不得重新“恢复”或覆盖配置，也不能重新解释成所有真实数据都可修改。
+
+二、允许更改与隔离边界
+仅新增 web/e2e/phase1.spec.ts、web/playwright.phase1.config.ts。产品TS/TSX、后端、现有测试/全局playwright.config.ts、依赖/锁文件、真实配置、旧证据只读。测试辅助启动/fixture可放在这两个文件内及本阶段证据或临时目录；不借辅助脚本绕过源码范围。证据写 .phase1-evidence/stages/S15/，原worker/协调者S14证据只读。遇到真实UI/接线bug，保留可重复失败并给最小blocked_scope，不擅自扩大产品修改范围。
+不commit/push，不安装/升级Playwright/浏览器/依赖，不重启真实服务或访问现有学习实例。仅启动明确归属测试的临时前后端/模型进程，随机空闲端口、绑定127.0.0.1，reuseExistingServer=false；记录PID/端口/启动日志，失败也要清理进程组并验证退出，不能按宽泛进程名pkill。禁止使用已有实际端口/生产.next/.next-deeptutor。
+前端Next从源码旁 ../data/user/settings 读配置，因此必须在独立临时源码副本启动；副本仅含源码及虚构settings，不复制data、.env、认证、memory、现有dist。可只读复用现有venv/node_modules，不能写回。先核实Next/模块路径解析确实读的是副本。独立DEEPTUTOR_HOME/HOME/XDG/TMPDIR/认证目录、DEEPTUTOR_NEXT_DIST_DIR、BACKEND_PORT、DEEPTUTOR_API_BASE_URL、NEXT_PUBLIC_API_BASE_EXTERNAL、WEB_BASE_URL全部指向测试实例。清除继承的provider/token、代理、NODE_OPTIONS注入和PYTEST筛选等；保留开发服务器自身必要内存限制。
+后端应用导入前确定临时根，使用正式deeptutor.api.main.app注册与lifespan（允许复用S14对定时器等后台依赖的受控接缝并完整收尾）。复用 scripts/phase1_verify.py 的 clean_env/BOOTSTRAP_CODE/NETWORK_GUARD 作Python出口保护；只允许测试自己绑定的loopback。JS/浏览器同样只允许测试源；拦截外网请求/WS，记录意外出口，不连接真实provider。浏览器缺失或无法安全隔离时blocked_environment，不下载浏览器、不用DOM模拟替代。
+允许替换边界：确定性LLM/STT/embedding/vision、PageIndex transport；必要auth fixture可覆盖身份。成功链必须真实React hydration、真实路由/科目服务/临时磁盘、真实HTTP/WS/工具链；不要把整套后端API或WS成功流直接伪造成期望状态。故障测试可在明确HTTP/transport边界注入非2xx/断网，但必须有真实成功对照。PNG/PDF/ZIP若用于证明成功，须实际有效产物，不能空白fake文件。
+
+三、按低依赖场景串行推进（每组均保留目标、证据与清理断言）
+B1 选择器与会话：临时创建多于菜单可见高度的科目，浏览器打开真实首页，证明菜单打开、最后一科可滚动并可选。发送一条确定性回答的真实turn，捕获请求和界面；reload同session恢复scope，再切另一session、清空并再次reload，证明scope不串。使用事件/请求等待，不用固定sleep掩盖hydration竞态。省略/显式null/选值按C08/C13；恢复完成前不允许误发旧scope。
+B2 能力及来源：同session普通聊天与quiz/题目能力切换，实际start_turn帧保留能力参数且subject_id不被覆盖。A/B建立同名真实临时KB及独有标记，经确定性embedding与真实RAG走出可核对来源；浏览器选A、切B后各自正文/source不泄漏另一科，显式global按原规则。截图+捕获帧/请求+磁盘session preferences/snapshot/来源身份联合证明，不仅看按钮文案；最终来源中的下载URL实际GET成功且内容标记相符。可复用S14确定性provider与索引fixture设计，不能复制真实KB或硬编码整条sources。
+B3 文档与音频反馈：真实文件选择/multipart上传各一条文档index和音频transcribe正例。观察operation/任务状态/资料列表。文档索引就绪可实际查询；音频只显示转写成功和lecture文本去向，不显示已索引/ready/虚构图片coverage。各加一次目标HTTP错误/断网负例，busy最终解除、可重试且不出现成功计数；前后临时目录/manifest证明失败未写坏旧数据。
+B4 工作台失败与下载：科目详情已存在的考点/复习/报告/导出等按钮按可用入口验证至少导出真实ZIP下载与一条生成动作；指定非2xx、网络失败、坏下载响应后按钮恢复、可再试，错误用固定message，成功toast/链接不出现。保留旧已完成产物不变。不要把空列表/disabled/导航离开当错误已提示的证明，失败后同页再成功一次。
+B5 裁剪及能力说明：浏览器从知识库创建入口确认无可点击Obsidian创建，合法LlamaIndex/PageIndex等现有入口可用；PageIndex如实outline，无虚构MCP调用。确认本轮涉及UI没有已删Partner/Book活跃入口或错误安装说明。只验既有产品，不增加新按钮或能力。截图和可访问DOM/交互为证，源码contains仅辅助。
+证据要求：每组测试名→契约→实际输入/响应/WS摘要→可见UI和学习/产物状态→完成断言；至少成功与对应单故障负例。截图/trace只含tmp虚构数据，记录浏览器实际版本和二进制路径。必要场景不得skip/xfail；合法已有skip不能当本阶段成功。每个用例关闭page/context，阶段finally清理全部临时服务、下载和后台任务。
+
+四、合并验证与交付
+先环境预检并安全启动，再B1→B5连续实现，仅阶段末一次交付，无需逐个转发。独立配置仅收集本阶段文件，workers=1、retries=0、forbidOnly=true，不改全局策略。运行本地已有 ./node_modules/.bin/playwright test -c playwright.phase1.config.ts（cwd=web），真实浏览器执行；不能用--list或只截图当通过。
+随后Node既有回归、tsc、两新文件适用lint、git diff --check、计划schema验证各合并一次；后端无新变更时引用S14完整Python/Ruff证据，确有相关失败再定向运行 scripts/run_tests_isolated.py，不直接python -m pytest。后端/前端基础证据仍只证明本机fake provider环境，不宣称真实供应商/部署通过。
+至少两个安全坏对照：在临时源码副本/明确故障接缝分别使scope刷新错误和失败busy不释放；同一副本正例先通过，坏例在目标UI/请求断言失败，不能导入/端口/环境失败冒充保护有效。不要修改真实源码来制造坏对照。
+开工和收尾做source/data capture，include并集为S14 receipt source_artifacts加两个新路径；新六树基线/本阶段到达快照都必须相同，既有auth.lock/9 memory文件及8删除保留。源码归档包含未跟踪修复与新测试，逐成员恢复验证；不含data/秘密/dist。
+一份C14 StageReport＋串行追加execution.log，列全部实际argv/cwd/UTC/exit/日志精确范围、测试/跳过、成功反例与坏对照、source/data/scope/恢复归档、真实环境与限制。命令区间不交错，全部close后冻结；最终收尾命令用单独closing_manifest与日志前缀处理，原失败记录不抹除。状态仅verified_local或具体阻塞，不能自写accepted或stages/S15/review.json；交付后停止，G5最终签收由协调者执行。不得进入第二阶段。

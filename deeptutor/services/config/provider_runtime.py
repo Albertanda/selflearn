@@ -24,6 +24,7 @@ from deeptutor.services.voice.config import (
     AUTH_BEARER,
     STT_BASE64_JSON,
     STT_MULTIPART,
+    STT_QWEN_CHAT,
     STTConfig,
     TTSConfig,
 )
@@ -349,6 +350,13 @@ TTS_PROVIDERS: dict[str, VoiceProviderSpec] = {
 }
 
 STT_PROVIDERS: dict[str, VoiceProviderSpec] = {
+    "aliyun": VoiceProviderSpec(
+        label="阿里云百炼 (DashScope)",
+        default_api_base="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        default_model="qwen3-asr-flash",
+        adapter="qwen_asr",
+        request_style=STT_QWEN_CHAT,
+    ),
     "openai": VoiceProviderSpec(
         label="OpenAI",
         default_api_base="https://api.openai.com/v1",
@@ -391,6 +399,8 @@ STT_PROVIDERS: dict[str, VoiceProviderSpec] = {
 
 # Provider-name aliases accepted from older/loose catalog values.
 VOICE_PROVIDER_ALIASES = {
+    "dashscope": "aliyun",
+    "alibaba": "aliyun",
     "azure": "azure_openai",
     "aoai": "azure_openai",
     "openai_compatible": "custom",
@@ -535,6 +545,8 @@ class ResolvedLLMConfig:
     extra_headers: dict[str, str] = field(default_factory=dict)
     reasoning_effort: str | None = None
     context_window: int | None = None
+    max_tokens: int = 4096
+    max_output_tokens: int | None = None
 
 
 @dataclass(slots=True)
@@ -740,6 +752,28 @@ def resolve_llm_runtime_config(
     context_window = _coerce_optional_int((model or {}).get("context_window"))
     if context_window is None:
         context_window = _coerce_optional_int((model or {}).get("context_window_tokens"))
+    metadata = (model or {}).get("provider_metadata")
+    metadata_parameters = (
+        metadata.get("parameters") if isinstance(metadata, dict) else None
+    )
+    if isinstance(metadata_parameters, dict):
+        if context_window is None:
+            context_window = _coerce_optional_int(metadata_parameters.get("context_window"))
+        metadata_context = _coerce_optional_int(metadata_parameters.get("context_window"))
+        if context_window is None:
+            context_window = metadata_context
+    provider_max_output = (
+        _coerce_optional_int(metadata_parameters.get("max_output_tokens"))
+        if isinstance(metadata_parameters, dict)
+        else None
+    )
+    selected_max_tokens = _coerce_optional_int((model or {}).get("max_tokens"))
+    if selected_max_tokens is None:
+        selected_max_tokens = provider_max_output
+    if selected_max_tokens is None:
+        selected_max_tokens = 4096
+    if provider_max_output is not None:
+        selected_max_tokens = min(selected_max_tokens, provider_max_output)
 
     provider_pool = _collect_provider_pool(loaded)
     spec = _choose_resolved_provider(
@@ -773,6 +807,8 @@ def resolve_llm_runtime_config(
         extra_headers=extra_headers,
         reasoning_effort=reasoning_effort,
         context_window=context_window,
+        max_tokens=selected_max_tokens,
+        max_output_tokens=provider_max_output,
     )
 
 
@@ -1039,6 +1075,7 @@ def resolve_stt_runtime_config(
         api_key = "sk-no-key-required"
 
     return STTConfig(
+        profile_id=_as_str((profile or {}).get("id")),
         model=resolved_model,
         provider_name=provider,
         adapter=spec.adapter,

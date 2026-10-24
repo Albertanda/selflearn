@@ -26,10 +26,11 @@ pip install -e .
 deeptutor init
 
 # 可选附加组件
-pip install -e ".[partners]"       # Partners 渠道 SDK + MCP 客户端
 pip install -e ".[math-animator]"  # 数学动画（另需系统 LaTeX/ffmpeg）
-pip install -e ".[all]"            # 全部依赖（含开发工具）
+pip install -e ".[all]"            # server + math-animator + 开发工具
 ```
+
+> 本 fork 已移除 Partners（IM 伙伴）与 Book 命令及其依赖 extras；如需这些上游功能，请使用上游 DeepTutor。下面的命令均为本树实际注册的命令。
 
 `deeptutor init --cli` 和普通 `deeptutor init` 使用同一套 `data/user/settings/` 配置目录；区别是 `--cli` 不询问 Web 后端/前端端口，仍会创建 `system.json`、`auth.json`、`integrations.json`、`model_catalog.json`、`main.yaml` 和 `agents.yaml`，并继续询问 LLM 配置。Embedding 配置默认跳过；如果要使用 `deeptutor kb ...` 或 RAG，请在向导里选择配置 embedding，或稍后编辑 `data/user/settings/model_catalog.json`。
 

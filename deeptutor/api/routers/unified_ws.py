@@ -38,6 +38,8 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from deeptutor.subjects.errors import SubjectOperationError, SubjectStorageError
+
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
@@ -76,6 +78,42 @@ async def unified_websocket(ws: WebSocket) -> None:
             await task
         except asyncio.CancelledError:
             pass
+
+    async def reject_subject_error(
+        exc: BaseException, *, session_id: str, reason: bool = False
+    ) -> None:
+        """Terminal rejection envelope for a subject-scope/storage failure.
+
+        The client already renders terminal errors, so the *shape* stays exactly
+        what the historical ``RuntimeError`` branches send (``session_id``, empty
+        ``turn_id``, ``seq`` 0, ``status: rejected``); only the payload changes:
+        ``content`` is the fixed C02 message and ``metadata.error`` carries the
+        same ``{code, message, retryable}`` triple the HTTP entries return. The
+        raw exception never reaches the wire, and the receive loop keeps running
+        (``busy`` is not left set) so the next message can still be sent.
+        """
+        from deeptutor.subjects.errors import map_subject_exception, to_ws_error_metadata
+
+        mapped = map_subject_exception(exc)
+        metadata: dict[str, Any] = {
+            "turn_terminal": True,
+            "status": "rejected",
+            "error": to_ws_error_metadata(mapped),
+        }
+        if reason:
+            metadata["reason"] = mapped.message
+        await safe_send(
+            {
+                "type": "error",
+                "source": "unified_ws",
+                "stage": "",
+                "content": mapped.message,
+                "metadata": metadata,
+                "session_id": session_id,
+                "turn_id": "",
+                "seq": 0,
+            }
+        )
 
     async def subscribe_turn(turn_id: str, after_seq: int = 0) -> None:
         from deeptutor.services.session import get_turn_runtime_manager
@@ -117,6 +155,15 @@ async def unified_websocket(ws: WebSocket) -> None:
                 runtime = get_turn_runtime_manager()
                 try:
                     _, turn = await runtime.start_turn(msg)
+                except (SubjectOperationError, SubjectStorageError) as exc:
+                    # A refused subject scope (unknown/foreign subject, conflict,
+                    # bad type) is a business error: project it through C02
+                    # instead of the generic ``str(exc)`` branch. The
+                    # ``RuntimeError`` compatibility branch below is unchanged.
+                    await reject_subject_error(
+                        exc, session_id=str(msg.get("session_id") or "")
+                    )
+                    continue
                 except RuntimeError as exc:
                     await safe_send(
                         {
@@ -273,6 +320,9 @@ async def unified_websocket(ws: WebSocket) -> None:
                         session_id,
                         overrides=overrides,
                     )
+                except (SubjectOperationError, SubjectStorageError) as exc:
+                    await reject_subject_error(exc, session_id=session_id, reason=True)
+                    continue
                 except RuntimeError as exc:
                     await safe_send(
                         {

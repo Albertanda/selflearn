@@ -1,0 +1,297 @@
+{
+  "schema_version": 1,
+  "stage_id": "ASR-R1",
+  "status": "authorized_for_dispatch",
+  "scope": "post-phase1 targeted long-audio repair; not S16/general Phase2",
+  "execution_policy": "six internal units, one executor, serial unit checks, one independent stage review",
+  "created_at": "2026-10-22T12:52:37.505494+00:00",
+  "contracts": "plans/asr-long-audio/CONTRACTS.md",
+  "entry": "plans/asr-long-audio/START_ASR_R1.txt",
+  "evidence_root": ".phase1-evidence/repairs/ASR-R1",
+  "history_receipt": ".phase1-evidence/reviews/S15-final/review.json",
+  "history_receipt_sha256": "c0a4fc9382391ad7ddbf9caf98a21192f904941e5672b444f4c5415083e27195",
+  "implementation_allowed_files": [
+    "README.md",
+    "deeptutor/api/main.py",
+    "deeptutor/api/routers/asr.py",
+    "deeptutor/api/routers/subjects.py",
+    "deeptutor/services/asr/contracts.py",
+    "deeptutor/services/asr/job_store.py",
+    "deeptutor/services/asr/jobs.py",
+    "deeptutor/services/asr/media.py",
+    "deeptutor/services/asr/provider.py",
+    "deeptutor/services/asr/transcribe.py",
+    "deeptutor/services/config/test_runner.py",
+    "deeptutor/subjects/errors.py",
+    "deeptutor/subjects/export_bundle.py",
+    "deeptutor/subjects/subject_operations.py",
+    "deeptutor/subjects/uploads.py",
+    "plans/asr-long-audio/README.md",
+    "scripts/asr_acceptance.py",
+    "tests/asr/conftest.py",
+    "tests/asr/test_acceptance_safety.py",
+    "tests/asr/test_contracts.py",
+    "tests/asr/test_job_store.py",
+    "tests/asr/test_jobs.py",
+    "tests/asr/test_lifecycle.py",
+    "tests/asr/test_media.py",
+    "tests/asr/test_provider.py",
+    "tests/asr/test_routes.py",
+    "tests/phase1/test_p1_16.py",
+    "tests/phase1/test_subject_operations.py",
+    "web/app/(workspace)/subjects/[id]/page.tsx",
+    "web/app/(workspace)/subjects/page.tsx",
+    "web/app/api/v1/subjects/[subjectId]/asr/jobs/route.ts",
+    "web/components/subjects/AsrJobPanel.tsx",
+    "web/e2e/asr-long-audio.spec.ts",
+    "web/e2e/phase1.spec.ts",
+    "web/hooks/useSubjectAsrJobs.ts",
+    "web/lib/asr-jobs.ts",
+    "web/lib/subject-results.ts",
+    "web/playwright.asr.config.ts",
+    "web/playwright.phase1.config.ts",
+    "web/proxy.ts",
+    "web/tests/asr-jobs.test.ts",
+    "web/tests/asr-ui.test.ts",
+    "web/tests/phase1-42.test.ts",
+    "web/tests/proxy-policy.test.ts",
+    "web/tests/streaming-upload-proxy.test.ts"
+  ],
+  "existing_files": [
+    "deeptutor/api/main.py",
+    "deeptutor/api/routers/subjects.py",
+    "deeptutor/services/asr/transcribe.py",
+    "deeptutor/services/config/test_runner.py",
+    "deeptutor/subjects/errors.py",
+    "deeptutor/subjects/subject_operations.py",
+    "deeptutor/subjects/uploads.py",
+    "deeptutor/subjects/export_bundle.py",
+    "web/proxy.ts",
+    "web/lib/subject-results.ts",
+    "web/app/(workspace)/subjects/page.tsx",
+    "web/app/(workspace)/subjects/[id]/page.tsx",
+    "web/tests/phase1-42.test.ts",
+    "web/tests/streaming-upload-proxy.test.ts",
+    "web/tests/proxy-policy.test.ts",
+    "web/playwright.phase1.config.ts",
+    "web/e2e/phase1.spec.ts",
+    "tests/phase1/test_p1_16.py",
+    "tests/phase1/test_subject_operations.py",
+    "README.md",
+    "plans/asr-long-audio/README.md"
+  ],
+  "new_files": [
+    "deeptutor/services/asr/contracts.py",
+    "deeptutor/services/asr/provider.py",
+    "deeptutor/services/asr/media.py",
+    "deeptutor/services/asr/job_store.py",
+    "deeptutor/services/asr/jobs.py",
+    "deeptutor/api/routers/asr.py",
+    "web/lib/asr-jobs.ts",
+    "web/hooks/useSubjectAsrJobs.ts",
+    "web/components/subjects/AsrJobPanel.tsx",
+    "web/app/api/v1/subjects/[subjectId]/asr/jobs/route.ts",
+    "web/tests/asr-jobs.test.ts",
+    "web/tests/asr-ui.test.ts",
+    "web/playwright.asr.config.ts",
+    "web/e2e/asr-long-audio.spec.ts",
+    "tests/asr/conftest.py",
+    "tests/asr/test_contracts.py",
+    "tests/asr/test_provider.py",
+    "tests/asr/test_media.py",
+    "tests/asr/test_job_store.py",
+    "tests/asr/test_jobs.py",
+    "tests/asr/test_routes.py",
+    "tests/asr/test_lifecycle.py",
+    "tests/asr/test_acceptance_safety.py",
+    "scripts/asr_acceptance.py"
+  ],
+  "units": [
+    {
+      "id": "A1",
+      "title": "固定契约与配置/provider边界",
+      "depends_on": [],
+      "allowed_files": [
+        "deeptutor/services/asr/contracts.py",
+        "deeptutor/services/asr/provider.py",
+        "deeptutor/services/asr/transcribe.py",
+        "deeptutor/services/config/test_runner.py",
+        "deeptutor/subjects/errors.py",
+        "tests/asr/conftest.py",
+        "tests/asr/test_contracts.py",
+        "tests/asr/test_provider.py"
+      ],
+      "goal": "实现CONTRACTS D1/D2/D6公共类型、能力预算、runtime选择和错误分类；兼容旧transcribe签名与静音空文本。",
+      "evidence": [
+        "有效配置正例后逐一变更auth/size/duration/response；provider mock实际捕获URL/headers/multipart流而非只匹配源码",
+        "错误消息、日志与序列化无凭据；取消/超时/重试预算和Retry-After有行为证据"
+      ],
+      "done_when": [
+        "设置与课堂选择同一配置且不写catalog",
+        "有效旧测试仍通过，不把静音合法空结果变失败",
+        "无新增阿里adapter、无新依赖、错误表与合同一致"
+      ]
+    },
+    {
+      "id": "A2",
+      "title": "有界媒体探测与连续分片",
+      "depends_on": [
+        "A1"
+      ],
+      "allowed_files": [
+        "deeptutor/services/asr/media.py",
+        "tests/asr/test_media.py"
+      ],
+      "goal": "实现可信native/显式WSL exe工具解析、探测、静音择点和连续采样切片；不覆盖输入。",
+      "evidence": [
+        "真实Windows已有工具处理四原件的临时副本；输入前后hash一致",
+        "180秒边界、无静音、长静音、尾片、Unicode/空格、路径链接、坏媒体、无工具、输出超限、超时与取消的正反例",
+        "覆盖总samples精确相等；大小与编码预算检查"
+      ],
+      "done_when": [
+        "无shell/网络媒体访问，子进程真实收尾",
+        "工作集与时间预算有硬检查",
+        "不以Ubuntu无原生FFmpeg跳过所有真实用例"
+      ]
+    },
+    {
+      "id": "A3",
+      "title": "持久任务、checkpoint与生命周期",
+      "depends_on": [
+        "A1",
+        "A2"
+      ],
+      "allowed_files": [
+        "deeptutor/services/asr/job_store.py",
+        "deeptutor/services/asr/jobs.py",
+        "deeptutor/subjects/subject_operations.py",
+        "deeptutor/subjects/uploads.py",
+        "deeptutor/subjects/export_bundle.py",
+        "deeptutor/api/main.py",
+        "deeptutor/api/routers/subjects.py",
+        "tests/asr/test_job_store.py",
+        "tests/asr/test_jobs.py",
+        "tests/asr/test_lifecycle.py",
+        "tests/phase1/test_subject_operations.py",
+        "tests/phase1/test_p1_16.py"
+      ],
+      "goal": "实现D4/D5任务唯一claim、身份/租约、幂等、分片checkpoint、确定合并和事务发布；新旧音频共享writer门闩；ASR shutdown。",
+      "evidence": [
+        "进程级重复claim/retry和fork不解父锁，用户相同sid隔离，活动期间删除/导出409",
+        "第7片失败后仅失败片重调；乱序成功+重复讲授句保留；崩溃/重启不假completed",
+        "发布前/发布中取消、硬中断三分支、旧文件hash不变/冲突拒绝、ZIP无私有job树"
+      ],
+      "done_when": [
+        "GET恢复投影不写盘；发布只有全片完成且覆盖正确才成功",
+        "completed清理大媒体，failed/interrupted有恢复数据，取消收尾才释锁",
+        "不改全体活动为独占，不重构通用存储/报告执行器"
+      ]
+    },
+    {
+      "id": "A4",
+      "title": "job API与精确流式上传路由",
+      "depends_on": [
+        "A3"
+      ],
+      "allowed_files": [
+        "deeptutor/api/routers/asr.py",
+        "deeptutor/api/main.py",
+        "web/app/api/v1/subjects/[subjectId]/asr/jobs/route.ts",
+        "web/proxy.ts",
+        "web/tests/streaming-upload-proxy.test.ts",
+        "web/tests/proxy-policy.test.ts",
+        "tests/asr/test_routes.py"
+      ],
+      "goal": "实现D3路由/鉴权/响应；上传202后运行，POST/GET均正确转发；旧文档和同步API不改wire。",
+      "evidence": [
+        "真实API确认202在fake ASR释放前已返回；未启动65秒模型等待不占用POST连接",
+        "Next流式路由POST和GET、headers/cookies、跨用户/跨科/非法id、上传中断、相同ID异内容409",
+        "校验GET无目录/文件/mtime变化及非completed result409"
+      ],
+      "done_when": [
+        "所有接口遵循JobView与错误表",
+        "不靠全局关闭proxy超时，不直接修改node_modules",
+        "认证缺失/错误不意外被matcher放行到未鉴权后端"
+      ]
+    },
+    {
+      "id": "A5",
+      "title": "两处现有页面接入与恢复",
+      "depends_on": [
+        "A1",
+        "A4"
+      ],
+      "allowed_files": [
+        "web/lib/asr-jobs.ts",
+        "web/hooks/useSubjectAsrJobs.ts",
+        "web/components/subjects/AsrJobPanel.tsx",
+        "web/lib/subject-results.ts",
+        "web/app/(workspace)/subjects/page.tsx",
+        "web/app/(workspace)/subjects/[id]/page.tsx",
+        "web/tests/asr-jobs.test.ts",
+        "web/tests/asr-ui.test.ts",
+        "web/tests/phase1-42.test.ts"
+      ],
+      "goal": "两页音频统一异步job；输入类型预检、接受/进度/失败/取消/恢复/完成分离；完成仅一次取result更新当前科目。",
+      "evidence": [
+        "实际helper/hook/页面事件与HTTP序列测试；202不触发成功；相同job不重复追加",
+        "刷新找回、切科迟到结果、卸载Abort、poll乱序revision、网络断开后继续查询",
+        "文档原路径与失败busy恢复保留，混合批次不部分提交"
+      ],
+      "done_when": [
+        "列表与详情入口都修复，非只修一个按钮",
+        "不把所有poll失败改成任务失败；不自动重发POST或全局配置切换",
+        "ASR不声称index ready，取消本地poll不取消后台job"
+      ]
+    },
+    {
+      "id": "A6",
+      "title": "长链路与交付验收",
+      "depends_on": [
+        "A2",
+        "A3",
+        "A4",
+        "A5"
+      ],
+      "allowed_files": [
+        "scripts/asr_acceptance.py",
+        "tests/asr/test_acceptance_safety.py",
+        "web/playwright.asr.config.ts",
+        "web/e2e/asr-long-audio.spec.ts",
+        "web/playwright.phase1.config.ts",
+        "web/e2e/phase1.spec.ts",
+        "README.md",
+        "plans/asr-long-audio/README.md"
+      ],
+      "goal": "完成真Next/FastAPI/Chromium 65秒延迟与旧浏览器回归，真实媒体长录音离线/有界live smoke，范围/数据/恢复归档及一次report。",
+      "evidence": [
+        "先合法成功对照，再只注入30秒同步等待/错序合并/过早完成等至少两个目标坏对照，断言确实失败",
+        "S15 B1-B5必要断言保留，仅B3音频入口按job适配；新套件含刷新、失败片重试与最终落盘",
+        "完整45分钟临时科目fake job；最终一次SF实际job或准确的外部阻塞；清理owned端口/PID/根",
+        "最终严格全量Python/Node/tsc/Ruff/限定ESLint、所有命令/失败历史和归档重建"
+      ],
+      "done_when": [
+        "未写真实学习数据、模型配置或旧证据；8 tracked deletion保持",
+        "浏览器fixture改动仅显式ASR测试模式/媒体env传递，S15默认隔离保护不弱化",
+        "报告verified_local；不自写accepted/review、不commit/push；给用户显式媒体工具启动命令"
+      ]
+    }
+  ],
+  "blocked_actions": [
+    "real settings writes",
+    "real learning HTTP mutations",
+    "real service restart",
+    "installation/upgrades",
+    "commit/push",
+    "historical receipt/evidence edits",
+    "Ali/cloud filetrans integration",
+    "weakened tests or mandatory skips"
+  ],
+  "stage_done_when": [
+    "D1-D8 satisfied with executable evidence",
+    "all six unit conditions met",
+    "whole-stage report and append-only command log complete",
+    "source/data/scope/archive closure passes",
+    "independent coordinator review pending"
+  ]
+}

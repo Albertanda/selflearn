@@ -1,0 +1,18 @@
+{
+  "stage": "MM-R3",
+  "planning_only": true,
+  "task_count": 10,
+  "source_excerpts": 42,
+  "errors": [],
+  "ok": true,
+  "file_hashes": {
+    "ACCEPTANCE.md": "d211590bc4fb5a322687682668810c03774af8d66b63e72f2c13de065172af0f",
+    "CONTRACTS.md": "5b271e325a10333969f8f3272c20ab956680df5d56735e4f43b0c5a8b9e28b61",
+    "EXPLORATION.md": "93814461371663ceb96ee2ae135ebc8bea082d0e42717f270122ff2fdaa99cb7",
+    "README.md": "1ae7e8b405f1006102582da0407fb53f454ccf43c7fdb755beed2bf1aacf9fd0",
+    "RESEARCH.md": "9c8352802a5bf85a799c130419f6fac2e115e7d5da136d50fb56d18dfd15e546",
+    "SOURCE_INDEX.json": "950e69e442016098695b85e2a6845eeede5be875a9404a18443ff20b5460b1e3",
+    "START_MM_R3.txt": "159fcaeec8efd9582b44c16785cce450b5a4f2838dc3bdbd154e0d66b66c2a05",
+    "TASKS.json": "96ecdee8790032f9cdcc0f36027b7958eda16874eba3cd5140a77cae3ff15a17"
+  }
+}

@@ -2,11 +2,11 @@
 
 Implements the same contract as :class:`LlamaIndexPipeline` (see
 ``..base.RAGPipeline``) but delegates indexing to the hosted PageIndex
-service (tree building, no embeddings). PageIndex's REST retrieval endpoint
-is deprecated: deep retrieval is agentic — the chat agent reads documents
-through the PageIndex MCP server — while ``search()`` serves programmatic
-callers with each document's real tree outline (titles / pages / summaries)
-fetched over REST.
+service (tree building, no embeddings). PageIndex's deprecated REST retrieval
+endpoint no longer provides passage-level answers; this fork has no PageIndex
+MCP transport. What remains is the documents' real tree outline (titles /
+pages / summaries) fetched over REST and served by ``search()`` through the
+existing RAG surface, with ``retrieval_kind="outline"`` on every result.
 """
 
 from __future__ import annotations
@@ -159,13 +159,21 @@ class PageIndexPipeline:
     # budgets if a real need shows up.
     TREE_CHARS_PER_DOC = 6000
 
+    #: What this pipeline's ``search`` actually returns. Callers (and the model
+    #: reading a tool result) must be able to tell an outline apart from a
+    #: passage-level answer without guessing, so every result carries it.
+    RETRIEVAL_KIND = "outline"
+
     async def search(self, query: str, kb_name: str, **_kwargs) -> Dict[str, Any]:
         """Return each document's tree outline (titles / pages / summaries).
 
-        The deprecated REST retrieval endpoint is gone; deep, query-driven
-        retrieval is agentic via the PageIndex MCP tools in chat. For
-        programmatic callers this returns the documents' real structure as
-        context — shallow but honest grounding.
+        The deprecated REST retrieval endpoint is gone and this build has no
+        PageIndex MCP tools: what remains is the *outline* — the documents' real
+        structure (titles, pages, per-section summaries) — which is shallow but
+        honest grounding for a programmatic caller. Every result therefore
+        declares ``retrieval_kind="outline"``, including the branches that
+        return no outline at all, so a caller never mistakes "no pages here" for
+        a deep retrieval that simply found nothing.
         """
         docs = self.document_map(kb_name)
 
@@ -179,6 +187,7 @@ class PageIndexPipeline:
                 "content": "",
                 "sources": [],
                 "provider": storage.PROVIDER,
+                "retrieval_kind": self.RETRIEVAL_KIND,
                 "needs_reindex": True,
             }
 
@@ -195,6 +204,7 @@ class PageIndexPipeline:
                 "content": "",
                 "sources": [],
                 "provider": storage.PROVIDER,
+                "retrieval_kind": self.RETRIEVAL_KIND,
                 "error_type": "not_configured",
             }
 
@@ -218,6 +228,7 @@ class PageIndexPipeline:
                 "content": "",
                 "sources": [],
                 "provider": storage.PROVIDER,
+                "retrieval_kind": self.RETRIEVAL_KIND,
                 "error_type": "retrieval_error",
             }
 
@@ -228,6 +239,7 @@ class PageIndexPipeline:
             "content": content,
             "sources": sources,
             "provider": storage.PROVIDER,
+            "retrieval_kind": self.RETRIEVAL_KIND,
         }
 
     @classmethod

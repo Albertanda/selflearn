@@ -11,10 +11,28 @@ tests under ``tests/services/parsing/``.
 from __future__ import annotations
 
 import asyncio
+import io
 from pathlib import Path
 import threading
 
 import pytest
+
+
+def _valid_image_bytes(minimum: int = 1200) -> bytes:
+    """A real raster image, padded past the C09 1200-byte floor.
+
+    The old fixtures wrote ``b"\x89PNG\r\n"`` — six bytes that are neither a
+    decodable image nor above the byte floor, so they could only ever exercise
+    the "skip" branch. C09 keeps an image when the *vision* route is available,
+    which needs a real image to test.
+    """
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (16, 16), (10, 120, 210)).save(buffer, format="PNG", compress_level=0)
+    data = buffer.getvalue()
+    assert len(data) <= minimum
+    return data + b"\x00" * (minimum - len(data))
 
 
 def _install_stub_parse_service(monkeypatch, results: dict[str, "object"]) -> None:
@@ -147,7 +165,7 @@ def test_loader_indexes_images_extracted_from_parsed_document(
     pdf_path.write_bytes(b"stub")
     asset_dir = tmp_path / "assets"
     asset_dir.mkdir()
-    (asset_dir / "figure-1.png").write_bytes(b"\x89PNG\r\n")
+    (asset_dir / "figure-1.png").write_bytes(_valid_image_bytes())
     (asset_dir / "notes.txt").write_text("not an image", encoding="utf-8")  # ignored
 
     _install_stub_parse_service(
@@ -165,16 +183,32 @@ def test_loader_indexes_images_extracted_from_parsed_document(
             return [[0.4, 0.5, 0.6] for _ in contents]
 
     class _VisionClient:
+        """Multimodal main LLM double.
+
+        The image description now goes through ``factory.complete_response``
+        (one strict wire attempt, S02 empty/truncation contract), so the double
+        lives at that seam instead of the string-only ``complete`` wrapper.
+        """
+
         config = type("Config", (), {"binding": "openai", "model": "gpt-4o"})()
 
         def supports_multimodal_images(self) -> bool:
             return True
 
-        async def complete(self, prompt, **kwargs):
-            return "Figure showing a bar chart."
+        async def complete_response(self, prompt="", **kwargs):
+            from deeptutor.services.llm.types import TutorResponse
+
+            return TutorResponse(
+                content="Figure showing a bar chart.",
+                finish_reason="stop",
+                usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            )
 
     monkeypatch.setattr(loader_module, "get_embedding_client", lambda: _MultimodalEmbeddingClient())
     monkeypatch.setattr(loader_module, "get_llm_client", lambda: _VisionClient())
+    from deeptutor.services.llm import factory
+
+    monkeypatch.setattr(factory, "complete_response", _VisionClient().complete_response)
 
     documents = asyncio.run(loader_module.LlamaIndexDocumentLoader().load([str(pdf_path)]))
 
@@ -194,14 +228,21 @@ def test_loader_indexes_images_extracted_from_parsed_document(
     assert "Figure showing a bar chart." in node.text
 
 
-def test_loader_skips_images_when_embedding_provider_is_text_only(
+def test_loader_skips_images_when_no_vision_route_is_available(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Text embedding + text-only LLM ⇒ no vision route ⇒ a named skip (C09).
+
+    The image is *valid* and above the byte floor: the skip has to come from the
+    absence of a usable vision model, not from the fixture being too small. The
+    old variant of this test used a six-byte file and therefore passed for the
+    wrong reason.
+    """
     pytest.importorskip("llama_index.core")
     from deeptutor.services.rag.pipelines.llamaindex import document_loader as loader_module
 
     image_path = tmp_path / "photo.png"
-    image_path.write_bytes(b"\x89PNG\r\n")
+    image_path.write_bytes(_valid_image_bytes())
 
     class _TextOnlyClient:
         config = type("Config", (), {"binding": "openai", "model": "text-embedding-3-small"})()
@@ -209,11 +250,32 @@ def test_loader_skips_images_when_embedding_provider_is_text_only(
         def supports_multimodal_contents(self) -> bool:
             return False
 
+    class _TextOnlyLLM:
+        """Text-only LLM stub: no real config read, no provider call.
+
+        Without this the loader falls through to the real ``get_llm_client`` and
+        raises ``LLMConfigError`` on a machine with an empty model catalog, which
+        made the test depend on the developer's settings.
+        """
+
+        config = type("Config", (), {"binding": "openai", "model": "text-only-llm"})()
+
+        def supports_multimodal_images(self) -> bool:
+            return False
+
+        async def complete(self, *_args, **_kwargs):  # pragma: no cover - must not run
+            raise AssertionError("text-only skip path must not call the LLM")
+
     monkeypatch.setattr(loader_module, "get_embedding_client", lambda: _TextOnlyClient())
+    monkeypatch.setattr(loader_module, "get_llm_client", lambda: _TextOnlyLLM())
 
     documents = asyncio.run(loader_module.LlamaIndexDocumentLoader().load([str(image_path)]))
 
     assert documents == []
+    assert documents.image_coverage["images_seen"] == 1
+    assert documents.image_coverage["images_indexed"] == 0
+    assert documents.image_coverage["skip_reasons"] == {"vision_unavailable": 1}
+    assert documents.image_coverage_warning
 
 
 def test_loader_embeds_images_with_qwen38_max_vision_capability(
@@ -227,7 +289,7 @@ def test_loader_embeds_images_with_qwen38_max_vision_capability(
     from deeptutor.services.rag.pipelines.llamaindex import document_loader as loader_module
 
     image_path = tmp_path / "photo.png"
-    image_path.write_bytes(b"\x89PNG\r\n")
+    image_path.write_bytes(_valid_image_bytes())
     captured: dict[str, object] = {}
 
     class _MultimodalClient:
@@ -249,12 +311,20 @@ def test_loader_embeds_images_with_qwen38_max_vision_capability(
         )
     )
 
-    async def _complete(prompt: str, **kwargs: object) -> str:
+    async def _complete_response(prompt: str = "", **kwargs: object):
+        from deeptutor.services.llm.types import TutorResponse
+
         captured["llm_prompt"] = prompt
         captured["llm_kwargs"] = kwargs
-        return "A logo image with visible HKU text."
+        return TutorResponse(
+            content="A logo image with visible HKU text.",
+            finish_reason="stop",
+            usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        )
 
-    monkeypatch.setattr(vision_client, "complete", _complete)
+    from deeptutor.services.llm import factory
+
+    monkeypatch.setattr(factory, "complete_response", _complete_response)
 
     monkeypatch.setattr(loader_module, "get_embedding_client", lambda: _MultimodalClient())
     monkeypatch.setattr(loader_module, "get_llm_client", lambda: vision_client)
@@ -278,7 +348,7 @@ def test_loader_skips_images_when_llm_is_text_only(
     from deeptutor.services.rag.pipelines.llamaindex import document_loader as loader_module
 
     image_path = tmp_path / "photo.png"
-    image_path.write_bytes(b"\x89PNG\r\n")
+    image_path.write_bytes(_valid_image_bytes())
 
     class _MultimodalEmbeddingClient:
         config = type("Config", (), {"binding": "siliconflow", "model": "qwen3-vl"})()
@@ -298,16 +368,23 @@ def test_loader_skips_images_when_llm_is_text_only(
     documents = asyncio.run(loader_module.LlamaIndexDocumentLoader().load([str(image_path)]))
 
     assert documents == []
+    assert documents.image_coverage["skip_reasons"] == {"vision_unavailable": 1}
 
 
-def test_loader_logs_all_missing_multimodal_image_requirements(
+def test_loader_reports_a_visible_warning_when_no_image_route_exists(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
+    """Both image routes missing ⇒ no nodes and a *visible*, named skip.
+
+    Migrated from the old "requires both multimodal embedding and multimodal LLM
+    support" log assertion: that requirement is exactly what C09 removes, so the
+    observable contract is now the coverage report plus the fix-safe warning.
+    """
     pytest.importorskip("llama_index.core")
     from deeptutor.services.rag.pipelines.llamaindex import document_loader as loader_module
 
     image_path = tmp_path / "photo.png"
-    image_path.write_bytes(b"\x89PNG\r\n")
+    image_path.write_bytes(_valid_image_bytes())
 
     class _TextOnlyEmbeddingClient:
         config = type("Config", (), {"binding": "openai", "model": "text-embedding-3-small"})()
@@ -328,8 +405,8 @@ def test_loader_logs_all_missing_multimodal_image_requirements(
         documents = asyncio.run(loader_module.LlamaIndexDocumentLoader().load([str(image_path)]))
 
     assert documents == []
-    assert "requires both multimodal embedding and multimodal LLM support" in caplog.text
-    assert "embedding provider/model does not support multimodal contents" in caplog.text
-    assert "LLM provider/model does not support multimodal image input" in caplog.text
-    assert "text-embedding-3-small" in caplog.text
-    assert "gpt-3.5-turbo" in caplog.text
+    assert documents.image_coverage["skip_reasons"] == {"vision_unavailable": 1}
+    assert documents.image_coverage_warning == loader_module.IMAGE_COVERAGE_WARNING
+    # The skip reason and the fixed warning are both visible in the log.
+    assert "vision_unavailable" in caplog.text
+    assert "Skipped image photo.png" in caplog.text

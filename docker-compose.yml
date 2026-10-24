@@ -65,8 +65,11 @@ services:
     volumes:
       # Everything DeepTutor persists lives under ./data — one tree to mount
       # and back up: admin workspace + runtime settings (data/user), per-user
-      # workspaces (data/users), partners (data/partners), accounts/grants/
-      # audit (data/system), knowledge bases, memory.
+      # workspaces (data/users), historical data/partners and data/cli-apps,
+      # accounts/grants/audit (data/system), knowledge bases, memory.
+      # Partner features are retired in this fork; data/partners is kept only so
+      # an old deployment's data can still be migrated/copied, not as a runtime
+      # feature — do not delete it just because the feature is gone.
       # The sandbox-runner gets a narrower slice of this volume: never
       # data/system, which holds auth state, provider API keys, and per-owner
       # secrets. What it *does* carry for non-admin accounts is wider than
@@ -77,6 +80,9 @@ services:
       # Route untrusted shell exec to the runner sidecar (SYSTEM isolation).
       # When this is set, the main app NEVER runs untrusted code in its own
       # process — see deeptutor/services/sandbox/config.py:build_backend().
+      # This shared runner is not the report-chart boundary: report charts/ODE
+      # require a separate, per-run bwrap-qualified backend and return 503 when
+      # unavailable or unproven (deeptutor/services/pdf/chart_executor.py).
       # On bare-metal / macOS deployments where the runner is not started, leave
       # this unset: the app degrades to bwrap (Linux, if installed) or, only when
       # DEEPTUTOR_SANDBOX_ALLOW_SUBPROCESS=1, a restricted subprocess.
@@ -102,7 +108,9 @@ services:
   # Sandbox Runner Sidecar
   # ============================================
   # Executes untrusted shell commands in an isolated, least-privileged
-  # container so the main app never has to. Rationale for the sidecar shape:
+  # container so the main app never has to. This is the shared exec runner;
+  # the report chart/ODE path deliberately does not use it as its isolation
+  # proof (see pdf/chart_executor.py). Rationale for the sidecar shape:
   #   * the main `deeptutor` container keeps minimal privileges and does NOT
   #     mount the docker socket or run untrusted code in its own process;
   #   * a sandbox escape here lands in a stripped, unprivileged container with

@@ -34,9 +34,28 @@ def resolve_llm_config_for_selection(selection: Any) -> LLMConfig:
     return llm_config_from_resolved(resolve_llm_runtime_config(llm_selection=selection))
 
 
-def activate_llm_selection(selection: Any) -> tuple[LLMConfig, Token[LLMConfig | None]]:
-    """Resolve and install a scoped LLM config for the current async context."""
+def activate_llm_selection(
+    selection: Any,
+    *,
+    reasoning_effort: str | None = None,
+    reasoning_protocol: str | None = None,
+    apply_reasoning: bool = False,
+) -> tuple[LLMConfig, Token[LLMConfig | None]]:
+    """Resolve and install a scoped LLM config for the current async context.
+
+    ``apply_reasoning=True`` writes only this turn's resolved effort onto the
+    scoped copy; it never touches ``model_catalog`` or the global cache.
+    """
+
     config = resolve_llm_config_for_selection(selection)
+    if apply_reasoning:
+        from deeptutor.services.llm.reasoning_controls import apply_reasoning_to_config
+
+        config = apply_reasoning_to_config(
+            config,
+            reasoning_effort,
+            protocol=reasoning_protocol,
+        )
     token = llm_config_module.set_scoped_llm_config(config)
     return config, token
 

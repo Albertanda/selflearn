@@ -11,12 +11,12 @@
 #   pip install deeptutor               # Full app (public wheel)
 #   pip install deeptutor-cli           # CLI-only public wheel
 #   pip install -e .                    # Source checkout
-#   pip install -e ".[partners]"       # Server + partner channel SDKs
-#   pip install -e ".[matrix]"         # Matrix channel for partners
-#   pip install -e ".[math-animator]"  # Manim animation engine (addon)
-#   pip install -e ".[dev]"            # Server + dev/test tools
-#   pip install -e ".[all]"            # Everything
+#   pip install -e ".[server]"          # API server (source)
+#   pip install -e ".[math-animator]"   # Manim animation engine (addon)
+#   pip install -e ".[dev]"             # Server + dev/test tools
+#   pip install -e ".[all]"             # Server + math-animator + dev tools
 #
-# This file installs the full server runtime (CLI + API + partners).
+# This file installs the supported server runtime (CLI + API). The retired
+# partner/Matrix channel SDKs are intentionally not installed by default.
 
--r requirements/partners.txt
+-r requirements/server.txt
